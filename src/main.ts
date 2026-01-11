@@ -4,7 +4,7 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // 1. 允许跨域 - 确保包含所有域名
+  // 1. 允许跨域 - 简化配置
   app.enableCors({
     origin: [
       'https://www.novelbot.top',           // 国内域名 (带www)
@@ -14,7 +14,6 @@ async function bootstrap() {
       'http://localhost:3000'               // 本地测试
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
