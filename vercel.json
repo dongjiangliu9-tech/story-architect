@@ -6,5 +6,11 @@
     "src/main.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://novelbot.zeabur.app/api/:path*"
+    }
+  ]
 }

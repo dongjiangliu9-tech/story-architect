@@ -4,17 +4,18 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // 1. 允许跨域
+  // 1. 允许跨域 - 确保包含所有域名
   app.enableCors({
     origin: [
-      'https://www.novelbot.top',
-      'https://novelbot.top',
-      'https://story-architect-eb93.vercel.app',
-      'http://localhost:5173',
-      'http://localhost:3000'
+      'https://www.novelbot.top',           // 国内域名 (带www)
+      'https://novelbot.top',               // 国内域名 (不带www)
+      'https://story-architect-eb93.vercel.app', // Vercel 前端域名
+      'http://localhost:5173',              // 本地开发
+      'http://localhost:3000'               // 本地测试
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
   app.setGlobalPrefix('api');
