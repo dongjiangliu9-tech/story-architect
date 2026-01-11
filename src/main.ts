@@ -7,11 +7,12 @@ async function bootstrap() {
   // 1. 允许跨域
   app.enableCors({
     origin: [
-      'https://www.novelbot.top',
-      'https://novelbot.top',
-      'https://story-architect-eb93.vercel.app',
-      'http://localhost:5173',
-      'http://localhost:3000'
+      'https://www.novelbot.top',           // 国内域名 (带www)
+      'https://novelbot.top',               // 国内域名 (不带www)
+      'https://story-architect-eb93.vercel.app', // Vercel 前端域名
+      'https://novelbot.zeabur.app',        // ⚠️ Zeabur 后端域名 - 新增！
+      'http://localhost:5173',              // 本地开发
+      'http://localhost:3000'               // 本地测试
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
