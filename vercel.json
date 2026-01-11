@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/modules/**/*.ts": {
+      "maxDuration": 60
+    },
+    "src/main.ts": {
+      "maxDuration": 60
+    }
+  }
+}
