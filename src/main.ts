@@ -18,6 +18,15 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // 配置body-parser以支持大请求体（64章+小故事数据）
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
+
+  // 增加请求体的最大大小限制到10MB
+  const bodyParser = require('body-parser');
+  expressApp.use(bodyParser.json({ limit: '10mb' }));
+  expressApp.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
+
   app.setGlobalPrefix('api');
 
   // 👇 核心修复：加个 parseInt() 强制转成数字
