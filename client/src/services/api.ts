@@ -2,7 +2,7 @@ import axios from 'axios';
 import { GenerateOutlineDto, GenerateOutlineResponse } from '../types';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: (import.meta as any).env.VITE_API_BASE_URL || '/api',
   timeout: 200000, // 200秒超时，给AI生成足够时间
   headers: {
     'Content-Type': 'application/json',
@@ -75,7 +75,7 @@ export const blueprintApi = {
   },
 
   generateChapterStream: (requestId: string): EventSource => {
-    const eventSource = new EventSource(`${import.meta.env.VITE_API_BASE_URL || '/api'}/blueprint/generate-chapter-stream?requestId=${requestId}`);
+    const eventSource = new EventSource(`${(import.meta as any).env.VITE_API_BASE_URL || '/api'}/blueprint/generate-chapter-stream?requestId=${requestId}`);
     return eventSource;
   },
 
