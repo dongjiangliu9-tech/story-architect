@@ -20,9 +20,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  // 2. 核心修复：监听 '0.0.0.0' 以解决 Zeabur 502 错误
-  const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0');
+  // 👇 必须加 '0.0.0.0'，否则 Zeabur 会报 502 错误！
+  await app.listen(process.env.PORT || 3000, '0.0.0.0');
 
   console.log(`Application is running on: ${await app.getUrl()}`);
 }
