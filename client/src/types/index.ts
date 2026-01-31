@@ -41,7 +41,7 @@ export interface NovelStyle {
 // 应用状态类型
 export interface AppState {
   selectedCategory: NovelCategory | null;
-  selectedStyle: NovelStyle | null;
+  selectedStyles: NovelStyle[];
   theme: string;
   isGenerating: boolean;
   outlines: OutlineData[];

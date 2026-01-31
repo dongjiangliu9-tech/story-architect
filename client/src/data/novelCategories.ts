@@ -18,6 +18,16 @@ export const maleCategories: NovelCategory[] = [
     description: '现代都市，职场商战',
   },
   {
+    id: 'wenyu',
+    name: '文娱',
+    description: '娱乐圈/文艺圈，文娱产业与明星成长',
+  },
+  {
+    id: 'niandai_siheyuan',
+    name: '年代四合院',
+    description: '年代生活流，四合院人情世故与家长里短',
+  },
+  {
     id: 'junshi',
     name: '军事',
     description: '军旅生涯，铁血征战',
@@ -91,54 +101,129 @@ export const femaleCategories: NovelCategory[] = [
 // 风格分类
 export const novelStyles: NovelStyle[] = [
   {
+    id: 'moshi',
+    name: '末世',
+    description: '末世题材，秩序崩塌与生存博弈',
+  },
+  {
+    id: 'tongren',
+    name: '同人',
+    description: 'IP衍生与二创，同人世界观再构筑',
+  },
+  {
+    id: 'dushi_yineng',
+    name: '都市异能',
+    description: '都市背景下的异能觉醒与对抗',
+  },
+  {
+    id: 'xitong',
+    name: '系统',
+    description: '系统任务/奖励驱动，爽点节奏清晰',
+  },
+  {
+    id: 'shitu',
+    name: '仕途',
+    description: '体制内成长，权力博弈与人情世故',
+  },
+  {
+    id: 'banzhu_chihu',
+    name: '扮猪吃虎',
+    description: '低调隐忍，关键时刻反转打脸',
+  },
+  {
+    id: 'dushi_gaowu',
+    name: '都市高武',
+    description: '都市与武道结合，高燃对决与升级',
+  },
+  {
+    id: 'qunxiang',
+    name: '群像',
+    description: '多角色并行推进，群体命运交织',
+  },
+  {
+    id: 'kehuan_moshi',
+    name: '科幻末世',
+    description: '科幻设定下的末日危机与文明重建',
+  },
+  {
+    id: 'kesulu',
+    name: '克苏鲁',
+    description: '不可名状与神秘学，理智崩坏的恐惧',
+  },
+  {
+    id: 'wangyou',
+    name: '网游',
+    description: '虚拟网游世界，副本与竞技成长线',
+  },
+  {
+    id: 'wuxianliu',
+    name: '无限流',
+    description: '多世界轮回闯关，副本挑战与规则博弈',
+  },
+  {
+    id: 'fanpai',
+    name: '反派',
+    description: '反派视角或黑化成长，反套路推进',
+  },
+  {
+    id: 'gaoxiao_qingsong',
+    name: '搞笑轻松',
+    description: '轻松搞笑节奏，日常段子与欢乐氛围',
+  },
+  {
+    id: 'duonvzh',
+    name: '多女主',
+    description: '多线情感与角色互动，主线推进不拖沓',
+  },
+  {
     id: 'naodong',
     name: '脑洞',
-    description: '天马行空，创意无限',
+    description: '创意设定爆发，反常规展开与惊喜点子',
   },
   {
-    id: 'heiku',
-    name: '黑酷',
-    description: '黑暗残酷，现实主义',
+    id: 'zhanshen',
+    name: '斩神',
+    description: '神话体系对抗，斩神升级与高燃战斗',
   },
   {
-    id: 'rexue',
-    name: '热血',
-    description: '激情四射，热血沸腾',
+    id: 'lingqi_fusu',
+    name: '灵气复苏',
+    description: '灵气回归，超凡崛起与世界秩序重塑',
   },
   {
-    id: 'wennuan',
-    name: '温暖',
-    description: '治愈人心，温馨感人',
+    id: 'wunaoshuang',
+    name: '无脑爽',
+    description: '高频爽点，快速打脸与强势推进',
   },
   {
-    id: 'kehuanliu',
-    name: '无限流',
-    description: '无限世界，多重挑战',
-  },
-  {
-    id: 'kulong',
-    name: '苦龙',
-    description: '苦大仇深，逆袭之路',
-  },
-  {
-    id: 'gaoxiao',
-    name: '搞笑',
-    description: '幽默风趣，欢乐无限',
+    id: 'kuqing',
+    name: '苦情',
+    description: '情感拉扯与虐点，命运起伏与催泪',
   },
   {
     id: 'kongbu',
     name: '恐怖',
-    description: '惊悚刺激，心跳加速',
+    description: '惊悚氛围与压迫感，悬疑恐惧升级',
   },
   {
-    id: 'xuanxu',
-    name: '玄虚',
-    description: '悬疑推理，智斗升级',
+    id: 'anhei_canku',
+    name: '暗黑残酷',
+    description: '残酷现实与黑暗叙事，代价与牺牲感强',
   },
   {
-    id: 'qihuan',
-    name: '奇幻',
-    description: '魔法世界，神奇冒险',
+    id: 'rexue_jigang',
+    name: '热血激昂',
+    description: '高燃热血，强目标推进与情绪爆点',
+  },
+  {
+    id: 'zhidou',
+    name: '智斗',
+    description: '谋略对弈与反转，信息差与博弈升级',
+  },
+  {
+    id: 'guanchang',
+    name: '官场',
+    description: '官场生态与权谋斗争，规则与人性碰撞',
   },
 ];
 

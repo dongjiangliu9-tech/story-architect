@@ -50,7 +50,7 @@ function getChapterRangeDisplay(chapterNumber: number): string {
 }
 
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
-  const { currentProject, updateProject } = useWorldSettings();
+  const { currentProject, updateProject, clearNovelCacheForProject } = useWorldSettings();
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const [currentChapter, setCurrentChapter] = useState(1);
@@ -451,6 +451,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const resetGeneration = () => {
     const confirmed = confirm('确定要重置吗？这将清除所有已生成的章节内容，返回空白状态。');
     if (!confirmed) return;
+
+    // 同时清理项目持久化的正文缓存，避免刷新后又被恢复出来（并释放localStorage空间）
+    if (currentProject?.id) {
+      clearNovelCacheForProject(currentProject.id);
+    }
 
     // 重置所有状态到初始空白状态
     setGeneratedContent('');

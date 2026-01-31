@@ -26,7 +26,7 @@ function BlueprintPage({
   onNavigate: (page: string, outline?: OutlineData) => void;
 }) {
   const [selectedCategory, setSelectedCategory] = useState<NovelCategory | null>(null);
-  const [selectedStyle, setSelectedStyle] = useState<NovelStyle | null>(null);
+  const [selectedStyles, setSelectedStyles] = useState<NovelStyle[]>([]);
   const [theme, setTheme] = useState('');
   const [bookName, setBookName] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -44,7 +44,7 @@ function BlueprintPage({
   } = useAutoGeneration();
 
   const handleGenerate = async () => {
-    if (!selectedCategory || !selectedStyle || !theme.trim()) {
+    if (!selectedCategory || selectedStyles.length === 0 || !theme.trim()) {
       setError('请先选择频道、风格并填写核心主题');
       return;
     }
@@ -58,7 +58,7 @@ function BlueprintPage({
 
       const response = await blueprintApi.generateOutline({
         channel: `${selectedCategory.name}`,
-        style: selectedStyle.name,
+        style: selectedStyles.map(s => s.name).join('、'),
         theme: theme.trim(),
       });
 
@@ -98,7 +98,7 @@ function BlueprintPage({
 
   // 全流程自动化处理
   const handleAutoFlowGenerate = async () => {
-    if (!selectedCategory || !selectedStyle || !theme.trim() || !outlines.length) {
+    if (!selectedCategory || selectedStyles.length === 0 || !theme.trim() || !outlines.length) {
       setError('请先选择频道、风格、输入主题并生成至少一个故事架构');
       return;
     }
@@ -174,8 +174,8 @@ function BlueprintPage({
                 />
 
                 <StyleSelector
-                  selectedStyle={selectedStyle}
-                  onSelectStyle={setSelectedStyle}
+                  selectedStyles={selectedStyles}
+                  onChangeSelectedStyles={setSelectedStyles}
                 />
 
                 <ThemeInput
@@ -208,7 +208,7 @@ function BlueprintPage({
 
                 <GenerateButton
                   onClick={handleGenerate}
-                  disabled={!selectedCategory || !selectedStyle || !theme.trim() || isGenerating}
+                  disabled={!selectedCategory || selectedStyles.length === 0 || !theme.trim() || isGenerating}
                   isLoading={isGenerating}
                 />
 

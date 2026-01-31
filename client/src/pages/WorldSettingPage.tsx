@@ -54,7 +54,7 @@ interface WorldSettingPageProps {
 }
 
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
-  const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, projects } = useWorldSettings();
+  const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
 
   // 调试：监听项目状态变化
   useEffect(() => {
@@ -301,6 +301,41 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const handleDeleteProject = (projectId: number) => {
     if (confirm('确定要删除这个项目吗？此操作不可恢复。')) {
       deleteProject(projectId);
+    }
+  };
+
+  const handleClearNovelCacheForAll = () => {
+    if (projects.length === 0) {
+      alert('当前没有任何项目，无需清理。');
+      return;
+    }
+    const confirmed = confirm('确定要清空【所有项目】已生成的小说正文缓存吗？\n\n这会删除：\n- 正文已生成章节\n- 正文版本历史\n- Writer 临时进度\n- auto_gen_* 临时缓存\n\n但会保留：\n- 世界观/人物/情节细纲\n- 小故事/选择的小故事等设定\n\n此操作不可恢复（建议先导出备份）。');
+    if (!confirmed) return;
+    clearNovelCacheForAllProjects();
+    alert('已清空所有项目的正文缓存。');
+  };
+
+  const handleClearNovelCacheForOne = (projectId: number, bookName: string) => {
+    const confirmed = confirm(`确定要清空《${bookName}》的已生成正文缓存吗？\n\n这会删除：\n- 正文已生成章节\n- 正文版本历史\n- Writer 临时进度\n\n但会保留世界观/人物/大纲/小故事等设定。\n\n此操作不可恢复（建议先导出备份）。`);
+    if (!confirmed) return;
+    clearNovelCacheForProject(projectId);
+    alert(`已清空《${bookName}》的正文缓存。`);
+  };
+
+  const handleImportProjectFile = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const result = importFromJsonText(text);
+      if (result.imported === 0) {
+        alert('导入失败：未识别到可用的项目数据（请确认选择的是导出的 JSON 文件）');
+        return;
+      }
+      const skippedMsg = result.skipped > 0 ? `（跳过 ${result.skipped} 条无效数据）` : '';
+      alert(`导入成功：已导入 ${result.imported} 个项目${skippedMsg}\n\n提示：已自动加载最新导入的项目，并尽力恢复正文进度。`);
+    } catch (error) {
+      console.error('导入项目失败:', error);
+      alert('导入失败：读取或解析文件出错，请稍后重试');
     }
   };
 
@@ -819,6 +854,23 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
+                  <label
+                    className="flex items-center space-x-2 px-3 py-1.5 bg-primary-500 hover:bg-primary-400 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+                    title="从导出的JSON文件导入并恢复项目"
+                  >
+                    <span>导入项目</span>
+                    <input
+                      type="file"
+                      accept="application/json,.json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        // 允许重复选择同一个文件也触发
+                        e.target.value = '';
+                        void handleImportProjectFile(file);
+                      }}
+                    />
+                  </label>
                   {projects.length > 0 && (
                     <button
                       onClick={exportAllProjects}
@@ -826,6 +878,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     >
                       <Download className="w-4 h-4" />
                       <span>导出全部</span>
+                    </button>
+                  )}
+                  {projects.length > 0 && (
+                    <button
+                      onClick={handleClearNovelCacheForAll}
+                      className="flex items-center space-x-2 px-3 py-1.5 bg-red-500/90 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
+                      title="清空所有项目的已生成正文/版本历史/Writer进度等缓存（保留设定）"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>清空正文缓存</span>
                     </button>
                   )}
                   <button
@@ -896,6 +958,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                           >
                             <Download className="w-4 h-4" />
                             <span>导出</span>
+                          </button>
+                          <button
+                            onClick={() => handleClearNovelCacheForOne(project.id, project.bookName)}
+                            className="flex items-center space-x-1 px-3 py-1.5 bg-red-50 text-red-600 rounded-md text-sm hover:bg-red-100 transition-colors"
+                            title="仅清空该项目已生成正文/版本历史/Writer进度（保留设定）"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span>清正文</span>
                           </button>
                           <button
                             onClick={() => handleDeleteProject(project.id)}

@@ -5,7 +5,7 @@ async function testAPI() {
   console.log('开始测试API调用...');
 
   try {
-    const response = await axios.post('http://localhost:3000/blueprint/generate', {
+    const response = await axios.post('http://localhost:3000/api/blueprint/generate', {
       channel: '玄幻',
       style: '脑洞',
       theme: '复仇与救赎'

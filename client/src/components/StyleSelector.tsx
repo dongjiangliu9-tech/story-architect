@@ -4,24 +4,36 @@ import { NovelStyle } from '../types';
 import { novelStyles } from '../data/novelCategories';
 
 interface StyleSelectorProps {
-  selectedStyle: NovelStyle | null;
-  onSelectStyle: (style: NovelStyle) => void;
+  selectedStyles: NovelStyle[];
+  onChangeSelectedStyles: (styles: NovelStyle[]) => void;
 }
 
-export function StyleSelector({ selectedStyle, onSelectStyle }: StyleSelectorProps) {
+export function StyleSelector({ selectedStyles, onChangeSelectedStyles }: StyleSelectorProps) {
   return (
     <div className="space-y-3">
       <label className="block text-sm font-medium text-secondary-700">
-        写作风格
+        写作风格（可多选）
       </label>
 
+      <div className="text-xs text-secondary-500">
+        已选择 {selectedStyles.length} 个
+      </div>
+
       <div className="grid grid-cols-2 gap-2">
-        {novelStyles.map((style) => (
+        {novelStyles.map((style) => {
+          const isSelected = selectedStyles.some((s) => s.id === style.id);
+          return (
           <button
             key={style.id}
-            onClick={() => onSelectStyle(style)}
+            type="button"
+            onClick={() => {
+              const next = isSelected
+                ? selectedStyles.filter((s) => s.id !== style.id)
+                : [...selectedStyles, style];
+              onChangeSelectedStyles(next);
+            }}
             className={`p-3 rounded-lg border-2 text-left transition-all hover:shadow-md ${
-              selectedStyle?.id === style.id
+              isSelected
                 ? 'border-primary-500 bg-primary-50 text-primary-700'
                 : 'border-secondary-200 bg-white hover:border-secondary-300'
             }`}
@@ -34,7 +46,7 @@ export function StyleSelector({ selectedStyle, onSelectStyle }: StyleSelectorPro
               {style.description}
             </p>
           </button>
-        ))}
+        )})}
       </div>
     </div>
   );
