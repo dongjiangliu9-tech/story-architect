@@ -54,7 +54,8 @@ interface StoryStructurePageProps {
 
 export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep, setAutoFlowProgress }: StoryStructurePageProps) {
   const { currentProject, updateProject } = useWorldSettings();
-  const [selectedMacroStory, setSelectedMacroStory] = useState<string | null>(null);
+  // 用索引而不是内容字符串来选择中故事，避免内容重复/空白差异导致 indexOf 失效
+  const [selectedMacroStoryIndex, setSelectedMacroStoryIndex] = useState<number | null>(null);
   const [macroStories, setMacroStories] = useState<string[]>([]);
   const [microStoryOutlines, setMicroStoryOutlines] = useState<{[key: string]: string}>({});
   const [generatingStories, setGeneratingStories] = useState<{[key: string]: boolean}>({});
@@ -62,6 +63,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchGenerationProgress, setBatchGenerationProgress] = useState<{current: number, total: number, currentStory: string} | null>(null);
 
+  const selectedMacroStory = selectedMacroStoryIndex !== null ? macroStories[selectedMacroStoryIndex] : null;
 
   // 解析中故事内容，正确提取【中故事X】标记之间的内容
   const parseMacroStories = (content: string): string[] => {
@@ -119,6 +121,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       // 重新解析并设置中故事
       const newStories = parseMacroStories(response.data);
       setMacroStories(newStories);
+      setSelectedMacroStoryIndex(null);
 
       // 清除旧的小故事数据
       setMicroStoryOutlines({});
@@ -681,11 +684,11 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                   return (
                     <div
                       key={index}
-                      onClick={() => canGenerate && setSelectedMacroStory(story)}
+                      onClick={() => canGenerate && setSelectedMacroStoryIndex(index)}
                       className={`p-4 rounded-lg border transition-all ${
                         !canGenerate
                           ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
-                          : selectedMacroStory === story
+                          : selectedMacroStoryIndex === index
                           ? 'border-primary-300 bg-primary-50 cursor-pointer'
                           : 'border-secondary-200 hover:border-secondary-300 hover:bg-secondary-50 cursor-pointer'
                       }`}
@@ -756,14 +759,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 <div className="card p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-secondary-900">
-                      中故事 {macroStories.indexOf(selectedMacroStory) + 1} 内容
+                      中故事 {selectedMacroStoryIndex! + 1} 内容
                     </h3>
                     <button
-                      onClick={() => generateMicroStories(macroStories.indexOf(selectedMacroStory), selectedMacroStory)}
-                      disabled={generatingStories[`story_${macroStories.indexOf(selectedMacroStory)}`]}
+                      onClick={() => generateMicroStories(selectedMacroStoryIndex!, selectedMacroStory)}
+                      disabled={generatingStories[`story_${selectedMacroStoryIndex!}`]}
                       className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {generatingStories[`story_${macroStories.indexOf(selectedMacroStory)}`] ? (
+                      {generatingStories[`story_${selectedMacroStoryIndex!}`] ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           <span>生成中...</span>
@@ -791,18 +794,19 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     </h3>
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => saveMicroStories(macroStories.indexOf(selectedMacroStory), selectedMacroStory)}
-                        className="flex items-center space-x-2 px-3 py-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-md text-sm font-medium"
+                        onClick={() => saveMicroStories(selectedMacroStoryIndex!, selectedMacroStory)}
+                        disabled={!microStoryOutlines[`story_${selectedMacroStoryIndex!}`]}
+                        className="flex items-center space-x-2 px-3 py-1.5 bg-green-100 hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed text-green-700 rounded-md text-sm font-medium"
                         title="保存这些小故事到项目"
                       >
                         <Plus className="w-4 h-4" />
                         <span>保存小故事</span>
                       </button>
                       <button
-                        onClick={() => toggleExpanded(macroStories.indexOf(selectedMacroStory))}
+                        onClick={() => toggleExpanded(selectedMacroStoryIndex!)}
                         className="flex items-center space-x-2 px-3 py-1.5 bg-secondary-100 text-secondary-700 rounded-md text-sm hover:bg-secondary-200"
                       >
-                        {expandedStories[`story_${macroStories.indexOf(selectedMacroStory)}`] ? (
+                        {expandedStories[`story_${selectedMacroStoryIndex!}`] ? (
                           <>
                             <EyeOff className="w-4 h-4" />
                             <span>收起</span>
@@ -818,12 +822,48 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                   </div>
 
                   {(() => {
-                    const storyIndex = macroStories.indexOf(selectedMacroStory);
+                    const storyIndex = selectedMacroStoryIndex!;
                     const storyKey = `story_${storyIndex}`;
                     const outlineContent = microStoryOutlines[storyKey];
                     const isExpanded = expandedStories[storyKey];
 
                     if (!outlineContent) {
+                      // 兼容：项目可能只保存了 savedMicroStories（显示数量正确），但没有保存 microStoryOutlines
+                      const savedForThisMacro = (currentProject.savedMicroStories || [])
+                        .filter(s => s.macroStoryId === storyKey)
+                        .sort((a, b) => a.order - b.order);
+
+                      if (savedForThisMacro.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            {savedForThisMacro.map((s, microIndex) => (
+                              <div
+                                key={s.id}
+                                className={`border border-secondary-200 rounded-lg p-4 transition-all ${
+                                  isExpanded ? '' : 'max-h-24 overflow-hidden'
+                                }`}
+                              >
+                                <div className="flex items-start space-x-3">
+                                  <div className="flex-shrink-0 w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-sm font-medium">
+                                    {microIndex + 1}
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-secondary-900 mb-2">
+                                      {s.title || `小故事 ${getChineseNumber(microIndex + 1)}`}
+                                    </h4>
+                                    <div className={`text-sm text-secondary-700 leading-relaxed whitespace-pre-wrap ${
+                                      isExpanded ? '' : 'line-clamp-3'
+                                    }`}>
+                                      {cleanMicroStoryContent(s.content)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+
                       return (
                         <div className="text-center py-8 text-secondary-500">
                           <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />

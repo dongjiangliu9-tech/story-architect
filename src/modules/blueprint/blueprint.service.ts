@@ -278,7 +278,7 @@ ${dto.worldSetting}
 7. 2-3个龙套角色 - 简单背景和作用
 
 **重要限制条件：**
-⚠️ 生成的主角不可以姓叶、不可以姓陈、不可以姓沈
+⚠️ 生成的主角不可以姓叶、不可以姓陈、不可以姓顾
 ⚠️ 名字里不可有默字
 
 **要求：**
@@ -435,11 +435,12 @@ ${dto.macroStory}
         const currentChapterNum = startChapter + i;
         console.log(`正在生成第${currentChapterNum}章...`);
 
+        const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
         const chapterPrompt = `${contextMemory}
 
 请基于以上完整的故事背景信息，生成第${currentChapterNum}章的内容。
 
-${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n` : ''}
+${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在本章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
 
 生成要求：
 1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字
@@ -449,7 +450,7 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
 5. 融入世界观设定和人物关系
 6. 章节结尾要为下一章留好铺垫，并自然融入悬念钩子，制造期待感，拉动读者继续阅读的欲望
 7. **重要**：钩子要融入正文叙述中，作为故事发展的自然延伸，不要在文章结尾单独添加说明性句子
-8. **关键**：你需要一次性生成一个小故事的完整内容（两章），并自动将内容分割成两个独立章节，每个章节2200-2500字
+8. **衔接要求（关键）**：如果提供了“上一章结尾内容”，本章开头必须从该结尾**自然续写**（同一时空/同一动作/同一对话延续），不要用回顾式总结重述上一章；除非上一章结尾明确切换场景，否则开头至少连续推进300字后再转场。
 
 请直接输出章节内容，格式如下：
 第${currentChapterNum}章 [章节标题]
@@ -472,13 +473,12 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
 
         // 更新上下文记忆 - 只保留最近的剧情摘要，避免上下文过长
         if (chapterResult) {
-          // 提取本章的最后500字符作为下一章的衔接参考
-          const lines = chapterResult.split('\n');
-          const lastLines = lines.slice(-10).join('\n'); // 取最后10行
-          previousEnding = lastLines;
+          // 提取“正文结尾锚点”作为下一章衔接参考（避免截到标题/空行）
+          previousEnding = this.extractEndingForContinuity(chapterResult);
 
           // 更新上下文记忆，保持总长度在合理范围内
-          contextMemory = `${dto.context.substring(0, 2000)}...\n\n最新剧情进展（第${currentChapterNum}章）：${chapterResult.substring(0, 1000)}...`;
+          const recent = this.buildCompactChapterDigest(chapterResult, currentChapterNum);
+          contextMemory = `${dto.context.substring(0, 2000)}...\n\n最新剧情进展：\n${recent}`;
         }
       }
 
@@ -596,11 +596,12 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
               storyContext += `中故事内容：${storyData.macroStoryContent}\n`;
             }
 
+            const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
             const storyPrompt = `${storyContext}
 
 请基于以上完整的故事背景信息，特别是当前小故事的详细内容，生成两个连续的独立章节。
 
-${previousEnding ? `上一批结尾内容（作为衔接参考）：\n${previousEnding}\n\n` : ''}
+${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在第${storyStartChapter}章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
 
 **⚠️ 重要限制条件：**
 - **必须严格遵循当前小故事卡的内容写作**，不能偏离小故事卡规定的情节发展
@@ -617,6 +618,7 @@ ${previousEnding ? `上一批结尾内容（作为衔接参考）：\n${previous
 7. 每个章节结尾要为下一章留好铺垫，并自然融入悬念钩子，制造期待感，拉动读者继续阅读的欲望
 8. **重要**：钩子要融入正文叙述中，作为故事发展的自然延伸，不要在文章结尾单独添加说明性句子
 9. **字数检查**：生成时请时刻注意字数控制，确保总字数不超过4500字
+10. **衔接要求（关键）**：如果提供了“上一章结尾内容”，第${storyStartChapter}章开头必须从该结尾**紧接着续写**（延续同一场景/动作/对话），不要用回顾式总结重述上一章；除非上一章结尾明确切换场景，否则开头至少连续推进300-500字后再转场或跳时。
 
 请按以下格式输出：
 第${storyStartChapter}章 [章节标题]
@@ -686,12 +688,10 @@ ${previousEnding ? `上一批结尾内容（作为衔接参考）：\n${previous
 
                 // 更新上下文记忆
                 const lastChapter = chapters[chapters.length - 1];
-                const lines = lastChapter.split('\n');
-                const lastLines = lines.slice(-10).join('\n');
-                previousEnding = lastLines;
+                previousEnding = this.extractEndingForContinuity(lastChapter);
 
                 // 只保留最近2个小故事的上下文，避免累积过多内容
-                const recentSummary = `第${storyStartChapter}-${storyEndChapter}章：${chapters.map(ch => ch.split('\n')[0]).join(', ')}\n剧情摘要：${chapters.map(ch => ch.substring(0, 200)).join('...')}`;
+                const recentSummary = this.buildRecentSummaryForContext(chapters, storyStartChapter, storyEndChapter);
                 // 控制上下文长度，如果超过一定长度则只保留最近的内容
                 const maxContextLength = 3000; // 设置最大上下文长度
                 if (contextMemory.length > maxContextLength) {
@@ -771,16 +771,15 @@ ${previousEnding ? `上一批结尾内容（作为衔接参考）：\n${previous
       parts[parts.length - 1].content = storyContent.slice(parts[parts.length - 1].start).trim();
     }
 
-    // 直接使用AI生成的章节内容，不进行任何修改
+    // 将AI生成的章节内容按标题切开，并清理重复标题行，避免“章节标题嵌套章节标题”
     if (parts.length >= 2) {
       for (let i = 0; i < Math.min(parts.length, 2); i++) {
         const part = parts[i];
         const chapterNum = startChapter + i;
 
-        // 直接使用AI生成的完整章节内容，保持原有格式
-        const chapterContent = `第${chapterNum}章 ${part.title.split(' ').slice(1).join(' ')}
-
-${part.content}`;
+        const normalizedTitle = `第${chapterNum}章 ${part.title.split(' ').slice(1).join(' ')}`.trim();
+        const body = this.stripLeadingChapterTitleLine(part.content);
+        const chapterContent = `${normalizedTitle}\n\n${body}`.trim();
 
         chapters.push(chapterContent.trim());
       }
@@ -800,6 +799,117 @@ ${storyContent}`;
     }
 
     return chapters;
+  }
+
+  /**
+   * 从章节文本中抽取“可用于续写的结尾锚点”
+   * - 只取正文末尾，避免标题/空行
+   * - 优先取最后1-2段，控制长度，便于模型紧接续写
+   */
+  private extractEndingForContinuity(chapterContent: string): string {
+    const body = this.stripLeadingChapterTitleLine(chapterContent).trim();
+    if (!body) return '';
+
+    // 先按空行切段，取末尾两段；若段落过短则回退到末尾N字
+    const paragraphs = body
+      .split(/\n\s*\n+/)
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    let ending = '';
+    if (paragraphs.length >= 2) {
+      ending = paragraphs.slice(-2).join('\n\n');
+    } else if (paragraphs.length === 1) {
+      ending = paragraphs[0];
+    }
+
+    // 控制长度：尽量在 400-900 字符之间（中文为主）
+    const maxLen = 900;
+    const minLen = 400;
+    if (ending.length > maxLen) {
+      ending = ending.slice(ending.length - maxLen);
+    } else if (ending.length < minLen) {
+      const tail = body.slice(Math.max(0, body.length - maxLen));
+      ending = tail.length > ending.length ? tail : ending;
+    }
+
+    return ending.trim();
+  }
+
+  /**
+   * 去掉文本开头的章节标题行（如果存在）
+   * 支持：
+   * - 第12章 [标题]
+   * - 第12章 标题（兼容）
+   */
+  private stripLeadingChapterTitleLine(text: string): string {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return '';
+    const lines = trimmed.split('\n');
+    if (lines.length === 0) return trimmed;
+    const firstLine = lines[0].trim();
+    const isTitle = /^第\d+章\b/.test(firstLine);
+    if (!isTitle) return trimmed;
+    return lines.slice(1).join('\n').trim();
+  }
+
+  /**
+   * 用于上下文记忆的紧凑摘要：既给开头，也给结尾，减少“只看开头导致断层”的概率
+   */
+  private buildCompactChapterDigest(chapterContent: string, chapterNum: number): string {
+    const lines = (chapterContent || '').split('\n').map(l => l.trim());
+    const titleLine = lines.find(l => /^第\d+章\b/.test(l)) || `第${chapterNum}章`;
+    const body = this.stripLeadingChapterTitleLine(chapterContent);
+    const head = body.slice(0, 260).trim();
+    const tail = body.slice(Math.max(0, body.length - 260)).trim();
+    return `${titleLine}\n- 开头片段：${head}${head.length ? '…' : ''}\n- 结尾片段：${tail}`;
+  }
+
+  /**
+   * 最近生成内容摘要（用于跨小故事连续性）：包含每章标题 + 开头/结尾片段
+   */
+  private buildRecentSummaryForContext(chapters: string[], storyStartChapter: number, storyEndChapter: number): string {
+    const titles = chapters
+      .map(ch => (ch.split('\n').find(l => /^第\d+章\b/.test(l.trim())) || '').trim())
+      .filter(Boolean)
+      .join(', ');
+
+    const snippets = chapters.map((ch, idx) => {
+      const num = storyStartChapter + idx;
+      const body = this.stripLeadingChapterTitleLine(ch);
+      const head = body.slice(0, 180).trim();
+      const tail = body.slice(Math.max(0, body.length - 180)).trim();
+      return `第${num}章 摘要：开头「${head}…」 结尾「${tail}」`;
+    }).join('\n');
+
+    return `第${storyStartChapter}-${storyEndChapter}章：${titles}\n${snippets}`;
+  }
+
+  /**
+   * 从一段文本中抽取“最后一句”，用于强制续写锚点
+   * 若没有明显句末标点，则回退为末尾一小段
+   */
+  private extractLastSentence(text: string): string {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return '';
+
+    // 优先找最后一个中文句末标点
+    const punctuations = ['。', '！', '？', '…', '!', '?'];
+    let lastPuncIndex = -1;
+    for (const p of punctuations) {
+      const idx = trimmed.lastIndexOf(p);
+      if (idx > lastPuncIndex) lastPuncIndex = idx;
+    }
+
+    if (lastPuncIndex >= 0 && lastPuncIndex < trimmed.length - 1) {
+      // 取最后一个句末标点之后的内容也可能是引号/换行，这里取“最后一句”的尾段更稳
+      // 目标：返回末尾约40-120字，给模型一个明确续写钩子
+      const sentenceCandidate = trimmed.slice(Math.max(0, lastPuncIndex - 120), trimmed.length).trim();
+      return sentenceCandidate;
+    }
+
+    // 回退：取末尾一小段
+    return trimmed.slice(Math.max(0, trimmed.length - 120)).trim();
   }
 
   // 计算字数
