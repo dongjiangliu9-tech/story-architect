@@ -15,6 +15,32 @@ export interface SavedMicroStory {
   createdAt: string;
 }
 
+/**
+ * 将 SavedMicroStory 排序为“章节自然顺序”：
+ * - 先按 macroStoryId（story_0, story_1...）的数字顺序
+ * - 再按 order（该中故事内的小故事顺序）
+ *
+ * WriterPage 里会用数组索引去做“章节 ↔ 小故事”的映射，因此必须保持稳定顺序，
+ * 否则在“更新/覆盖某个中故事的小故事”后会出现章节对照错位（例如第1章变成第21章的小故事）。
+ */
+export function getMacroStoryIndexFromId(macroStoryId: string): number {
+  const m = macroStoryId.match(/story_(\d+)/);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+}
+
+export function sortSavedMicroStoriesForChapters(stories: SavedMicroStory[]): SavedMicroStory[] {
+  return [...stories].sort((a, b) => {
+    const ma = getMacroStoryIndexFromId(a.macroStoryId);
+    const mb = getMacroStoryIndexFromId(b.macroStoryId);
+    if (ma !== mb) return ma - mb;
+    if (a.order !== b.order) return a.order - b.order;
+    // 最后用 createdAt 稳定排序（避免同 macro/order 时顺序飘）
+    return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+  });
+}
+
 export interface SavedVersion {
   id: string;
   timestamp: string;

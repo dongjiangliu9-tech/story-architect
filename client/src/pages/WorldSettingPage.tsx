@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download } from 'lucide-react';
+import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X } from 'lucide-react';
 import { blueprintApi } from '../services/api';
 import { OutlineData } from '../types';
 import { useWorldSettings } from '../contexts/WorldSettingsContext';
@@ -85,6 +85,13 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const [bookName, setBookName] = useState<string>('');
   const [showProjectPanel, setShowProjectPanel] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [editingSection, setEditingSection] = useState<'world' | 'characters' | 'outline' | null>(null);
+  const [sectionDrafts, setSectionDrafts] = useState<{ world: string; characters: string; outline: string }>({
+    world: '',
+    characters: '',
+    outline: ''
+  });
+  const [inlineSaveSection, setInlineSaveSection] = useState<'world' | 'characters' | 'outline' | null>(null);
 
   // 初始化项目名称 - 优先使用selectedOutline的标题
   useEffect(() => {
@@ -135,6 +142,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         setBookName(`${selectedOutline.title}`);
       }
     }
+
+    // 切换项目时重置“单块编辑态”，避免编辑草稿串到其它项目
+    setEditingSection(null);
   }, [currentProject]);
 
   // 检查自动化流程
@@ -341,6 +351,48 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   // 检查是否可以保存
   const canSave = selectedOutline && bookName.trim() && worldSetting && characters && outline;
+
+  const startEditSection = (section: 'world' | 'characters' | 'outline') => {
+    const currentValue =
+      section === 'world'
+        ? worldSetting
+        : section === 'characters'
+          ? characters
+          : outline;
+
+    setSectionDrafts(prev => ({ ...prev, [section]: currentValue }));
+    setEditingSection(section);
+  };
+
+  const cancelEditSection = () => {
+    setEditingSection(null);
+  };
+
+  const saveEditedSection = (section: 'world' | 'characters' | 'outline') => {
+    const nextValue = sectionDrafts[section] ?? '';
+
+    if (section === 'world') {
+      setWorldSetting(nextValue);
+      setWorldSettingGenerated(!!nextValue.trim());
+    } else if (section === 'characters') {
+      setCharacters(nextValue);
+      setCharactersGenerated(!!nextValue.trim());
+    } else {
+      setOutline(nextValue);
+    }
+
+    if (currentProject) {
+      updateProject(currentProject.id, {
+        ...(section === 'world' ? { worldSetting: nextValue } : {}),
+        ...(section === 'characters' ? { characters: nextValue } : {}),
+        ...(section === 'outline' ? { detailedOutline: nextValue } : {}),
+      });
+    }
+
+    setEditingSection(null);
+    setInlineSaveSection(section);
+    setTimeout(() => setInlineSaveSection(null), 1500);
+  };
 
   // 一键批量生成世界观、人物、情节设定
   const handleBatchGenerate = async () => {
@@ -738,14 +790,56 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <div className="card p-6 h-full">
                   {worldSetting ? (
                     <>
-                      <div className="flex items-center space-x-3 mb-4">
-                        <Map className="w-5 h-5 text-primary-600" />
-                        <h3 className="text-lg font-semibold text-secondary-900">世界观基础设定结果</h3>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <Map className="w-5 h-5 text-primary-600" />
+                          <h3 className="text-lg font-semibold text-secondary-900">世界观基础设定结果</h3>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {inlineSaveSection === 'world' && (
+                            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-md">已保存修改</span>
+                          )}
+                          {editingSection === 'world' ? (
+                            <>
+                              <button
+                                onClick={() => saveEditedSection('world')}
+                                className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                              >
+                                <Save className="w-4 h-4" />
+                                <span>保存</span>
+                              </button>
+                              <button
+                                onClick={cancelEditSection}
+                                className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                              >
+                                <X className="w-4 h-4" />
+                                <span>取消</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => startEditSection('world')}
+                              className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                            >
+                              <PenTool className="w-4 h-4" />
+                              <span>编辑</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="prose prose-sm max-w-none">
-                        <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
-                          {cleanMarkdownFormatting(worldSetting)}
-                        </div>
+                        {editingSection === 'world' ? (
+                          <textarea
+                            value={sectionDrafts.world}
+                            onChange={(e) => setSectionDrafts(prev => ({ ...prev, world: e.target.value }))}
+                            className="w-full min-h-[420px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
+                            placeholder="可在这里手动修改世界观基础设定"
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
+                            {cleanMarkdownFormatting(worldSetting)}
+                          </div>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -767,14 +861,56 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <div className="card p-6 h-full">
                   {characters ? (
                     <>
-                      <div className="flex items-center space-x-3 mb-4">
-                        <Users className="w-5 h-5 text-primary-600" />
-                        <h3 className="text-lg font-semibold text-secondary-900">人物设定结果</h3>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <Users className="w-5 h-5 text-primary-600" />
+                          <h3 className="text-lg font-semibold text-secondary-900">人物设定结果</h3>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {inlineSaveSection === 'characters' && (
+                            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-md">已保存修改</span>
+                          )}
+                          {editingSection === 'characters' ? (
+                            <>
+                              <button
+                                onClick={() => saveEditedSection('characters')}
+                                className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                              >
+                                <Save className="w-4 h-4" />
+                                <span>保存</span>
+                              </button>
+                              <button
+                                onClick={cancelEditSection}
+                                className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                              >
+                                <X className="w-4 h-4" />
+                                <span>取消</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => startEditSection('characters')}
+                              className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                            >
+                              <PenTool className="w-4 h-4" />
+                              <span>编辑</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="prose prose-sm max-w-none">
-                        <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
-                          {cleanMarkdownFormatting(characters)}
-                        </div>
+                        {editingSection === 'characters' ? (
+                          <textarea
+                            value={sectionDrafts.characters}
+                            onChange={(e) => setSectionDrafts(prev => ({ ...prev, characters: e.target.value }))}
+                            className="w-full min-h-[420px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
+                            placeholder="可在这里手动修改人物设定"
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
+                            {cleanMarkdownFormatting(characters)}
+                          </div>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -796,14 +932,56 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <div className="card p-6 h-full">
                   {outline ? (
                     <>
-                      <div className="flex items-center space-x-3 mb-4">
-                        <FileText className="w-5 h-5 text-primary-600" />
-                        <h3 className="text-lg font-semibold text-secondary-900">情节细纲结果</h3>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <FileText className="w-5 h-5 text-primary-600" />
+                          <h3 className="text-lg font-semibold text-secondary-900">情节细纲结果</h3>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {inlineSaveSection === 'outline' && (
+                            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-md">已保存修改</span>
+                          )}
+                          {editingSection === 'outline' ? (
+                            <>
+                              <button
+                                onClick={() => saveEditedSection('outline')}
+                                className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                              >
+                                <Save className="w-4 h-4" />
+                                <span>保存</span>
+                              </button>
+                              <button
+                                onClick={cancelEditSection}
+                                className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                              >
+                                <X className="w-4 h-4" />
+                                <span>取消</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => startEditSection('outline')}
+                              className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                            >
+                              <PenTool className="w-4 h-4" />
+                              <span>编辑</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="prose prose-sm max-w-none">
-                        <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
-                          {cleanMarkdownFormatting(outline)}
-                        </div>
+                        {editingSection === 'outline' ? (
+                          <textarea
+                            value={sectionDrafts.outline}
+                            onChange={(e) => setSectionDrafts(prev => ({ ...prev, outline: e.target.value }))}
+                            className="w-full min-h-[420px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
+                            placeholder="可在这里手动修改情节细纲"
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
+                            {cleanMarkdownFormatting(outline)}
+                          </div>
+                        )}
                       </div>
                     </>
                   ) : (
