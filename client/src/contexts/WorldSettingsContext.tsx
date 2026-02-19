@@ -4,6 +4,26 @@ import { OutlineData } from '../types';
 const WORLD_SETTINGS_KEY = 'story-architect-world-settings';
 const EXPORT_SCHEMA_VERSION = 1;
 
+const toSafeFilenamePart = (text: string): string => {
+  const normalized = (text || '').trim().replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, '_');
+  const collapsed = normalized.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  return collapsed || '未命名作品';
+};
+
+const formatExportDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+};
+
+const buildExportFilename = (title: string, date: Date = new Date()): string => {
+  const safeTitle = toSafeFilenamePart(title);
+  const exportDate = formatExportDate(date);
+  const exportVersion = `v${EXPORT_SCHEMA_VERSION}`;
+  return `${safeTitle}_${exportDate}_${exportVersion}.json`;
+};
+
 export interface SavedMicroStory {
   id: string;
   title: string;
@@ -356,12 +376,13 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
 
   // 导出单个项目
   const exportProject = (project: WorldSettingsProject) => {
+    const now = new Date();
     const writerStateRaw = localStorage.getItem(`writer-state-${project.id}`);
     const writerState = writerStateRaw ? (safeParseJson(writerStateRaw) as WriterStateSnapshot) : null;
 
     const bundle: ProjectExportBundleV1 = {
       schemaVersion: EXPORT_SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
+      exportedAt: now.toISOString(),
       app: 'story-architect',
       type: 'project',
       project,
@@ -370,7 +391,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       },
     };
 
-    const exportFileDefaultName = `${project.bookName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_story_architect_project.json`;
+    const exportFileDefaultName = buildExportFilename(project.bookName, now);
     downloadJson(bundle, exportFileDefaultName);
 
     console.log('导出项目:', project.bookName);
@@ -378,6 +399,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
 
   // 导出所有项目
   const exportAllProjects = () => {
+    const now = new Date();
     const writerStateByProjectId: Record<string, WriterStateSnapshot | null> = {};
     for (const p of projects) {
       const raw = localStorage.getItem(`writer-state-${p.id}`);
@@ -386,7 +408,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
 
     const bundle: ProjectsExportBundleV1 = {
       schemaVersion: EXPORT_SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
+      exportedAt: now.toISOString(),
       app: 'story-architect',
       type: 'projects',
       projects,
@@ -395,7 +417,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       },
     };
 
-    const exportFileDefaultName = `story_architect_projects_${new Date().toISOString().split('T')[0]}.json`;
+    const exportFileDefaultName = buildExportFilename('全部作品', now);
     downloadJson(bundle, exportFileDefaultName);
 
     console.log('导出所有项目:', projects.length, '个');

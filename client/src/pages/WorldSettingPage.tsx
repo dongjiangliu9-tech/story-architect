@@ -740,9 +740,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           {/* 右侧内容区域 */}
           <div className="lg:col-span-8">
             {/* 标签页切换 */}
-            {(worldSetting || characters || outline) && (
-              <div className="mb-6">
-                <div className="flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg p-1 border border-secondary-200">
+            <div className="mb-6">
+              <div className="flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg p-1 border border-secondary-200">
                   <button
                     onClick={() => setActiveTab('world')}
                     className={`flex items-center space-x-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
@@ -761,7 +760,6 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                         ? 'bg-primary-500 text-white shadow-sm'
                         : 'text-secondary-600 hover:text-secondary-900'
                     }`}
-                    disabled={!characters}
                   >
                     <Users className="w-4 h-4" />
                     <span>人物设定</span>
@@ -773,22 +771,19 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                         ? 'bg-primary-500 text-white shadow-sm'
                         : 'text-secondary-600 hover:text-secondary-900'
                     }`}
-                    disabled={!outline}
                   >
                     <FileText className="w-4 h-4" />
                     <span>情节细纲</span>
                   </button>
-                </div>
-
               </div>
-            )}
+            </div>
 
             {/* 内容显示区域 */}
             <div className="min-h-[600px]">
               {/* 世界观基础设定标签页 */}
               {activeTab === 'world' && (
                 <div className="card p-6 h-full">
-                  {worldSetting ? (
+                  {worldSetting || editingSection === 'world' ? (
                     <>
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-3">
@@ -848,9 +843,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         尚未生成世界观基础设定
                       </h3>
-                      <p className="text-secondary-600">
-                        请点击左侧的"生成世界观设定"按钮开始构建世界基础
+                      <p className="text-secondary-600 mb-4">
+                        你可以点击下方按钮手动填写，或先走AI生成流程
                       </p>
+                      <button
+                        onClick={() => startEditSection('world')}
+                        className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
+                      >
+                        <PenTool className="w-4 h-4" />
+                        <span>手动填写世界观基础</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -859,7 +861,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
               {/* 人物设定标签页 */}
               {activeTab === 'characters' && (
                 <div className="card p-6 h-full">
-                  {characters ? (
+                  {characters || editingSection === 'characters' ? (
                     <>
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-3">
@@ -919,9 +921,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         尚未生成人物设定
                       </h3>
-                      <p className="text-secondary-600">
-                        请先点击左侧的"生成人物设定"按钮
+                      <p className="text-secondary-600 mb-4">
+                        你可以点击下方按钮手动填写，或先走AI生成流程
                       </p>
+                      <button
+                        onClick={() => startEditSection('characters')}
+                        className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
+                      >
+                        <PenTool className="w-4 h-4" />
+                        <span>手动填写人物设定</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -930,7 +939,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
               {/* 情节细纲标签页 */}
               {activeTab === 'outline' && (
                 <div className="card p-6 h-full">
-                  {outline ? (
+                  {outline || editingSection === 'outline' ? (
                     <>
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-3">
@@ -990,9 +999,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         尚未生成情节细纲
                       </h3>
-                      <p className="text-secondary-600">
-                        请先生成人物设定，然后点击左侧的"生成情节细纲"按钮
+                      <p className="text-secondary-600 mb-4">
+                        你可以点击下方按钮手动填写，或先走AI生成流程
                       </p>
+                      <button
+                        onClick={() => startEditSection('outline')}
+                        className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
+                      >
+                        <PenTool className="w-4 h-4" />
+                        <span>手动填写情节细纲</span>
+                      </button>
                     </div>
                   )}
                 </div>

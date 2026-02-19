@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react';
 import { sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
 
@@ -1467,6 +1467,35 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     setChapterDraftTouched(false);
   };
 
+  const clearCurrentChapter = () => {
+    if (!currentProject) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) return;
+
+    const currentContent = generatedChapters[currentChapter] ?? generatedContent;
+    if (!currentContent) {
+      alert('当前章节没有可清空的内容');
+      return;
+    }
+
+    const confirmed = confirm(`确定要清空第${currentChapter}章内容吗？清空后可重新生成该章节。`);
+    if (!confirmed) return;
+
+    const updatedChapters = { ...generatedChapters };
+    delete updatedChapters[currentChapter];
+
+    setGeneratedChapters(updatedChapters);
+    setGeneratedContent('');
+    setIsEditingChapter(false);
+    setChapterDraft('');
+    setChapterDraftTouched(false);
+
+    updateProject(currentProject.id, {
+      generatedChapters: updatedChapters,
+    });
+
+    alert(`第${currentChapter}章已清空，你可以重新生成该章节。`);
+  };
+
   const exportChapter = () => {
     // 导出章节内容
     const contentToExport = isEditingChapter ? chapterDraft : generatedContent;
@@ -1918,19 +1947,35 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {!isEditingChapter ? (
-                      <button
-                        onClick={startEditChapter}
-                        disabled={
-                          generationState.isGenerating ||
-                          isBatchGenerating ||
-                          isFullCycleGenerating ||
-                          !(generatedChapters[currentChapter] ?? generatedContent)
-                        }
-                        className="px-3 py-2 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 text-secondary-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
-                        title="编辑当前章节内容（保存后将作为后续引用的最新正文）"
-                      >
-                        编辑
-                      </button>
+                      <>
+                        <button
+                          onClick={startEditChapter}
+                          disabled={
+                            generationState.isGenerating ||
+                            isBatchGenerating ||
+                            isFullCycleGenerating ||
+                            !(generatedChapters[currentChapter] ?? generatedContent)
+                          }
+                          className="px-3 py-2 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 text-secondary-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                          title="编辑当前章节内容（保存后将作为后续引用的最新正文）"
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={clearCurrentChapter}
+                          disabled={
+                            generationState.isGenerating ||
+                            isBatchGenerating ||
+                            isFullCycleGenerating ||
+                            !(generatedChapters[currentChapter] ?? generatedContent)
+                          }
+                          className="inline-flex items-center gap-1 px-3 py-2 bg-red-50 hover:bg-red-100 disabled:bg-gray-100 disabled:text-gray-400 text-red-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                          title="清空当前章节内容（可重新生成）"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          清空
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button
