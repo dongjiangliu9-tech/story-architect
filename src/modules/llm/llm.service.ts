@@ -35,8 +35,19 @@ export class LlmService {
     });
   }
 
+  /** 是否为可重试的超时类错误（524 Cloudflare / 504 Gateway） */
+  private isTimeoutOrGatewayError(error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    return status === 524 || status === 504;
+  }
+
+  /** 延时（毫秒） */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   /**
-   * 通用文本生成方法
+   * 通用文本生成方法（对 524/504 自动重试）
    * @param messages 消息数组
    * @param model 可选，覆盖默认模型
    */
@@ -46,19 +57,40 @@ export class LlmService {
     // 选择合适的客户端
     const client = this.isDeepseekModel(targetModel) ? this.deepseekClient : this.yinliClient;
 
-    try {
-      const completion = await client.chat.completions.create({
-        messages,
-        model: targetModel,
-        temperature: 0.7, // 保持一定的创造性
-        max_tokens: this.isDeepseekModel(targetModel) ? 8192 : undefined, // Deepseek设置最大token
-      });
+    const maxAttempts = 3;
+    const retryDelays = [3000, 8000]; // 第 1、2 次失败后等待再重试
 
-      return completion.choices[0].message.content;
-    } catch (error) {
-      console.error('LLM API Call Failed:', error, 'Model:', targetModel);
-      throw new Error('AI 服务暂时不可用，请稍后重试');
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const completion = await client.chat.completions.create({
+          messages,
+          model: targetModel,
+          temperature: 0.7, // 保持一定的创造性
+          max_tokens: this.isDeepseekModel(targetModel) ? 8192 : undefined, // Deepseek设置最大token
+        });
+
+        return completion.choices[0].message.content;
+      } catch (error) {
+        console.error(`LLM API Call Failed (attempt ${attempt}/${maxAttempts}):`, error, 'Model:', targetModel);
+
+        const isRetryable = this.isTimeoutOrGatewayError(error);
+        const hasMoreAttempts = attempt < maxAttempts;
+
+        if (isRetryable && hasMoreAttempts) {
+          const delay = retryDelays[attempt - 1] ?? 5000;
+          console.warn(`将在 ${delay / 1000} 秒后重试...`);
+          await this.sleep(delay);
+          continue;
+        }
+
+        if (this.isTimeoutOrGatewayError(error)) {
+          throw new Error('AI 服务响应超时（网络或代理超时），请稍后重试');
+        }
+        throw new Error('AI 服务暂时不可用，请稍后重试');
+      }
     }
+
+    throw new Error('AI 服务暂时不可用，请稍后重试');
   }
 
   /**
