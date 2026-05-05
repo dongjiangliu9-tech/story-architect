@@ -58,15 +58,27 @@ function computePreviousEndingFromChapters(
   return extractChapterEnding(chapters[last] || '');
 }
 
-function getChapterRangeDisplay(chapterNumber: number): string {
-  // 每2章为一组显示范围
-  const startChapter = Math.floor((chapterNumber - 1) / 2) * 2 + 1;
-  const endChapter = startChapter + 1;
-  return `第${startChapter}～${endChapter}章`;
+function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentProject']): 'novel' | 'microdrama' {
+  if (!project) return 'novel';
+  if (project.detailedOutlineMode === 'microdrama') return 'microdrama';
+
+  const outlineText = [
+    project.detailedOutline,
+    ...Object.values(project.microStoryOutlines || {}),
+    ...(project.savedMicroStories || []).map(story => `${story.title || ''}\n${story.content || ''}`)
+  ].join('\n');
+
+  return /微短剧|分集|第\s*\d+\s*集|100\s*集/.test(outlineText) ? 'microdrama' : 'novel';
 }
 
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
   const { currentProject, updateProject, clearNovelCacheForProject } = useWorldSettings();
+  const writerMode = inferWriterMode(currentProject);
+  const isMicrodrama = writerMode === 'microdrama';
+  const unitLabel = isMicrodrama ? '集' : '章';
+  const unitsPerMicroStory = isMicrodrama ? 1 : 2;
+  const storiesPerBatch = isMicrodrama ? 1 : 4;
+  const unitsPerBatch = isMicrodrama ? 1 : 8;
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -110,6 +122,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [isEditingChapter, setIsEditingChapter] = useState(false);
   const [chapterDraft, setChapterDraft] = useState('');
   const [chapterDraftTouched, setChapterDraftTouched] = useState(false);
+  const pendingEditScrollYRef = useRef<number | null>(null);
+  const contentEndRef = useRef<HTMLDivElement | null>(null);
 
   // 小故事必须按章节自然顺序排序（避免刷新/覆盖某一段后顺序错乱导致章节对照错位）
   const microStoriesInOrder = currentProject?.savedMicroStories
@@ -117,15 +131,31 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     : undefined;
 
   const microStoryCount = microStoriesInOrder?.length ?? 0;
+  const isStreamingCurrentChapter =
+    generationState.isGenerating &&
+    generationState.currentGeneratingChapter === currentChapter &&
+    generatedContent.length > 0;
+  const visibleChapterContent = isEditingChapter
+    ? chapterDraft
+    : isStreamingCurrentChapter
+      ? generatedContent
+      : (generatedChapters[currentChapter] ?? generatedContent);
 
   const hasChapter = (chapterNumber: number): boolean => {
     return generatedChapters[chapterNumber] !== undefined;
   };
 
-  // 每2章为一组：groupStart / groupStart + 1
+  const getUnitRangeDisplay = (chapterNumber: number): string => {
+    if (isMicrodrama) return `第${chapterNumber}集`;
+    const startChapter = Math.floor((chapterNumber - 1) / 2) * 2 + 1;
+    const endChapter = startChapter + 1;
+    return `第${startChapter}～${endChapter}章`;
+  };
+
+  // 每2章为一组：groupStart / groupStart + 1；微短剧则每集一组
   const getBestExistingChapterInGroup = (groupStart: number): number | null => {
     if (hasChapter(groupStart)) return groupStart;
-    if (hasChapter(groupStart + 1)) return groupStart + 1;
+    if (!isMicrodrama && hasChapter(groupStart + 1)) return groupStart + 1;
     return null;
   };
 
@@ -133,7 +163,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const getNextChapterToGenerate = (): number => {
     if (!microStoriesInOrder) return 1;
 
-    const totalChapters = microStoriesInOrder.length * 2;
+    const totalChapters = microStoriesInOrder.length * unitsPerMicroStory;
     for (let chapter = 1; chapter <= totalChapters; chapter++) {
       if (!generatedChapters[chapter]) {
         return chapter;
@@ -305,23 +335,41 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   // 监听章节切换和内容更新，确保显示最新内容
   useEffect(() => {
     if (isEditingChapter) return;
+    if (generationState.isGenerating) return;
     if (generatedChapters[currentChapter]) {
       setGeneratedContent(generatedChapters[currentChapter]);
     }
-  }, [currentChapter, generatedChapters, isEditingChapter]);
+  }, [currentChapter, generatedChapters, isEditingChapter, generationState.isGenerating]);
 
   // 非编辑状态下，同步草稿为当前章节内容（避免切换章节后草稿残留）
   useEffect(() => {
     if (isEditingChapter) return;
+    if (generationState.isGenerating) return;
     const next = generatedChapters[currentChapter] ?? generatedContent ?? '';
     setChapterDraft(next);
     setChapterDraftTouched(false);
-  }, [currentChapter, generatedChapters, generatedContent, isEditingChapter]);
+  }, [currentChapter, generatedChapters, generatedContent, isEditingChapter, generationState.isGenerating]);
 
   // 保持对“当前可见生成内容”的最新引用，供终止生成时保存“有多少算多少”
   useEffect(() => {
     latestGeneratedContentRef.current = generatedContent || '';
   }, [generatedContent]);
+
+  useEffect(() => {
+    if (!isEditingChapter || pendingEditScrollYRef.current === null) return;
+    const scrollY = pendingEditScrollYRef.current;
+    pendingEditScrollYRef.current = null;
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollY, behavior: 'auto' });
+    });
+  }, [isEditingChapter]);
+
+  useEffect(() => {
+    if (!generationState.isGenerating || isEditingChapter || !generatedContent) return;
+    requestAnimationFrame(() => {
+      contentEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+  }, [generatedContent, generationState.isGenerating, isEditingChapter]);
 
   // 保存生成的内容到项目
   const saveGeneratedContent = () => {
@@ -371,18 +419,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const confirmDiscardChapterEdits = (): boolean => {
     if (!isEditingChapter) return true;
     if (!chapterDraftTouched) return true;
-    return confirm('你有未保存的正文修改，确定要丢弃并离开当前章节吗？');
+    return confirm(`你有未保存的正文修改，确定要丢弃并离开当前${unitLabel}吗？`);
   };
 
   const jumpToChapterGroup = () => {
     if (!confirmDiscardChapterEdits()) return;
     const targetChapter = parseInt(jumpToChapter);
     if (isNaN(targetChapter) || targetChapter < 1) {
-      alert('请输入有效的章节编号');
+      alert(`请输入有效的${unitLabel}编号`);
       return;
     }
 
-    const groupStart = Math.floor((targetChapter - 1) / 2) * 2 + 1;
+    const groupStart = isMicrodrama ? targetChapter : Math.floor((targetChapter - 1) / 2) * 2 + 1;
     const best = hasChapter(targetChapter) ? targetChapter : getBestExistingChapterInGroup(groupStart);
 
     if (best !== null) {
@@ -395,7 +443,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
 
     const availableChapters = Object.keys(generatedChapters).map(Number).sort((a, b) => a - b);
-    alert(`第${targetChapter}章（所在组：第${groupStart}～${groupStart + 1}章）还未生成。可用章节: ${availableChapters.join(', ')}`);
+    alert(isMicrodrama
+      ? `第${targetChapter}集还未生成。可用分集: ${availableChapters.join(', ')}`
+      : `第${targetChapter}章（所在组：第${groupStart}～${groupStart + 1}章）还未生成。可用章节: ${availableChapters.join(', ')}`);
   };
 
   // 导出生成的内容
@@ -554,9 +604,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   useEffect(() => {
-    // 初始化/更新总章节数（每个小故事 2 章）
+    // 初始化/更新总单元数（网文每个小故事 2 章；微短剧每个小故事 1 集）
     if (!microStoryCount) return;
-    const calculatedTotalChapters = Math.floor(microStoryCount * 2);
+    const calculatedTotalChapters = Math.floor(microStoryCount * unitsPerMicroStory);
     setTotalChapters(calculatedTotalChapters);
 
     // 不要在这里强制重置 currentChapter（否则会导致“保存/更新”后无法跳转）
@@ -566,10 +616,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       if (calculatedTotalChapters > 0 && prev > calculatedTotalChapters) return 1;
       return prev;
     });
-  }, [microStoryCount]);
+  }, [microStoryCount, unitsPerMicroStory]);
 
 
-  // 批量生成8章内容
+  // 批量生成内容：小说每批8章，微短剧每次1集
   const generateBatchContent = async (expectedStartChapter?: number, expectedChapterCount?: number) => {
     if (!currentProject) {
       alert('未找到当前项目');
@@ -581,8 +631,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     // 如果是全流程自动生成，允许生成更少的小故事；手动生成时保持原有要求
     const isAutoFlow = expectedStartChapter !== undefined && expectedChapterCount !== undefined;
-    if (!isAutoFlow && (!microStoriesToUse || microStoriesToUse.length < 4)) {
-      alert('需要至少保存4个小故事才能进行批量生成');
+    if (!isAutoFlow && (!microStoriesToUse || microStoriesToUse.length < storiesPerBatch)) {
+      alert(`需要至少保存${storiesPerBatch}个${isMicrodrama ? '分集' : '小故事'}才能进行批量生成`);
       return;
     }
 
@@ -591,20 +641,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     try {
       const generationContext = buildGenerationContext();
       console.log('批量生成上下文长度:', generationContext.length);
+      const batchUnitCount = expectedChapterCount ?? unitsPerBatch;
 
       // 计算起始章节
       const existingChapters = Object.keys(generatedChapters).length;
-      const startChapter = existingChapters > 0
+      const startChapter = expectedStartChapter ?? (existingChapters > 0
         ? Math.max(...Object.keys(generatedChapters).map(Number)) + 1
-        : 1;
+        : 1);
 
-      console.log('开始流式生成8章内容...');
+      console.log(`开始流式生成${batchUnitCount}${unitLabel}内容...`);
 
       // 初始化生成状态
       setGenerationState({
         isGenerating: true,
         currentGeneratingChapter: startChapter,
-        totalChapters: 8,
+        totalChapters: batchUnitCount,
         completedChapters: []
       });
 
@@ -616,8 +667,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       const prepareResponse = await blueprintApi.prepareChapterStream({
         context: generationContext,
         chapterNumber: startChapter,
+        unitCount: batchUnitCount,
         previousEnding: effectivePreviousEnding || undefined,
         savedMicroStories: microStoriesToUse,
+        mode: writerMode,
         // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
         generatedChapters: startChapter > 1 ? generatedChapters : undefined
       });
@@ -627,10 +680,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       console.log('获取到requestId:', requestId);
 
       // 使用SSE进行流式生成
-      const eventSource = blueprintApi.generateChapterStream(requestId);
-      setCurrentEventSource(eventSource); // 保存SSE连接引用
+	      const eventSource = blueprintApi.generateChapterStream(requestId);
+	      setCurrentEventSource(eventSource); // 保存SSE连接引用
 
-      let generatedChaptersData: {[key: number]: string} = {};
+	      let generatedChaptersData: {[key: number]: string} = {};
+	      let activeStreamingChapter = startChapter;
 
       eventSource.onmessage = (event) => {
         try {
@@ -643,29 +697,33 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               setGenerationState(prev => ({
                 ...prev,
                 isGenerating: true,
-                totalChapters: 8 // 生成8章内容
+                totalChapters: batchUnitCount
               }));
               break;
 
-            case 'story_start':
-              console.log(data.message);
-              setGenerationState(prev => ({
-                ...prev,
-                currentGeneratingChapter: data.chapters[0] // 设置当前生成的第一章
-              }));
-              // 自动切换到正在生成的小故事第一章，开始实时显示内容
-              setCurrentChapter(data.chapters[0]);
-              setGeneratedContent(''); // 清空内容，准备显示新的小故事
-              break;
+	            case 'story_start':
+	              console.log(data.message);
+	              activeStreamingChapter = data.chapters[0];
+	              setGenerationState(prev => ({
+	                ...prev,
+	                currentGeneratingChapter: activeStreamingChapter
+	              }));
+	              // 自动切换到正在生成的小故事第一章，开始实时显示内容
+	              setCurrentChapter(activeStreamingChapter);
+	              setJumpToChapter(activeStreamingChapter.toString());
+	              setGeneratedContent(''); // 清空内容，准备显示新的小故事
+	              break;
 
-            case 'story_chunk':
-              if (data.content) {
-                const cleanContent = cleanWriterContent(data.content);
+	            case 'story_chunk':
+	              if (data.content) {
+	                const cleanContent = cleanWriterContent(data.content);
 
-                // 实时显示小故事生成过程
-                setGeneratedContent(cleanContent);
-                console.log(`第${data.storyIndex}个小故事实时更新，当前长度: ${cleanContent.length}`);
-              }
+	                // 实时显示小故事生成过程
+	                setCurrentChapter(activeStreamingChapter);
+	                setJumpToChapter(activeStreamingChapter.toString());
+	                setGeneratedContent(cleanContent);
+	                console.log(`第${data.storyIndex}个小故事实时更新，当前长度: ${cleanContent.length}`);
+	              }
               break;
 
             case 'chapter_complete':
@@ -683,12 +741,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   currentGeneratingChapter: data.chapter + 1 <= prev.totalChapters ? data.chapter + 1 : null
                 }));
 
-                // 如果当前查看的就是这个章节，显示最终的章节内容
-                if (data.chapter === currentChapter) {
-                  setGeneratedContent(cleanContent);
-                }
+	                // 如果当前完成的是正在流式显示的单元，继续显示最终内容
+	                if (data.chapter === activeStreamingChapter) {
+	                  setGeneratedContent(cleanContent);
+	                }
 
-                console.log(`第${data.chapter}章生成完成，字数: ${getWordCount(cleanContent)}`);
+                console.log(`第${data.chapter}${unitLabel}生成完成，字数: ${getWordCount(cleanContent)}`);
               }
               break;
 
@@ -747,11 +805,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   completedChapters: []
                 });
 
-                console.log(`批量生成完成！共生成了${totalGenerated}个章节的内容`);
-                if (totalGenerated >= 8) {
-                  alert(`第一批8章生成完成！现在可以点击"继续生成9~16章"按钮生成后续内容`);
+                console.log(`批量生成完成！共生成了${totalGenerated}个${unitLabel}的内容`);
+                if (Object.keys(generatedChaptersData).length >= batchUnitCount) {
+                  alert(isMicrodrama
+                    ? `第${startChapter}集生成完成！现在可以继续生成后续分集。`
+                    : `第一批8章生成完成！现在可以点击"继续生成9~16章"按钮生成后续内容`);
                 } else {
-                  alert(`批量生成完成！共生成了${totalGenerated}个章节的内容`);
+                  alert(`批量生成完成！共生成了${totalGenerated}个${unitLabel}的内容`);
                 }
                 eventSource.close();
                 setCurrentEventSource(null);
@@ -805,16 +865,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     const microStoriesToUse = microStoriesInOrder;
     if (!microStoriesToUse || microStoriesToUse.length === 0) {
-      alert('没有找到保存的小故事，请先在情节结构细化页面生成并保存小故事');
+      alert(`没有找到保存的${isMicrodrama ? '分集' : '小故事'}，请先在情节结构细化页面生成并保存${isMicrodrama ? '分集' : '小故事'}`);
       return;
     }
 
-    // 计算总章节数：每个小故事对应2个章节
-    const totalChapters = microStoriesToUse.length * 2;
+    const totalChapters = microStoriesToUse.length * unitsPerMicroStory;
 
     // 检查起始章节是否有效
     if (startChapter < 1 || startChapter > totalChapters) {
-      alert(`起始章节无效。可用范围：第1-${totalChapters}章`);
+      alert(`起始${unitLabel}无效。可用范围：第1-${totalChapters}${unitLabel}`);
       return;
     }
 
@@ -822,7 +881,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     if (isOverwriteMode && Object.keys(generatedChapters).length > 0) {
       const hasContentAfterStart = Object.keys(generatedChapters).some(chapter => parseInt(chapter) >= startChapter);
       if (hasContentAfterStart) {
-        const confirmed = confirm(`⚠️ 覆盖模式确认\n\n从第${startChapter}章开始重新生成将覆盖现有的章节内容。\n\n这将删除第${startChapter}章及之后的所有已生成内容，然后重新生成。\n\n确定要继续吗？`);
+        const confirmed = confirm(`⚠️ 覆盖模式确认\n\n从第${startChapter}${unitLabel}开始重新生成将覆盖现有的正文内容。\n\n这将删除第${startChapter}${unitLabel}及之后的所有已生成内容，然后重新生成。\n\n确定要继续吗？`);
         if (!confirmed) return;
       }
     }
@@ -834,7 +893,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       return;
     }
 
-    const totalBatches = Math.ceil(remainingChapters / 8); // 每8章一批
+    const totalBatches = Math.ceil(remainingChapters / unitsPerBatch);
 
     const modeText = isOverwriteMode ? '重新生成' : '继续生成';
     console.log(`从第${startChapter}章开始${modeText}，共需生成 ${remainingChapters} 个章节，分为 ${totalBatches} 批次`);
@@ -845,7 +904,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       total: remainingChapters,
       currentBatch: 1,
       totalBatches,
-      message: `准备从第${startChapter}章开始${modeText}...`
+      message: `准备从第${startChapter}${unitLabel}开始${modeText}...`
     });
 
     try {
@@ -865,7 +924,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       while (currentBatch <= totalBatches) {
         const batchStartChapter = totalGeneratedSoFar + 1;
-        const batchEndChapter = Math.min(batchStartChapter + 7, totalChapters);
+        const batchEndChapter = Math.min(batchStartChapter + (unitsPerBatch - 1), totalChapters);
         const batchChapterCount = batchEndChapter - batchStartChapter + 1;
 
         setFullCycleProgress({
@@ -873,7 +932,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           total: remainingChapters,
           currentBatch,
           totalBatches,
-          message: `正在${modeText}第${currentBatch}批 (章节 ${batchStartChapter}-${batchEndChapter})...`
+          message: `正在${modeText}第${currentBatch}批 (${unitLabel} ${batchStartChapter}-${batchEndChapter})...`
         });
 
         console.log(`从指定章节开始：第${currentBatch}批：章节 ${batchStartChapter}-${batchEndChapter}`);
@@ -894,7 +953,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       });
 
       setTimeout(() => {
-        alert(`从第${startChapter}章开始${modeText}完成！共生成 ${remainingChapters} 个章节内容。`);
+        alert(`从第${startChapter}${unitLabel}开始${modeText}完成！共生成 ${remainingChapters} 个${unitLabel}内容。`);
         setIsFullCycleGenerating(false);
         setFullCycleProgress(null);
         setShowChapterSelector(false);
@@ -918,15 +977,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const microStoriesToUse = microStoriesInOrder;
 
     if (!microStoriesToUse || microStoriesToUse.length === 0) {
-      alert('没有找到保存的小故事，请先在情节结构细化页面生成并保存小故事');
+      alert(`没有找到保存的${isMicrodrama ? '分集' : '小故事'}，请先在情节结构细化页面生成并保存${isMicrodrama ? '分集' : '小故事'}`);
       return;
     }
 
-    // 计算总章节数：每个小故事对应2个章节
-    const totalChapters = microStoriesToUse.length * 2;
-    const totalBatches = Math.ceil(totalChapters / 8); // 每8章一批
+    const totalChapters = microStoriesToUse.length * unitsPerMicroStory;
+    const totalBatches = Math.ceil(totalChapters / unitsPerBatch);
 
-    console.log(`开始一键循环生成，共 ${microStoriesToUse.length} 个小故事，${totalChapters} 个章节，分为 ${totalBatches} 批次`);
+    console.log(`开始一键循环生成，共 ${microStoriesToUse.length} 个${isMicrodrama ? '分集' : '小故事'}，${totalChapters} 个${unitLabel}，分为 ${totalBatches} 批次`);
 
     setIsFullCycleGenerating(true);
     setFullCycleProgress({
@@ -943,18 +1001,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       let currentBatch = 1;
       let accumulatedChapters: {[key: number]: string} = { ...generatedChapters }; // 累积所有生成的章节
 
-      // 循环生成每一批8章内容
+      // 循环生成每一批内容
       while (currentBatch <= totalBatches) {
         // 【关键】使用本地变量而非异步状态来计算批次信息
         const batchStartChapter = totalGeneratedSoFar + 1;
-        const batchEndChapter = Math.min(batchStartChapter + 7, totalChapters); // 每批最多8章
+        const batchEndChapter = Math.min(batchStartChapter + (unitsPerBatch - 1), totalChapters);
 
         setFullCycleProgress({
           current: totalGeneratedSoFar,
           total: totalChapters,
           currentBatch,
           totalBatches,
-          message: `正在生成第${currentBatch}批 (章节 ${batchStartChapter}-${batchEndChapter})...`
+          message: `正在生成第${currentBatch}批 (${unitLabel} ${batchStartChapter}-${batchEndChapter})...`
         });
 
         console.log(`模拟用户点击：开始生成第${currentBatch}批：章节 ${batchStartChapter}-${batchEndChapter}`);
@@ -973,7 +1031,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
         // 更新累积的章节数据（这里需要等待实际的章节生成完成后再更新，暂时保持现状）
 
-        console.log(`第${currentBatch}批完成，累计生成 ${totalGeneratedSoFar}/${totalChapters} 章`);
+        console.log(`第${currentBatch}批完成，累计生成 ${totalGeneratedSoFar}/${totalChapters} ${unitLabel}`);
 
         // 继续下一批
         currentBatch++;
@@ -990,7 +1048,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       // 延迟显示完成消息
       setTimeout(() => {
-        alert(`全流程自动化生成完成！共生成 ${totalChapters} 个章节内容。整个小说创作流程已结束。`);
+        alert(`全流程自动化生成完成！共生成 ${totalChapters} 个${unitLabel}内容。`);
         setIsFullCycleGenerating(false);
         setFullCycleProgress(null);
 
@@ -1020,24 +1078,24 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
         const microStoriesToUse = currentProject.selectedMicroStories || microStoriesInOrder;
 
-        if (!microStoriesToUse || microStoriesToUse.length < 4) {
-          reject(new Error('需要至少保存4个小故事才能进行批量生成'));
+        if (!microStoriesToUse || microStoriesToUse.length < storiesPerBatch) {
+          reject(new Error(`需要至少保存${storiesPerBatch}个${isMicrodrama ? '分集' : '小故事'}才能进行批量生成`));
           return;
         }
 
-          console.log(`模拟用户：点击批量生成${expectedChapterCount || 8}章按钮`);
+        console.log(`模拟用户：点击批量生成${expectedChapterCount || unitsPerBatch}${unitLabel}按钮`);
         setIsBatchGenerating(true);
 
         try {
           // 【关键修复】优先使用传入的参数，避免依赖异步状态
           const startChapter = expectedStartChapter || 1;
-          const chapterCount = expectedChapterCount || 8;
+          const chapterCount = expectedChapterCount || unitsPerBatch;
 
           const generationContext = buildGenerationContext(startChapter);
           console.log('批量生成上下文长度:', generationContext.length);
 
 
-          console.log(`模拟用户：开始流式生成${chapterCount}章内容...`);
+          console.log(`模拟用户：开始流式生成${chapterCount}${unitLabel}内容...`);
 
           // 初始化生成状态
           setGenerationState({
@@ -1055,8 +1113,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           const prepareResponse = await blueprintApi.prepareChapterStream({
             context: generationContext,
             chapterNumber: startChapter,
+            unitCount: chapterCount,
             previousEnding: effectivePreviousEnding || undefined,
             savedMicroStories: microStoriesToUse,
+            mode: writerMode,
             generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
           });
 
@@ -1065,10 +1125,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           console.log('模拟用户：获取到requestId:', requestId);
 
           // 使用SSE进行流式生成
-          const eventSource = blueprintApi.generateChapterStream(requestId);
-          setCurrentEventSource(eventSource);
+	          const eventSource = blueprintApi.generateChapterStream(requestId);
+	          setCurrentEventSource(eventSource);
 
-          let generatedChaptersData: {[key: number]: string} = {};
+	          let generatedChaptersData: {[key: number]: string} = {};
+	          let activeStreamingChapter = startChapter;
 
           // 设置SSE消息处理器
           eventSource.onmessage = (event) => {
@@ -1082,26 +1143,30 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   setGenerationState(prev => ({
                     ...prev,
                     isGenerating: true,
-                    totalChapters: 8
+                    totalChapters: chapterCount
                   }));
                   break;
 
-                case 'story_start':
-                  console.log('模拟用户：开始生成小故事');
-                  setGenerationState(prev => ({
-                    ...prev,
-                    currentGeneratingChapter: data.chapters[0]
-                  }));
-                  setCurrentChapter(data.chapters[0]);
-                  setGeneratedContent('');
-                  break;
+	                case 'story_start':
+	                  console.log('模拟用户：开始生成小故事');
+	                  activeStreamingChapter = data.chapters[0];
+	                  setGenerationState(prev => ({
+	                    ...prev,
+	                    currentGeneratingChapter: activeStreamingChapter
+	                  }));
+	                  setCurrentChapter(activeStreamingChapter);
+	                  setJumpToChapter(activeStreamingChapter.toString());
+	                  setGeneratedContent('');
+	                  break;
 
-                case 'story_chunk':
-                  if (data.content) {
-                    const cleanContent = cleanWriterContent(data.content);
-                    setGeneratedContent(cleanContent);
-                    console.log(`模拟用户：实时更新内容，当前长度: ${cleanContent.length}`);
-                  }
+	                case 'story_chunk':
+	                  if (data.content) {
+	                    const cleanContent = cleanWriterContent(data.content);
+	                    setCurrentChapter(activeStreamingChapter);
+	                    setJumpToChapter(activeStreamingChapter.toString());
+	                    setGeneratedContent(cleanContent);
+	                    console.log(`模拟用户：实时更新内容，当前长度: ${cleanContent.length}`);
+	                  }
                   break;
 
                 case 'chapter_complete':
@@ -1117,9 +1182,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       currentGeneratingChapter: data.chapter + 1 <= prev.totalChapters ? data.chapter + 1 : null
                     }));
 
-                    if (data.chapter === currentChapter) {
-                      setGeneratedContent(cleanContent);
-                    }
+	                    if (data.chapter === activeStreamingChapter) {
+	                      setGeneratedContent(cleanContent);
+	                    }
 
                     console.log(`模拟用户：第${data.chapter}章生成完成，字数: ${getWordCount(cleanContent)}`);
                   }
@@ -1355,38 +1420,42 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       context += outlineSummary + (currentProject.detailedOutline.length > 600 ? '...' : '') + '\n\n';
     }
 
-    // 当前相关的4个小故事细纲 - 只包含即将生成的内容相关信息
+    // 当前批次相关的小故事/分集细纲
     if (microStoriesInOrder && microStoriesInOrder.length > 0) {
-      // 【关键修复】使用传入的参数而不是依赖异步状态
       const startChapter = currentBatchStartChapter || 1;
-      const batchIndex = Math.floor((startChapter - 1) / 8); // 计算批次索引（0, 1, 2...）
-      const startStoryIndex = batchIndex * 4; // 每批4个小故事（对应8章）
-      const relevantStories = microStoriesInOrder.slice(startStoryIndex, startStoryIndex + 4);
+      const batchIndex = Math.floor((startChapter - 1) / unitsPerBatch);
+      const startStoryIndex = batchIndex * storiesPerBatch;
+      const relevantStories = microStoriesInOrder.slice(startStoryIndex, startStoryIndex + storiesPerBatch);
 
       if (relevantStories.length > 0) {
-        context += '【本批次小故事细纲】\n';
+        context += `【本批次${isMicrodrama ? '分集' : '小故事'}细纲】\n`;
         relevantStories.forEach((story, index) => {
           const globalIndex = startStoryIndex + index;
-          const chapterOffset = globalIndex * 2;
-          context += `小故事${globalIndex + 1}（第${chapterOffset + 1}-${chapterOffset + 2}章）：\n`;
+          const chapterOffset = globalIndex * unitsPerMicroStory;
+          const rangeText = isMicrodrama
+            ? `第${chapterOffset + 1}集`
+            : `第${chapterOffset + 1}-${chapterOffset + 2}章`;
+          context += `${isMicrodrama ? '分集' : '小故事'}${globalIndex + 1}（${rangeText}）：\n`;
           context += `标题：${story.title}\n`;
           context += `内容：${story.content}\n\n`;
         });
       }
     }
 
-    // 特别强调当前章节对应的小故事
+    // 特别强调当前章节/当前集对应的核心卡
     if (microStoriesInOrder && microStoriesInOrder.length > 0) {
-      const currentStoryIndex = Math.floor((currentChapter - 1) / 2); // 计算当前章节对应的小故事索引
+      const currentStoryIndex = isMicrodrama ? currentChapter - 1 : Math.floor((currentChapter - 1) / 2);
       const currentStory = microStoriesInOrder[currentStoryIndex];
 
       if (currentStory) {
-        context += `【当前章节核心小故事】\n`;
-        context += `章节：第${currentChapter}～${currentChapter + 1}章\n`;
-        context += `对应小故事：${currentStory.title}\n`;
-        context += `小故事详细内容：${currentStory.content}\n`;
+        context += `【当前${unitLabel === '集' ? '单集' : '章节'}核心卡】\n`;
+        context += isMicrodrama
+          ? `当前集：第${currentChapter}集\n`
+          : `章节：第${currentChapter}～${currentChapter + 1}章\n`;
+        context += `对应${isMicrodrama ? '分集' : '小故事'}：${currentStory.title}\n`;
+        context += `${isMicrodrama ? '分集' : '小故事'}详细内容：${currentStory.content}\n`;
         context += `所属中故事：${currentStory.macroStoryTitle}\n\n`;
-        context += `重要提示：请严格按照上述小故事内容进行创作，确保章节内容与小故事情节完全吻合。\n\n`;
+        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : '小故事'}内容进行创作，确保正文与卡片情节完全吻合。\n\n`;
       }
     }
 
@@ -1397,9 +1466,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     if (!confirmDiscardChapterEdits()) return;
 
     if (direction === 'prev') {
-      // 向前切换到上一组章节（每2章为一组）
-      const currentGroupStart = Math.floor((currentChapter - 1) / 2) * 2 + 1;
-      const prevGroupStart = currentGroupStart - 2;
+      const currentGroupStart = isMicrodrama
+        ? currentChapter
+        : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+      const prevGroupStart = currentGroupStart - unitsPerMicroStory;
 
       if (prevGroupStart >= 1) {
         const bestPrev = getBestExistingChapterInGroup(prevGroupStart);
@@ -1411,9 +1481,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         setJumpToChapter(bestPrev.toString());
       }
     } else if (direction === 'next') {
-      // 向后切换到下一组章节（每2章为一组）
-      const currentGroupStart = Math.floor((currentChapter - 1) / 2) * 2 + 1;
-      const nextGroupStart = currentGroupStart + 2;
+      const currentGroupStart = isMicrodrama
+        ? currentChapter
+        : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+      const nextGroupStart = currentGroupStart + unitsPerMicroStory;
 
       const bestNext = getBestExistingChapterInGroup(nextGroupStart);
       if (bestNext !== null) {
@@ -1433,7 +1504,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const saveChapter = (opts?: { silent?: boolean }) => {
     if (!currentProject) return;
-    const contentToSave = isEditingChapter ? chapterDraft : generatedContent;
+    const contentToSave = visibleChapterContent;
     if (!contentToSave) {
       if (!opts?.silent) alert('当前章节没有内容可保存');
       return;
@@ -1451,11 +1522,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     setIsEditingChapter(false);
     setChapterDraftTouched(false);
 
-    if (!opts?.silent) alert(`第${currentChapter}章内容已保存（已更新为最新文档）。`);
+    if (!opts?.silent) alert(`第${currentChapter}${unitLabel}内容已保存（已更新为最新文档）。`);
   };
 
   const startEditChapter = () => {
     if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) return;
+    pendingEditScrollYRef.current = window.scrollY;
     setIsEditingChapter(true);
     setChapterDraft(generatedChapters[currentChapter] ?? generatedContent ?? '');
     setChapterDraftTouched(false);
@@ -1471,13 +1543,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     if (!currentProject) return;
     if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) return;
 
-    const currentContent = generatedChapters[currentChapter] ?? generatedContent;
+    const currentContent = visibleChapterContent;
     if (!currentContent) {
       alert('当前章节没有可清空的内容');
       return;
     }
 
-    const confirmed = confirm(`确定要清空第${currentChapter}章内容吗？清空后可重新生成该章节。`);
+    const confirmed = confirm(`确定要清空第${currentChapter}${unitLabel}内容吗？清空后可重新生成该${unitLabel}。`);
     if (!confirmed) return;
 
     const updatedChapters = { ...generatedChapters };
@@ -1493,13 +1565,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       generatedChapters: updatedChapters,
     });
 
-    alert(`第${currentChapter}章已清空，你可以重新生成该章节。`);
+    alert(`第${currentChapter}${unitLabel}已清空，你可以重新生成该${unitLabel}。`);
   };
 
   const exportChapter = () => {
     // 导出章节内容
-    const contentToExport = isEditingChapter ? chapterDraft : generatedContent;
-    const data = `第${currentChapter}章\n\n${contentToExport}`;
+    const contentToExport = visibleChapterContent;
+    const data = `第${currentChapter}${unitLabel}\n\n${contentToExport}`;
     const blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1555,11 +1627,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   <PenTool className="w-4 h-4 text-blue-600" />
                 </div>
                 <div className="hidden sm:block">
-                  <h1 className="text-base font-bold text-secondary-900">正文写作工作室</h1>
-                  <p className="text-xs text-secondary-600">基于完整故事架构进行创作</p>
+                  <h1 className="text-base font-bold text-secondary-900">{isMicrodrama ? '剧本写作工作室' : '正文写作工作室'}</h1>
+                  <p className="text-xs text-secondary-600">{isMicrodrama ? '基于分集细纲创作微短剧单集正文' : '基于完整故事架构进行创作'}</p>
                 </div>
                 <div className="sm:hidden">
-                  <h1 className="text-sm font-bold text-secondary-900">写作工作室</h1>
+                  <h1 className="text-sm font-bold text-secondary-900">{isMicrodrama ? '剧本写作' : '写作工作室'}</h1>
                 </div>
               </div>
             </div>
@@ -1573,7 +1645,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   <div className="text-sm font-medium text-secondary-800">
                     {generationState.isGenerating ? (
                       <>
-                        <span>{getChapterRangeDisplay(generationState.currentGeneratingChapter || 1)}</span>
+                        <span>{getUnitRangeDisplay(generationState.currentGeneratingChapter || 1)}</span>
                         <span className="ml-2 text-orange-600 font-bold">
                           {generatedContent ? getWordCount(generatedContent) : 0}字
                         </span>
@@ -1584,7 +1656,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       </>
                     ) : (
                       <>
-                        <span>{getChapterRangeDisplay(currentChapter)}</span>
+                        <span>{getUnitRangeDisplay(currentChapter)}</span>
                         {generatedContent && (
                           <span className="ml-2 text-blue-600 font-bold">
                             {getWordCount(generatedContent)}字
@@ -1599,7 +1671,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <div className="flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
                   <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                   <span className="text-xs font-medium text-blue-700">
-                    {Object.keys(generatedChapters).length} 章已生成
+                    {Object.keys(generatedChapters).length} {unitLabel}已生成
                   </span>
                 </div>
               </div>
@@ -1609,13 +1681,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <button
                   onClick={() => navigateChapter('prev')}
                   disabled={Object.keys(generatedChapters).length === 0 || (() => {
-                    const currentGroupStart = Math.floor((currentChapter - 1) / 2) * 2 + 1;
-                    const prevGroupStart = currentGroupStart - 2;
+                    const currentGroupStart = isMicrodrama ? currentChapter : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+                    const prevGroupStart = currentGroupStart - unitsPerMicroStory;
                     if (prevGroupStart < 1) return true;
                     return getBestExistingChapterInGroup(prevGroupStart) === null;
                   })()}
                   className="flex items-center justify-center w-8 h-8 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 rounded-lg transition-all duration-200 disabled:cursor-not-allowed hover:shadow-sm"
-                  title="上一组章节"
+                  title={isMicrodrama ? '上一集' : '上一组章节'}
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -1634,7 +1706,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       placeholder="7"
                       className="w-12 px-2 py-1 text-sm border border-secondary-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-center"
                     />
-                    <span className="text-xs text-secondary-500">章</span>
+                    <span className="text-xs text-secondary-500">{unitLabel}</span>
                   </div>
                   <button
                     onClick={jumpToChapterGroup}
@@ -1647,12 +1719,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <button
                   onClick={() => navigateChapter('next')}
                   disabled={Object.keys(generatedChapters).length === 0 || (() => {
-                    const currentGroupStart = Math.floor((currentChapter - 1) / 2) * 2 + 1;
-                    const nextGroupStart = currentGroupStart + 2;
+                    const currentGroupStart = isMicrodrama ? currentChapter : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+                    const nextGroupStart = currentGroupStart + unitsPerMicroStory;
                     return getBestExistingChapterInGroup(nextGroupStart) === null;
                   })()}
                   className="flex items-center justify-center w-8 h-8 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 rounded-lg transition-all duration-200 disabled:cursor-not-allowed hover:shadow-sm"
-                  title="下一组章节"
+                  title={isMicrodrama ? '下一集' : '下一组章节'}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -1745,16 +1817,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-secondary-700 mb-2">
-                    当前章节
+                    当前{unitLabel}
                   </label>
                   <div className="text-2xl font-bold text-primary-600">
-                    {getChapterRangeDisplay(currentChapter)}
+                    {getUnitRangeDisplay(currentChapter)}
                   </div>
                   <div className="text-sm text-secondary-500 mt-1">
-                    已生成: {Object.keys(generatedChapters).length} 章
+                    已生成: {Object.keys(generatedChapters).length} {unitLabel}
                     {generationState.isGenerating && (
                       <span className="ml-2 text-orange-600">
-                        (第{generationState.currentGeneratingChapter}章进行中...)
+                        (第{generationState.currentGeneratingChapter}{unitLabel}进行中...)
                       </span>
                     )}
                   </div>
@@ -1770,7 +1842,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           <span className="text-sm font-medium text-amber-800">检测到已有正文内容</span>
                         </div>
                         <p className="text-sm text-amber-700 mb-3">
-                          已生成 {Object.keys(generatedChapters).length} 章内容，可以选择继续生成或重新生成之前的章节
+                          已生成 {Object.keys(generatedChapters).length} {unitLabel}内容，可以选择继续生成或重新生成之前的正文
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           <button
@@ -1803,14 +1875,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </div>
                   ) : null}
 
-                  <button
-                    onClick={() => generateBatchContent()}
-                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || (() => {
-                      const generatedCount = Object.keys(generatedChapters).length;
-                      const batchIndex = Math.floor(generatedCount / 8); // 当前是第几批
-                      const requiredStories = (batchIndex + 1) * 4; // 需要的微故事数量
-                      return (currentProject?.savedMicroStories?.length || 0) < requiredStories;
-                    })()}
+	                  <button
+	                    onClick={() => generateBatchContent()}
+	                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || (() => {
+	                      const generatedCount = Object.keys(generatedChapters).length;
+	                      const batchIndex = Math.floor(generatedCount / unitsPerBatch); // 当前是第几批
+	                      const requiredStories = (batchIndex + 1) * storiesPerBatch;
+	                      return (currentProject?.savedMicroStories?.length || 0) < requiredStories;
+	                    })()}
                     className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-lg font-semibold transition-all duration-200 disabled:cursor-not-allowed"
                   >
                     {isBatchGenerating ? (
@@ -1822,12 +1894,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       <>
                         <PenTool className="w-6 h-6" />
                         <span>
-                          {(() => {
-                            const generatedCount = Object.keys(generatedChapters).length;
-                            if (generatedCount === 0) return '批量生成8章';
-                            if (generatedCount % 8 !== 0) return `继续生成 (${generatedCount % 8}/8)`;
-                            return '继续生成下一批';
-                          })()}
+	                          {(() => {
+	                            const generatedCount = Object.keys(generatedChapters).length;
+	                            if (generatedCount === 0) return isMicrodrama ? '生成第1集' : '批量生成8章';
+	                            if (generatedCount % unitsPerBatch !== 0) return `继续生成 (${generatedCount % unitsPerBatch}/${unitsPerBatch})`;
+	                            return isMicrodrama ? '继续生成下一集' : '继续生成下一批';
+	                          })()}
                         </span>
                       </>
                     )}
@@ -1850,7 +1922,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         <Sparkles className="w-6 h-6" />
                         <span>
                           {microStoriesInOrder?.length
-                            ? `一键循环生成 (${microStoriesInOrder.length}个小故事 → ${microStoriesInOrder.length * 2}章)`
+                            ? isMicrodrama
+                              ? `一键循环生成 (${microStoriesInOrder.length}集剧本正文)`
+                              : `一键循环生成 (${microStoriesInOrder.length}个小故事 → ${microStoriesInOrder.length * 2}章)`
                             : '一键循环生成'}
                         </span>
                       </>
@@ -1869,12 +1943,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         </div>
                         <div className="flex items-center space-x-3">
                           <span className="text-sm text-green-600">
-                            {fullCycleProgress.current}/{fullCycleProgress.total} 章
+                            {fullCycleProgress.current}/{fullCycleProgress.total} {unitLabel}
                           </span>
                           {fullCycleProgress.currentChapter && (
                             <div className="flex items-center space-x-2 px-2 py-1 bg-green-100 rounded-md">
                               <span className="text-xs font-medium text-green-800">
-                                第{fullCycleProgress.currentChapter}章
+                                第{fullCycleProgress.currentChapter}{unitLabel}
                               </span>
                               {fullCycleProgress.currentChapterWords !== undefined && (
                                 <span className="text-xs text-green-600">
@@ -1899,44 +1973,34 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       </div>
 
                       <div className="mt-2 text-xs text-green-600 text-center">
-                        每生成8章自动保存历史快照 • 共需保存 {fullCycleProgress.totalBatches} 个快照
+	                        每生成{unitsPerBatch}{unitLabel}自动保存历史快照 • 共需保存 {fullCycleProgress.totalBatches} 个快照
                       </div>
                     </div>
                   )}
 
                 </div>
 
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => saveChapter()}
-                    disabled={!(isEditingChapter ? chapterDraft : generatedContent)}
-                    className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-sm rounded font-medium disabled:cursor-not-allowed"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>保存</span>
-                  </button>
-                  <button
-                    onClick={exportChapter}
-                    disabled={!(isEditingChapter ? chapterDraft : generatedContent)}
-                    className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm rounded font-medium disabled:cursor-not-allowed"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>导出</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+		                <button
+		                  onClick={exportChapter}
+		                  disabled={!visibleChapterContent}
+	                  className="w-full flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm rounded font-medium disabled:cursor-not-allowed"
+	                >
+	                  <Download className="w-4 h-4" />
+	                  <span>导出当前{unitLabel}</span>
+	                </button>
+	              </div>
+	            </div>
 
           </div>
 
           {/* 内容展示区域 */}
           <div className="lg:col-span-6">
-            {(isEditingChapter ? chapterDraft : generatedContent) ? (
+	            {(visibleChapterContent || generationState.isGenerating) ? (
               <div className="card p-8 bg-white/95 backdrop-blur-sm shadow-xl border-0">
                 <div className="mb-6 pb-4 border-b border-secondary-200 flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-2xl font-bold text-secondary-900 mb-2">
-                      {getChapterRangeDisplay(currentChapter)}
+                      {getUnitRangeDisplay(currentChapter)}
                     </h2>
                     {isEditingChapter && chapterDraftTouched && (
                       <div className="text-xs text-orange-700 bg-orange-50 border border-orange-200 inline-block px-2 py-1 rounded">
@@ -1945,56 +2009,32 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {!isEditingChapter ? (
-                      <>
-                        <button
-                          onClick={startEditChapter}
-                          disabled={
-                            generationState.isGenerating ||
-                            isBatchGenerating ||
-                            isFullCycleGenerating ||
-                            !(generatedChapters[currentChapter] ?? generatedContent)
-                          }
-                          className="px-3 py-2 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 text-secondary-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
-                          title="编辑当前章节内容（保存后将作为后续引用的最新正文）"
-                        >
-                          编辑
-                        </button>
-                        <button
-                          onClick={clearCurrentChapter}
-                          disabled={
-                            generationState.isGenerating ||
-                            isBatchGenerating ||
-                            isFullCycleGenerating ||
-                            !(generatedChapters[currentChapter] ?? generatedContent)
-                          }
-                          className="inline-flex items-center gap-1 px-3 py-2 bg-red-50 hover:bg-red-100 disabled:bg-gray-100 disabled:text-gray-400 text-red-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
-                          title="清空当前章节内容（可重新生成）"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          清空
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => saveChapter()}
-                          className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"
-                          title="保存本章修改"
-                        >
-                          保存
-                        </button>
-                        <button
-                          onClick={cancelEditChapter}
-                          className="px-3 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-lg text-sm font-medium"
-                          title="取消编辑（不保存修改）"
-                        >
-                          取消
-                        </button>
-                      </>
-                    )}
-                  </div>
+	                  <div className="flex items-center gap-2 flex-shrink-0">
+	                    {!isEditingChapter ? (
+	                      <button
+	                        onClick={clearCurrentChapter}
+	                        disabled={
+	                          generationState.isGenerating ||
+	                          isBatchGenerating ||
+	                          isFullCycleGenerating ||
+		                          !visibleChapterContent
+	                        }
+	                        className="inline-flex items-center gap-1 px-3 py-2 bg-red-50 hover:bg-red-100 disabled:bg-gray-100 disabled:text-gray-400 text-red-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+	                        title={`清空当前${unitLabel}内容（可重新生成）`}
+	                      >
+	                        <Trash2 className="w-4 h-4" />
+	                        清空
+	                      </button>
+	                    ) : (
+	                      <button
+	                        onClick={cancelEditChapter}
+	                        className="px-3 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-lg text-sm font-medium"
+	                        title="取消编辑（不保存修改）"
+	                      >
+	                        取消
+	                      </button>
+	                    )}
+	                  </div>
                 </div>
                 <div className="prose prose-base max-w-none">
                   {!isEditingChapter ? (
@@ -2009,9 +2049,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       }}
                     >
                       {/* 处理首行缩进和段落格式 */}
-                      {(generatedChapters[currentChapter] ?? generatedContent).split('\n\n').map((paragraph, index) => {
+	                      {visibleChapterContent.split('\n\n').map((paragraph, index) => {
                         // 检查是否是标题行
                         const isTitleLine = paragraph.match(/^第\d+章\s*\[/);
+                        const isEpisodeTitleLine = paragraph.match(/^第\d+集\s*\[/);
                         const isEmptyLine = paragraph.trim() === '';
 
                         if (isEmptyLine) return null;
@@ -2021,7 +2062,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                             key={index}
                             className="mb-4"
                             style={{
-                              textIndent: isTitleLine ? '0' : '2em', // 标题不缩进，正文缩进
+                              textIndent: isTitleLine || isEpisodeTitleLine ? '0' : '2em',
                               marginBottom: '1.2em',
                               textAlign: 'justify', // 两端对齐
                             }}
@@ -2030,7 +2071,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           </p>
                         );
                       })}
-                    </div>
+	                  <div ref={contentEndRef} />
+	                </div>
                   ) : (
                     <textarea
                       value={chapterDraft}
@@ -2055,10 +2097,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               <div className="card p-12 text-center">
                 <PenTool className="w-16 h-16 text-secondary-400 mx-auto mb-4" />
                 <h3 className="text-xl font-medium text-secondary-900 mb-2">
-                  准备开始写作
+                  {isMicrodrama ? '准备开始写剧本' : '准备开始写作'}
                 </h3>
                 <p className="text-secondary-600 mb-6">
-                  点击"生成章节内容"按钮，AI将基于完整的故事架构为你创作精彩的章节内容
+                  {isMicrodrama
+                    ? '点击生成按钮，AI将基于分集细纲为你创作标准微短剧单集正文'
+                    : '点击"生成章节内容"按钮，AI将基于完整的故事架构为你创作精彩的章节内容'}
                 </p>
                 <div className="text-sm text-secondary-500">
                   💡 AI会自动整合项目大纲、世界观、人设、中故事等所有背景信息
@@ -2067,19 +2111,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             )}
           </div>
 
-          {/* 小故事对照面板 */}
+          {/* 小故事/分集对照面板 */}
           <div className="lg:col-span-3">
             <div className="sticky top-8 space-y-6">
-              {/* 当前章节对应的小故事 */}
+              {/* 当前章节或当前集对应的卡片 */}
               <div className="card p-6">
                 <h3 className="text-lg font-semibold text-secondary-900 mb-4 flex items-center">
                   <FileText className="w-5 h-5 mr-2 text-primary-600" />
-                  章节对照
+                  {isMicrodrama ? '分集对照' : '章节对照'}
                 </h3>
 
                 {(() => {
-                  // 计算当前章节对应的小故事索引
-                  const chapterIndex = Math.floor((currentChapter - 1) / 2); // 每2章对应一个小故事
+                  const chapterIndex = isMicrodrama ? currentChapter - 1 : Math.floor((currentChapter - 1) / 2);
                   const currentMicroStory = microStoriesInOrder?.[chapterIndex];
 
                   if (currentMicroStory) {
@@ -2087,7 +2130,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       <div className="space-y-4">
                         <div className="bg-primary-50 p-3 rounded-lg">
                           <h4 className="font-medium text-primary-900 mb-2">
-                            第{chapterIndex + 1}个小故事
+                            {isMicrodrama ? `第${chapterIndex + 1}集卡` : `第${chapterIndex + 1}个小故事`}
                           </h4>
                           <p className="text-sm text-primary-800 font-medium mb-2">
                             {currentMicroStory.title}
@@ -2098,9 +2141,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         </div>
 
                         <div className="text-xs text-secondary-500 space-y-1">
-                          <p>• 对应章节：第{currentChapter}～{currentChapter + 1}章</p>
+                          <p>• 对应{isMicrodrama ? '分集' : '章节'}：{isMicrodrama ? `第${currentChapter}集` : `第${currentChapter}～${currentChapter + 1}章`}</p>
                           <p>• 中故事：{currentMicroStory.macroStoryTitle}</p>
-                          <p>• 顺序：第{currentMicroStory.order + 1}个小故事</p>
+                          <p>• 顺序：第{currentMicroStory.order + 1}{isMicrodrama ? '集' : '个小故事'}</p>
                         </div>
                       </div>
                     );
@@ -2108,9 +2151,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     return (
                       <div className="text-center py-8 text-secondary-500">
                         <FileText className="w-12 h-12 mx-auto mb-3 text-secondary-300" />
-                        <p className="text-sm">未找到对应的小故事</p>
+                        <p className="text-sm">未找到对应的{isMicrodrama ? '分集卡' : '小故事'}</p>
                         <p className="text-xs mt-1">
-                          请确保已在情节结构细化界面生成小故事
+                          请确保已在情节结构细化界面生成并保存{isMicrodrama ? '分集' : '小故事'}
                         </p>
                       </div>
                     );
@@ -2122,10 +2165,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               <div className="card p-6">
                 <h4 className="text-md font-semibold text-secondary-900 mb-3">写作提示</h4>
                 <div className="text-sm text-secondary-600 space-y-2">
-                  <p>• 每章2000-2200字</p>
-                  <p>• 包含吸引人的章节标题</p>
-                  <p>• 融入完整的故事背景</p>
-                  <p>• 保持连贯的阅读体验</p>
+                  {isMicrodrama ? (
+                    <>
+                      <p>• 每集控制在1200-1500字，成稿完整但不拖长</p>
+                      <p>• 对话为主，动作为辅，强推进、强情绪、强钩子</p>
+                      <p>• 结尾必须切黑场或留致命悬念</p>
+                      <p>• 延续上一集的动作与情绪，不要断档</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>• 每章2000-2200字</p>
+                      <p>• 包含吸引人的章节标题</p>
+                      <p>• 融入完整的故事背景</p>
+                      <p>• 保持连贯的阅读体验</p>
+                    </>
+                  )}
                   {previousChapterEnding && (
                     <div>
                       <p className="font-medium text-secondary-900 mt-3 mb-1">衔接参考：</p>
@@ -2135,8 +2189,45 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </div>
                   )}
                 </div>
-              </div>
-            </div>
+                <div className="mt-5 pt-4 border-t border-secondary-200 flex justify-end gap-2">
+                  {!isEditingChapter ? (
+                    <button
+                      onClick={startEditChapter}
+                      disabled={
+                        generationState.isGenerating ||
+                        isBatchGenerating ||
+                        isFullCycleGenerating ||
+	                        !visibleChapterContent
+                      }
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-secondary-900 hover:bg-secondary-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                      title={`编辑当前${unitLabel}内容（保存后将作为后续引用的最新正文）`}
+                    >
+                      <PenTool className="w-4 h-4" />
+                      编辑
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={cancelEditChapter}
+                        className="px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-lg text-sm font-medium"
+                        title="取消编辑（不保存修改）"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => saveChapter()}
+                        disabled={!chapterDraft}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                        title={`保存当前${unitLabel}修改`}
+                      >
+                        <Save className="w-4 h-4" />
+                        保存
+                      </button>
+                    </>
+                  )}
+                </div>
+	              </div>
+	            </div>
           </div>
         </div>
       </div>
@@ -2149,12 +2240,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">
-                    {isRegenerateMode ? '选择重新生成起始章节' : '选择继续生成起始章节'}
+                    {isRegenerateMode ? `选择重新生成起始${unitLabel}` : `选择继续生成起始${unitLabel}`}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
                     {isRegenerateMode
-                      ? '从选中的章节开始重新生成，将覆盖现有内容'
-                      : '从选中的章节开始生成后续所有未生成的内容'
+                      ? `从选中的${unitLabel}开始重新生成，将覆盖现有内容`
+                      : `从选中的${unitLabel}开始生成后续所有未生成的内容`
                     }
                   </p>
                 </div>
@@ -2176,10 +2267,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {microStoriesInOrder.map((story, storyIndex) => {
-                      const chapterStart = storyIndex * 2 + 1;
-                      const chapterEnd = storyIndex * 2 + 2;
-                      const isGenerated = generatedChapters[chapterStart] && generatedChapters[chapterEnd];
-                      const isPartiallyGenerated = generatedChapters[chapterStart] || generatedChapters[chapterEnd];
+                      const chapterStart = storyIndex * unitsPerMicroStory + 1;
+                      const chapterEnd = storyIndex * unitsPerMicroStory + unitsPerMicroStory;
+                      const isGenerated = isMicrodrama
+                        ? !!generatedChapters[chapterStart]
+                        : !!(generatedChapters[chapterStart] && generatedChapters[chapterEnd]);
+                      const isPartiallyGenerated = isMicrodrama
+                        ? !!generatedChapters[chapterStart]
+                        : !!(generatedChapters[chapterStart] || generatedChapters[chapterEnd]);
                       const isSelected = selectedStartChapter === chapterStart;
                       const canSelect = isRegenerateMode || !isGenerated; // 重新生成模式下都可以选择，继续生成模式下只有未完成的才能选择
 
@@ -2208,13 +2303,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1">
                               <h4 className="font-medium text-gray-900 mb-1">
-                                第{storyIndex + 1}个小故事
+                                {isMicrodrama ? `第${storyIndex + 1}集` : `第${storyIndex + 1}个小故事`}
                               </h4>
                               <p className="text-sm text-gray-600 mb-2 line-clamp-1">
                                 {story.title}
                               </p>
                               <div className="flex items-center space-x-2 text-xs text-gray-500">
-                                <span>第{chapterStart}～{chapterEnd}章</span>
+                                <span>{isMicrodrama ? `第${chapterStart}集` : `第${chapterStart}～${chapterEnd}章`}</span>
                                 <span>•</span>
                                 <span>{story.macroStoryTitle}</span>
                               </div>
@@ -2261,8 +2356,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                               }`}
                             >
                               {isRegenerateMode && isGenerated
-                                ? `从第${chapterStart}章重新生成`
-                                : `从第${chapterStart}章开始生成`
+                                ? `从第${chapterStart}${unitLabel}重新生成`
+                                : `从第${chapterStart}${unitLabel}开始生成`
                               }
                             </button>
                           )}
@@ -2280,14 +2375,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           <p className={`text-sm font-medium ${
                             isRegenerateMode ? 'text-red-900' : 'text-blue-900'
                           }`}>
-                            已选择：从第{selectedStartChapter}章{isRegenerateMode ? '重新' : ''}开始生成
+                            已选择：从第{selectedStartChapter}{unitLabel}{isRegenerateMode ? '重新' : ''}开始生成
                           </p>
                           <p className={`text-xs mt-1 ${
                             isRegenerateMode ? 'text-red-700' : 'text-blue-700'
                           }`}>
                             {isRegenerateMode
-                              ? `将重新生成从第${selectedStartChapter}章到最后的全部内容（覆盖现有内容）`
-                              : `将生成从第${selectedStartChapter}章到最后的全部内容`
+                              ? `将重新生成从第${selectedStartChapter}${unitLabel}到最后的全部内容（覆盖现有内容）`
+                              : `将生成从第${selectedStartChapter}${unitLabel}到最后的全部内容`
                             }
                           </p>
                         </div>
@@ -2310,8 +2405,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   <BookOpen className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>未找到小故事数据</p>
-                  <p className="text-sm mt-1">请先在情节结构细化页面生成小故事</p>
+                  <p>未找到{isMicrodrama ? '分集' : '小故事'}数据</p>
+                  <p className="text-sm mt-1">请先在情节结构细化页面生成并保存{isMicrodrama ? '分集' : '小故事'}</p>
                 </div>
               )}
             </div>
@@ -2347,7 +2442,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           </div>
                           <div>
                             <h4 className="font-medium text-gray-900">
-                              {version.chapterCount}章 • {version.totalWords}字
+                              {version.chapterCount}{unitLabel} • {version.totalWords}字
                             </h4>
                             <p className="text-sm text-gray-500">
                               {new Date(version.timestamp).toLocaleString()}

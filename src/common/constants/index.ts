@@ -2,10 +2,10 @@
 
 // AI模型配置常量
 export const AI_MODELS = {
-  // 默认逻辑模型 (Gemini 3 Pro via Yinli)
-  DEFAULT_MODEL: 'gemini-3-pro-preview',
+  // 默认逻辑模型 (Gemini 官方 OpenAI 兼容接口)
+  DEFAULT_MODEL: 'gemini-3.1-pro-preview',
   // 写作模型 (DeepSeek，后续界面五使用)
-  WRITER_MODEL: 'deepseek-chat',
+  WRITER_MODEL: 'deepseek-v4-pro',
 } as const;
 
 // 故事类型配置
@@ -24,6 +24,6 @@ export const STORY_GENRES = [
 
 // API配置常量
 export const API_CONFIG = {
-  DEFAULT_BASE_URL: 'https://yinli.one/v1',
+  DEFAULT_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
   DEFAULT_PORT: 3000,
 } as const;

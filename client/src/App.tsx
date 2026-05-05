@@ -36,7 +36,24 @@ function BlueprintPage({
   const [isSavedPanelOpen, setIsSavedPanelOpen] = useState(false);
   const [outlineDraft, setOutlineDraft] = useState<OutlineData | null>(null);
   const [editingOutlineIndex, setEditingOutlineIndex] = useState<number | null>(null);
+  const [lastCommittedOutline, setLastCommittedOutline] = useState<OutlineData | null>(null);
   const isEditingOutline = outlineDraft !== null;
+  const resolvedOutlineIndex =
+    currentOutlineIndex >= 0 && currentOutlineIndex < outlines.length
+      ? currentOutlineIndex
+      : 0;
+  const currentOutline = outlines[resolvedOutlineIndex] ?? null;
+
+  const createCachedOutline = (outline: OutlineData): OutlineData => ({
+    id: outline.id,
+    title: (outline.title || '').slice(0, 200),
+    logline: (outline.logline || '').slice(0, 2000),
+    hook: (outline.hook || '').slice(0, 2000),
+    characters: (outline.characters || '').slice(0, 2000),
+    world: (outline.world || '').slice(0, 2000),
+    themes: (outline.themes || '').slice(0, 2000),
+    rawContent: '',
+  });
 
   const createBlankOutline = (): OutlineData => ({
     id: Date.now(),
@@ -117,14 +134,15 @@ function BlueprintPage({
     // 将保存的大纲设置为当前显示的架构
     setOutlines([outline]);
     setCurrentOutlineIndex(0);
+    setLastCommittedOutline(outline);
     setOutlineDraft(null);
     setEditingOutlineIndex(null);
   };
 
   const startEditCurrentOutline = () => {
-    const current = outlines[currentOutlineIndex];
+    const current = currentOutline;
     if (!current) return;
-    setEditingOutlineIndex(currentOutlineIndex);
+    setEditingOutlineIndex(resolvedOutlineIndex);
     setOutlineDraft({ ...current });
   };
 
@@ -139,34 +157,54 @@ function BlueprintPage({
     setEditingOutlineIndex(null);
   };
 
-  const saveOutlineEdit = () => {
-    if (!outlineDraft) return;
+  const commitOutlineDraft = (): OutlineData | null => {
+    if (!outlineDraft) return null;
     if (!outlineDraft.title.trim()) {
       setError('请至少填写一个灵感架构标题');
-      return;
+      return null;
     }
 
     setError(null);
+    const normalizedOutline: OutlineData = {
+      ...outlineDraft,
+      id: outlineDraft.id || Date.now(),
+      title: outlineDraft.title.trim(),
+    };
 
     if (editingOutlineIndex === null) {
-      const newOutline: OutlineData = {
-        ...outlineDraft,
-        id: Date.now(),
-      };
+      setLastCommittedOutline(normalizedOutline);
       setOutlines(prev => {
-        const next = [...prev, newOutline];
+        const next = [...prev, normalizedOutline];
         setCurrentOutlineIndex(next.length - 1);
         return next;
       });
     } else {
+      setLastCommittedOutline(normalizedOutline);
       setOutlines(prev =>
-        prev.map((item, index) => (index === editingOutlineIndex ? { ...outlineDraft } : item))
+        prev.map((item, index) => (index === editingOutlineIndex ? normalizedOutline : item))
       );
       setCurrentOutlineIndex(editingOutlineIndex);
     }
 
+    try {
+      localStorage.setItem('story-architect-current-outline', JSON.stringify(createCachedOutline(normalizedOutline)));
+    } catch (error) {
+      console.warn('缓存当前灵感架构失败，继续使用内存态跳转:', error);
+    }
+
     setOutlineDraft(null);
     setEditingOutlineIndex(null);
+    return normalizedOutline;
+  };
+
+  const saveOutlineEdit = () => {
+    commitOutlineDraft();
+  };
+
+  const saveOutlineAndEnterWorldSetting = () => {
+    const committedOutline = commitOutlineDraft();
+    if (!committedOutline) return;
+    onNavigate('world-setting', committedOutline);
   };
 
   const updateOutlineDraft = (field: keyof OutlineData, value: string) => {
@@ -177,6 +215,42 @@ function BlueprintPage({
         [field]: value,
       };
     });
+  };
+
+  const handleEnterWorldSetting = () => {
+    if (outlineDraft) {
+      const draftOutline: OutlineData = {
+        ...outlineDraft,
+        id: outlineDraft.id || Date.now(),
+        title: outlineDraft.title.trim() || '未命名灵感架构',
+      };
+      onNavigate('world-setting', draftOutline);
+      return;
+    }
+
+    const latestOutline =
+      currentOutline ||
+      outlines[resolvedOutlineIndex] ||
+      lastCommittedOutline ||
+      null;
+
+    const latestSavedOutline = (() => {
+      try {
+        const raw = localStorage.getItem('story-architect-current-outline');
+        return raw ? JSON.parse(raw) as OutlineData : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    const finalOutline = latestOutline || latestSavedOutline;
+
+    if (!finalOutline) {
+      setError('请先生成或保存一个灵感架构，再进入人设与世界观');
+      return;
+    }
+
+    onNavigate('world-setting', finalOutline);
   };
 
 
@@ -200,7 +274,7 @@ function BlueprintPage({
       localStorage.setItem('story-architect-book-name', bookName.trim());
 
       // 跳转到人设与世界观界面
-      onNavigate('world-setting', outlines[currentOutlineIndex]);
+      onNavigate('world-setting', currentOutline || undefined);
 
     } catch (error) {
       console.error('全流程自动化启动失败:', error);
@@ -331,16 +405,13 @@ function BlueprintPage({
                 )}
 
                 {/* 跳转到World Setting按钮 */}
-                {outlines.length > 0 && (
-                  <button
-                    disabled={isEditingOutline}
-                    onClick={() => onNavigate('world-setting', outlines[currentOutlineIndex])}
-                    className="w-full btn btn-secondary py-3 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <BookOpen className="w-5 h-5" />
-                    <span>进入人设与世界观</span>
-                  </button>
-                )}
+                <button
+                  onClick={handleEnterWorldSetting}
+                  className="w-full btn btn-secondary py-3 flex items-center justify-center space-x-2"
+                >
+                  <BookOpen className="w-5 h-5" />
+                  <span>进入人设与世界观</span>
+                </button>
               </div>
             </div>
           </div>
@@ -395,6 +466,13 @@ function BlueprintPage({
                           >
                             <Save className="w-4 h-4" />
                             <span>保存修改</span>
+                          </button>
+                          <button
+                            onClick={saveOutlineAndEnterWorldSetting}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-md"
+                          >
+                            <BookOpen className="w-4 h-4" />
+                            <span>保存并进入</span>
                           </button>
                           <button
                             onClick={cancelOutlineEdit}
@@ -493,9 +571,9 @@ function BlueprintPage({
                       </div>
                     </div>
                   </div>
-                ) : outlines.length > 0 ? (
+                ) : currentOutline ? (
                   <OutlineCard
-                    outline={outlines[currentOutlineIndex]}
+                    outline={currentOutline}
                     className="animate-fade-in"
                   />
                 ) : null}
@@ -548,6 +626,30 @@ function App() {
   const [currentPage, setCurrentPage] = useState<'blueprint' | 'world-setting' | 'story-structure' | 'writer'>('blueprint');
   const [selectedOutline, setSelectedOutline] = useState<OutlineData | null>(null);
 
+  const cacheOutlineSafely = (outline: OutlineData | null) => {
+    if (!outline) {
+      localStorage.removeItem('story-architect-current-outline');
+      return;
+    }
+
+    const cachedOutline: OutlineData = {
+      id: outline.id,
+      title: (outline.title || '').slice(0, 200),
+      logline: (outline.logline || '').slice(0, 2000),
+      hook: (outline.hook || '').slice(0, 2000),
+      characters: (outline.characters || '').slice(0, 2000),
+      world: (outline.world || '').slice(0, 2000),
+      themes: (outline.themes || '').slice(0, 2000),
+      rawContent: '',
+    };
+
+    try {
+      localStorage.setItem('story-architect-current-outline', JSON.stringify(cachedOutline));
+    } catch (error) {
+      console.warn('缓存当前灵感架构失败，忽略缓存继续流程:', error);
+    }
+  };
+
   // 自动化流程状态
 
   // 从localStorage恢复selectedOutline
@@ -564,11 +666,14 @@ function App() {
   }, []);
 
   const handleNavigate = (page: string, outline?: OutlineData, shouldNavigateToStructure?: boolean) => {
-    if (page === 'world-setting' && outline) {
-      setSelectedOutline(outline);
-      // 保存到localStorage以防页面刷新
-      localStorage.setItem('story-architect-current-outline', JSON.stringify(outline));
+    if (page === 'world-setting') {
+      if (outline) {
+        setSelectedOutline(outline);
+      } else {
+        setSelectedOutline(null);
+      }
       setCurrentPage('world-setting');
+      cacheOutlineSafely(outline || null);
     } else if (page === 'story-structure') {
       setCurrentPage('story-structure');
     } else if (page === 'writer') {
@@ -582,8 +687,7 @@ function App() {
     } else {
       setCurrentPage('blueprint');
       setSelectedOutline(null);
-      // 清除localStorage中的临时数据
-      localStorage.removeItem('story-architect-current-outline');
+      cacheOutlineSafely(null);
     }
   };
 
@@ -593,8 +697,7 @@ function App() {
     } else {
       setCurrentPage('blueprint');
       setSelectedOutline(null);
-      // 清除localStorage中的临时数据
-      localStorage.removeItem('story-architect-current-outline');
+      cacheOutlineSafely(null);
     }
   };
 

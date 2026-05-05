@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsIn } from 'class-validator';
 
 export class GenerateMicroStoriesDto {
   @IsString()
@@ -10,4 +10,9 @@ export class GenerateMicroStoriesDto {
 
   @IsString()
   chapterRange?: string; // 章节范围（如"1-20"、"21-40"）
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['novel', 'microdrama'])
+  mode?: 'novel' | 'microdrama';
 }

@@ -55,6 +55,8 @@ interface WorldSettingPageProps {
 
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
   const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
+  const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
+  const [needsUpgradeSystem, setNeedsUpgradeSystem] = useState(true);
 
   // 调试：监听项目状态变化
   useEffect(() => {
@@ -93,6 +95,24 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   });
   const [inlineSaveSection, setInlineSaveSection] = useState<'world' | 'characters' | 'outline' | null>(null);
 
+  const outlineModeMeta = outlineMode === 'microdrama'
+    ? {
+        shortName: '微短剧100集',
+        buttonText: '生成微短剧100集大纲',
+        generateHint: '固定10个中故事卡点，每个卡点拆10集，共100集微短剧大纲',
+        resultTitle: '微短剧100集大纲结果',
+        emptyTitle: '尚未生成微短剧100集大纲',
+        emptyActionText: '手动填写微短剧100集大纲',
+      }
+    : {
+        shortName: '网文情节细纲',
+        buttonText: '生成首批10个中故事',
+        generateHint: '网文按约40个中故事规划，每次生成10个；后续可在情节结构细化页继续生成下一批',
+        resultTitle: '情节细纲结果',
+        emptyTitle: '尚未生成情节细纲',
+        emptyActionText: '手动填写情节细纲',
+      };
+
   // 初始化项目名称 - 优先使用selectedOutline的标题
   useEffect(() => {
     if (selectedOutline) {
@@ -114,6 +134,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setOutline(currentProject.detailedOutline || '');
       setWorldSettingGenerated(!!currentProject.worldSetting);
       setCharactersGenerated(!!currentProject.characters);
+      setOutlineMode(currentProject.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel');
+      setNeedsUpgradeSystem(currentProject.worldSettingNeedsUpgradeSystem !== false);
 
       // 如果有内容，自动切换到对应的标签页
       if (currentProject.detailedOutline) {
@@ -136,6 +158,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setWorldSettingGenerated(false);
       setCharactersGenerated(false);
       setActiveTab('world');
+      setOutlineMode('novel');
+      setNeedsUpgradeSystem(true);
 
       // 如果有selectedOutline，设置书名
       if (selectedOutline) {
@@ -183,7 +207,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const outlineData = formatOutlineData(selectedOutline);
 
       const response = await blueprintApi.generateWorldSetting({
-        outline: outlineData
+        outline: outlineData,
+        needsUpgradeSystem,
       });
 
       console.log('生成的世界观基础设定:', response.data);
@@ -191,7 +216,11 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setWorldSettingGenerated(true);
     } catch (error) {
       console.error('生成世界观基础设定失败:', error);
-      alert('生成世界观基础设定失败，请稍后重试');
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '生成世界观基础设定失败，请稍后重试';
+      alert(errorMessage);
     } finally {
       setIsGeneratingWorldSetting(false);
     }
@@ -236,7 +265,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const response = await blueprintApi.generateDetailedOutline({
         outline: outlineData,
         worldSetting: worldSetting,
-        characters: characters
+        characters: characters,
+        mode: outlineMode,
+        outlineBatchIndex: 1,
+        existingDetailedOutline: '',
       });
 
       console.log('生成的情节细纲:', response.data);
@@ -281,6 +313,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           worldSetting,
           characters,
           detailedOutline: outline,
+          detailedOutlineMode: outlineMode,
+          worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
       } else {
         console.log('创建新项目');
@@ -289,6 +323,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           worldSetting,
           characters,
           detailedOutline: outline,
+          detailedOutlineMode: outlineMode,
+          worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
         console.log('新项目创建完成，项目ID:', newProject.id);
       }
@@ -417,7 +453,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       // 第一步：生成世界观基础设定
       const outlineData = formatOutlineData(selectedOutline);
       const worldResponse = await blueprintApi.generateWorldSetting({
-        outline: outlineData
+        outline: outlineData,
+        needsUpgradeSystem,
       });
 
       console.log('批量生成：世界观基础设定成功');
@@ -448,7 +485,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const outlineResponse = await blueprintApi.generateDetailedOutline({
         outline: outlineData,
         worldSetting: worldResponse.data,
-        characters: charactersResponse.data
+        characters: charactersResponse.data,
+        mode: outlineMode,
+        outlineBatchIndex: 1,
+        existingDetailedOutline: '',
       });
 
       console.log('批量生成：情节细纲成功');
@@ -462,12 +502,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
           detailedOutline: outlineResponse.data,
+          detailedOutlineMode: outlineMode,
+          worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
       } else {
         const newProject = createProject(bookName.trim(), selectedOutline, {
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
           detailedOutline: outlineResponse.data,
+          detailedOutlineMode: outlineMode,
+          worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
         console.log('批量生成：新项目创建完成，项目ID:', newProject.id);
       }
@@ -488,7 +532,11 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     } catch (error) {
       console.error('批量生成失败:', error);
-      alert('批量生成过程中出现错误，请稍后重试');
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '批量生成过程中出现错误，请稍后重试';
+      alert(errorMessage);
     } finally {
       setBatchGenerating(false);
       setBatchGenerationProgress(null);
@@ -647,6 +695,34 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
               </div>
 
               <div className="space-y-4">
+                <div className="rounded-lg border border-secondary-200 bg-secondary-50 p-4">
+                  <div className="text-sm font-medium text-secondary-900 mb-3">升级体系选项</div>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => setNeedsUpgradeSystem(true)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        needsUpgradeSystem
+                          ? 'bg-primary-600 text-white shadow-sm'
+                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+                      }`}
+                    >
+                      需要升级体系
+                    </button>
+                    <button
+                      onClick={() => setNeedsUpgradeSystem(false)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        !needsUpgradeSystem
+                          ? 'bg-primary-600 text-white shadow-sm'
+                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+                      }`}
+                    >
+                      不需要升级体系
+                    </button>
+                  </div>
+                  <p className="text-xs text-secondary-600 mt-3">
+                    都市、现代、现实、豪门、职场、校园等题材，建议关闭修炼升级体系，改走现实向世界观模板。
+                  </p>
+                </div>
                 <button
                   onClick={handleGenerateWorldSetting}
                   disabled={isGeneratingWorldSetting}
@@ -699,6 +775,31 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
               </div>
 
               <div className="space-y-4">
+                <div className="rounded-lg border border-secondary-200 bg-secondary-50 p-4">
+                  <div className="text-sm font-medium text-secondary-900 mb-3">生成模式</div>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => setOutlineMode('novel')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        outlineMode === 'novel'
+                          ? 'bg-primary-600 text-white shadow-sm'
+                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+                      }`}
+                    >
+                      网文情节细纲
+                    </button>
+                    <button
+                      onClick={() => setOutlineMode('microdrama')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        outlineMode === 'microdrama'
+                          ? 'bg-primary-600 text-white shadow-sm'
+                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+                      }`}
+                    >
+                      微短剧100集大纲
+                    </button>
+                  </div>
+                </div>
                 <button
                   onClick={handleGenerateOutline}
                   disabled={isGeneratingOutline || !charactersGenerated}
@@ -708,10 +809,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       : 'btn btn-secondary cursor-not-allowed bg-secondary-300 hover:bg-secondary-300'
                   }`}
                 >
-                  {isGeneratingOutline ? '生成中...' : '生成情节细纲'}
+                  {isGeneratingOutline ? '生成中...' : outlineModeMeta.buttonText}
                 </button>
                 <p className="text-xs text-secondary-600">
-                  AI自动选择25-30个中故事，生成完整情节框架
+                  {outlineModeMeta.generateHint}
                 </p>
                 <div className="text-xs text-secondary-500">
                   <CheckCircle className="w-3 h-3 inline mr-1" />
@@ -773,7 +874,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     }`}
                   >
                     <FileText className="w-4 h-4" />
-                    <span>情节细纲</span>
+                    <span>{outlineModeMeta.shortName}</span>
                   </button>
               </div>
             </div>
@@ -944,7 +1045,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-3">
                           <FileText className="w-5 h-5 text-primary-600" />
-                          <h3 className="text-lg font-semibold text-secondary-900">情节细纲结果</h3>
+                          <h3 className="text-lg font-semibold text-secondary-900">{outlineModeMeta.resultTitle}</h3>
                         </div>
                         <div className="flex items-center space-x-2">
                           {inlineSaveSection === 'outline' && (
@@ -984,7 +1085,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                             value={sectionDrafts.outline}
                             onChange={(e) => setSectionDrafts(prev => ({ ...prev, outline: e.target.value }))}
                             className="w-full min-h-[420px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
-                            placeholder="可在这里手动修改情节细纲"
+                            placeholder={`可在这里手动修改${outlineModeMeta.shortName}`}
                           />
                         ) : (
                           <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
@@ -997,7 +1098,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     <div className="text-center py-12">
                       <FileText className="w-16 h-16 text-secondary-400 mx-auto mb-4" />
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
-                        尚未生成情节细纲
+                        {outlineModeMeta.emptyTitle}
                       </h3>
                       <p className="text-secondary-600 mb-4">
                         你可以点击下方按钮手动填写，或先走AI生成流程
@@ -1007,7 +1108,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                         className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
                       >
                         <PenTool className="w-4 h-4" />
-                        <span>手动填写情节细纲</span>
+                        <span>{outlineModeMeta.emptyActionText}</span>
                       </button>
                     </div>
                   )}

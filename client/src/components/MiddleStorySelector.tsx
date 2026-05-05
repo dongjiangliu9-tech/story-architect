@@ -12,7 +12,7 @@ interface MiddleStorySelectorProps {
 export function MiddleStorySelector({
   selectedStories,
   onSelectionChange,
-  maxSelection = 30
+  maxSelection = 10
 }: MiddleStorySelectorProps) {
   const [activeCategory, setActiveCategory] = useState(storyCategories[0]);
 
@@ -56,7 +56,7 @@ export function MiddleStorySelector({
       {/* 选择统计 */}
       <div className="flex items-center justify-between text-sm text-secondary-600">
         <span>已选择: {selectedStories.length} / {maxSelection}</span>
-        <span>建议选择: 25-30个</span>
+        <span>建议选择: 每批10个</span>
       </div>
 
       {/* 故事列表 */}

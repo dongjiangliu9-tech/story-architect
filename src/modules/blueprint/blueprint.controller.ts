@@ -5,6 +5,7 @@ import { GenerateWorldSettingDto } from './dto/generate-world-setting.dto';
 import { GenerateCharactersDto } from './dto/generate-characters.dto';
 import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto';
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
+import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 
@@ -35,6 +36,11 @@ export class BlueprintController {
   @Post('generate-micro-stories')
   async generateMicroStories(@Body() dto: GenerateMicroStoriesDto) {
     return this.blueprintService.generateMicroStories(dto);
+  }
+
+  @Post('generate-micro-story-variants')
+  async generateMicroStoryVariants(@Body() dto: GenerateMicroStoryVariantsDto) {
+    return this.blueprintService.generateMicroStoryVariants(dto);
   }
 
   @Post('generate-chapter')

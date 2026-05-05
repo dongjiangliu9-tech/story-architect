@@ -5,8 +5,8 @@ import { GenerateWorldSettingDto } from './dto/generate-world-setting.dto';
 import { GenerateCharactersDto } from './dto/generate-characters.dto';
 import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto';
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
+import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateChapterDto } from './dto/generate-chapter.dto';
-import { ARCHITECT_SYSTEM_PROMPT } from '../../common/prompts/architect.prompt';
 import { Observable } from 'rxjs';
 
 @Injectable()
@@ -17,6 +17,243 @@ export class BlueprintService {
   private cancelledRequests = new Set<string>();
 
   constructor(private llmService: LlmService) {}
+
+  private normalizeDetailedOutlineMode(mode?: string): 'novel' | 'microdrama' {
+    return mode === 'microdrama' ? 'microdrama' : 'novel';
+  }
+
+  private getStoryWritingSystemPrompt(): string {
+    return `你是长篇网文与微短剧的剧情统筹写手。你的首要职责是严格执行输入中的限制条件、当前卡片任务和连续性要求，而不是自由发挥。
+
+执行优先级（从高到低）：
+1. 当前任务中写明的“必须 / 严禁 / 不得 / 只能”
+2. 当前中故事卡 / 小故事卡 / 当前单章或单集任务
+3. 已提供的已写内容与连续性约束
+4. 人物设定、世界观设定、整体大纲
+5. 文采发挥
+
+硬规则：
+- 信息不足时，宁可保守，也不要擅自新增设定、偷换动机、跳过铺垫或提前写到下一段剧情。
+- 爱情线、升级线、关系线都必须慢推，不得越级。
+- 所有关键事件都要有明确因果链：触发原因、人物动机、行动过程、结果与余波。
+- 正文必须有成稿感，不能写成提纲扩写、桥段清单或流水账。
+- 场景、动作、对话、情绪、因果必须彼此咬合，不要为了赶速度省略必要承接句、反应句和镜头落点。`;
+  }
+
+  private getMicrodramaTypePoolPrompt(): string {
+    return `起源与成长类：
+- 问道初庭
+- 潜龙初现
+- 星火复燃
+- 破茧之变
+
+情感与人性类：
+- 情愫暗生
+- 旧恨新谋
+- 古道热肠
+- 万民福祉
+- 误中情网
+- 假面舞会
+- 背刺之痛
+- 蜜语争端
+- 和解之桥
+
+探索与奥秘类：
+- 迷雾揭晓
+- 尘封秘闻
+- 诡局落子
+- 绝地寻生
+- 异域探幽
+- 界域穿行
+- 未来残影
+- 禁忌之门
+
+冲突与考验类：
+- 怀璧之劫
+- 风云擂台
+- 巨鳄相争
+- 盛会风云
+- 生死赌局
+- 智取豪夺
+- 如影随形
+- 暗流行动
+- 异化之躯
+- 不公之刃
+
+转折与蜕变类：
+- 三寸惊雷
+- 失控漩涡
+- 刮目之时
+- 缚能之刻
+- 踪迹成谜
+- 两界纽带
+- 契约束缚
+- 外敌叩关
+- 破枷之行
+- 无中生有
+- 命运交易
+- 微澜访世
+- 悠然时光
+- 养成篇章`;
+  }
+
+  private buildMicrodramaDetailedOutlinePrompts(dto: GenerateDetailedOutlineDto): {
+    prompt: string;
+    compactPrompt: string;
+    safetyPrompt: string;
+  } {
+    const typePool = this.getMicrodramaTypePoolPrompt();
+    const prompt = `基于以下故事大纲、世界观基础设定和人物设定，为该作品生成一版可继续拆成 100 集微短剧的完整剧情大纲：
+
+故事大纲：
+${dto.outline}
+
+世界观基础设定：
+${dto.worldSetting}
+
+人物设定：
+${dto.characters}
+
+你的任务不是生成“多少章的网文细纲”，而是生成一版可继续拆成 100 集微短剧的完整大纲。
+
+固定结构（必须遵守）：
+1. 全剧固定为 100 集，并且必须严格拆成 10 个中故事卡点。
+2. 每个中故事固定承载 10 集，对应集数依次为：
+   - 【中故事一】第1-10集
+   - 【中故事二】第11-20集
+   - 一直到【中故事十】第91-100集
+3. 后续系统会继续把每个中故事细化成 10 集单集细纲，所以你现在写的每个中故事必须天然能再拆成 10 集连续剧情。
+4. 仍然尽量复用网文写法中的“故事线结构 / 爱情线节奏 / 事业线节点 / 技法卡 / 一级结构”，但输出目标改为微短剧 100 集商业大纲。
+5. 生成一版可继续拆成 100 集微短剧的完整大纲时，有两个额外硬约束必须严格执行：
+   - 第一，100 集完结时，主角不一定要成为这个世界里的最强者，只需要完成阶段性的成功，并形成一个收束合理、足够爽的阶段性结局。
+   - 第二，第一个中故事必须足够精彩，且必须明确包含三个故事卡：第1-3集完成第一个中故事卡，第4-6集完成第二个中故事卡，第7-10集完成第三个中故事卡，剧情推进必须非常快，不能慢热。
+
+一、故事线整体结构（必须先确定）：
+本剧主结构仍采用以下两种结构之一：
+- 方案A：两条事业线 + 一条爱情线
+- 方案B：两条爱情线 + 一条事业线
+
+你必须在大纲开头用 1-2 句话明确说明三条线分别是什么，并标明每条线主要由哪些中故事承载。
+
+二、爱情线与事业线约束（尽量复用网文规则）：
+1. 爱情线继续遵循：好感度 → 两人关系阶段 → 爱情线阶段 的慢热逻辑。
+2. 爱情线阶段仍使用：萍水相逢阶段、爱情喜剧阶段、爱隔山海阶段、大结局阶段。
+3. 若某中故事涉及爱情线，必须显式标注：爱情线ID、承载中故事序号、好感度、两人关系阶段、爱情线阶段。
+4. 单个中故事最多推进一级，严禁跳级；第1、2个承载中故事严禁直接确认关系或进入大结局阶段。
+5. 事业线中故事继续从以下一级结构中选取：阻碍结构、危机结构、装逼结构、探明结构、取得结构、义举结构。
+6. 事业线节点继续参考目标行动、状态升级、地图更新、利益团体、资源宝物、角色登退场、关系变化、矛盾升级、戏剧性、预期打破、关键里程碑等。
+
+三、微短剧节奏铁律（必须强执行）：
+1. 首个中故事的开局必须是“生死存亡”或“极度屈辱”的高压危机，且在最危急时立刻激活金手指/核心反转/身份反转。
+2. 全剧必须保持高情绪密度，不能平铺直叙，不能用“他很愤怒/她很绝望”这种总结词带过。
+3. 每一集都默认遵循“压抑 → 爆发”的闭环；每个中故事内部要体现 10 集连续的压抑递进与多次爆发。
+4. 每一集都要有钩子，每个中故事的第10集结尾必须是更大的黑场悬念或认知反转。
+5. 每个独立桥段都要同时满足：解决一个当前矛盾、埋下一个新危机/新伏笔、完成一次主角心态或实力弧光。
+6. 情绪占比整体向“爽感”倾斜，兼顾虐感、甜感、悬念，但禁止连续长时间纯甜或纯虐。
+7. 第一个中故事内部必须严格按三张故事卡推进：1-3集一张卡，4-6集一张卡，7-10集一张卡，每张卡都要有独立爆点、反转和钩子。
+
+四、生成时必须执行的三轮内审，但不要把审查过程单独输出出来：
+1. 先按【情绪密度与极值控制卡】规划每个中故事的情绪骨架：明确压抑期、爆发期、极端情绪类型、核心反击动作。
+2. 再按【桥段密度与钩子调度器】校准：确保每个中故事内部都具备高频钩子、冲突升级、黑场悬念结尾。
+3. 最后按【要素提纯与商业闭环校验】自查并重写：强化身份反差、关系背刺、欲望绑定，剔除 AI 平滑感与解释性废话。
+4. 你必须完成这三轮内审后，再只输出最终版，不要输出“收到”“体检报告”“思路解释”“审查步骤”。
+
+五、中故事类型池（微短剧模式强约束，10 个中故事必须从这里选主题）：
+${typePool}
+
+强制规则：
+1. 这次不是从类型池里选 25-30 个，而是必须从以上类型池中精准选择 10 个最适配当前故事设定的类型，分别作为 10 个中故事卡点的主题母题。
+2. 每个中故事的主标题必须直接使用类型池中的一个名称，例如“【中故事一】问道初庭”。
+3. 不得自创池外类型名，不得把类型池当成可有可无的参考项。
+4. 10 个中故事应尽量避免重复类型；优先 10 个全不重复。
+5. 你需要先根据故事设定判断最匹配的 10 个类型，再围绕这些类型去设计每个中故事的卡点、冲突、情绪和剧情推进。
+
+六、每个中故事的输出格式（必须统一）：
+【中故事一】标题
+对应集数：第1-10集
+中故事类型来源：明确写出该标题属于上面哪一类
+卡点定位：说明这是这一组10集的核心卡点与商业卖点
+目的：……
+技法卡：……
+一级结构：……
+承载主线：明确属于哪条事业线/爱情线，起什么作用
+情绪骨架：压抑期……；爆发期……
+钩子设计：至少写清本段的核心钩子类型与第10集黑场悬念
+商业要素：身份要素 / 关系要素 / 欲望要素
+节点：……
+详细剧情：必须写清这10集的开端、发展、高潮、转折、结局，以及第10集切黑时抛出的更大危机
+
+说明：
+1. 一共只输出 10 个中故事，不能多、不能少。
+2. 这 10 个中故事标题必须来自上面的类型池，不能临时自拟池外标题。
+3. 先完成“从类型池挑选 10 个最适配类型”这一步，再进入剧情设计。
+4. 每个中故事都必须足够详细，能继续拆成 10 集单集细纲。
+5. 节奏必须像微短剧，不要写成传统长篇网文的平缓章回。
+6. 标题后直接跟内容，中间不要空行。
+7. 不要先列标题清单，不要解释你的思路，不要寒暄。
+
+请直接输出最终版的微短剧 100 集剧情大纲。`;
+
+    const compactPrompt = `请把以下资料生成成 100 集微短剧大纲：
+
+故事大纲：
+${dto.outline}
+
+世界观基础设定：
+${dto.worldSetting}
+
+人物设定：
+${dto.characters}
+
+硬要求：
+- 全剧固定 100 集，必须拆成 10 个中故事，每个中故事固定 10 集。
+- 100 集完结时，主角不一定成为世界最强者，但必须取得阶段性成功，并有合理爽点收束。
+- 第一个中故事必须特别精彩，且严格拆成三张故事卡：1-3集一张，4-6集一张，7-10集一张，前10集必须快节奏强推进。
+- 10 个中故事标题必须从以下类型池中精准选择，不得自创池外标题：
+${typePool}
+- 每个中故事都必须写清：对应集数、中故事类型来源、卡点定位、目的、技法卡、一级结构、承载主线、情绪骨架、钩子设计、商业要素、节点、详细剧情。
+- 必须内部执行“情绪密度 / 钩子调度 / 商业闭环”三轮校验，但只输出最终版。
+- 爱情线必须慢热，不得越级推进。
+
+请直接输出 10 个中故事，不要解释过程。`;
+
+    const safetyPrompt = `请在保持节奏强、钩子密、情绪高压的前提下，用可发布的中性表达方式，输出一版 100 集微短剧剧情大纲。
+
+故事大纲：
+${dto.outline}
+
+世界观基础设定：
+${dto.worldSetting}
+
+人物设定：
+${dto.characters}
+
+固定要求：
+- 全剧固定 100 集，严格拆成 10 个中故事，每个中故事 10 集。
+- 100 集版本里，主角不必直接成为世界最强者，但必须取得阶段性成功，并形成合理爽点收束。
+- 第一个中故事必须足够精彩，并严格拆成三张故事卡：第1-3集、第4-6集、第7-10集各完成一张，前10集必须高速推进。
+- 10 个中故事标题必须从以下类型池中精准选择，不得自创池外标题：
+${typePool}
+- 每个中故事都必须写清对应集数、中故事类型来源、卡点定位、目的、技法卡、一级结构、承载主线、情绪骨架、钩子设计、商业要素、节点、详细剧情。
+- 保持微短剧节奏，但避免过度刺激的直白表述，改写为中性可发布表达。
+
+请直接输出最终大纲，不要解释过程。`;
+
+    return { prompt, compactPrompt, safetyPrompt };
+  }
+
+  private getChineseNumber(num: number): string {
+    const digits = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    if (num <= 10) return num === 10 ? '十' : digits[num];
+    if (num < 20) return `十${digits[num - 10]}`;
+    const tens = Math.floor(num / 10);
+    const ones = num % 10;
+    return `${digits[tens]}十${ones ? digits[ones] : ''}`;
+  }
+
+  private countMacroStories(content?: string): number {
+    return content?.match(/【中故事[一二三四五六七八九十\d]+】/g)?.length || 0;
+  }
 
   // 存储生成请求，返回ID
   storeGenerationRequest(dto: GenerateChapterDto): string {
@@ -186,8 +423,9 @@ ${template.power}`
 
   async generateWorldSetting(dto: GenerateWorldSettingDto) {
     console.log('开始生成世界观基础设定');
-
-    const prompt = `基于以下故事大纲，为200万字长篇小说生成完整的世界观基础设定体系：
+    const needsUpgradeSystem = dto.needsUpgradeSystem !== false;
+    const prompt = needsUpgradeSystem
+      ? `基于以下故事大纲，为200万字长篇小说生成完整的世界观基础设定体系：
 
 故事大纲：
 ${dto.outline}
@@ -236,7 +474,67 @@ ${dto.outline}
 - 为后续的人物设定和情节发展留出足够空间
 - 整体世界观要宏大且具有可扩展性
 
-请按上述分类组织输出，确保内容的完整性和可用性。`;
+请按上述分类组织输出，确保内容的完整性和可用性。`
+      : `基于以下故事大纲，为200万字长篇小说生成完整的世界观基础设定体系。
+
+故事大纲：
+${dto.outline}
+
+注意：本次明确不需要修炼升级体系。如果故事是都市、现代、现实、悬疑、豪门、职场、娱乐圈、商战、婚恋、校园等题材，禁止套用玄幻/修仙模板，禁止输出“境界划分、灵气分布、突破条件、修炼资源、跨境界限制”等设定。
+
+请生成以下世界观基础元素，每个部分都要详细且可以支撑前200章的故事内容：
+
+**世界格局与场域布局：**
+- 故事发生的时代、城市/地区/国家背景
+- 核心活动场域（城市、校园、医院、公司、豪门、娱乐圈、地下圈层、跨国区域等）
+- 关键地点的功能、控制者、风险点与剧情用途
+- 人物流动路径、跨城/跨国/跨圈层的进入门槛
+- 安全区域、灰色区域、权力中心与冲突高发地带
+
+**主要势力与机构介绍：**
+- 至少8-12个主要机构、家族、公司、社团、资本方、官方系统、地下网络或行业圈层
+- 每个势力的背景、权力来源、资源优势、公开形象与隐性目的
+- 核心人物与代表人物配置
+- 势力之间的关系网（合作、竞争、仇怨、利益绑定、上下级）
+- 各势力最擅长操控的资源与手段
+
+**世界规则与现实机制：**
+- 这个世界最关键的行业规则、社会规则、权力规则与潜规则
+- 法律、舆论、资本、人情、身份、信息差如何影响人物命运
+- 特殊职业体系、行业晋升机制、圈层门槛和身份壁垒
+- 若设定中存在系统、异能、神医、重生、读心等特殊能力，只写“规则、代价、边界”，不要写成修炼境界体系
+- 世界中的禁忌、红线、公开规则与默认但不能明说的规则
+
+**资源、经济与社会结构：**
+- 货币体系、资源流通方式、灰色收益与关键利益链
+- 关键稀缺资源（情报、渠道、资质、牌照、股权、医疗资源、人脉、流量、技术、证据等）
+- 社会阶层划分、身份跃迁路径、婚姻/继承/教育/职业体系
+- 普通人和上层人物面对同一规则时的差异
+- 哪些资源最容易成为剧情冲突导火索
+
+**人物生存压力与冲突土壤：**
+- 主角最容易被压制的环境和规则
+- 反派或对手最常利用的结构性优势
+- 世界天然会制造哪些冲突：身份压制、资本碾压、职场斗争、家族博弈、舆论围猎、行业封杀、证据争夺、权力交易等
+- 哪些设置最适合制造“误会、背刺、打脸、反转、悬念”
+- 哪些机制会持续逼迫角色做选择
+
+**剧情接口与可扩展空间：**
+- 这套世界观最适合支撑的前期主线冲突
+- 中期矛盾升级路径（圈层扩大、势力升级、真相揭露、关系撕裂、身份反转等）
+- 后期世界观揭示点或更大棋局
+- 适合长期连载的支线来源
+- 为后续人物设定和情节发展预留足够空间
+
+**要求：**
+- 整体模板必须适配“无修炼升级体系”的题材，不要强行玄幻化
+- 如果故事带有特殊能力，只能把它写成剧情工具或特殊规则，不得写成境界修炼体系
+- 每个部分都要足够详细，可以支撑200章的内容
+- 确保设定间的逻辑一致性和现实感/类型感
+- 设定要有深度，避免脸谱化和空洞概括
+- 整体世界观要有可扩展性，并能直接服务人物与剧情
+
+请按上述分类组织输出，确保内容完整、可写、可直接用于后续人物与情节生成。`;
 
     try {
       const result = await this.llmService.chat([
@@ -249,7 +547,10 @@ ${dto.outline}
       };
     } catch (error) {
       console.error('生成世界观基础设定失败:', error);
-      throw new Error('AI生成世界观基础设定超时，请稍后重试');
+      if (error instanceof Error && error.message) {
+        throw new Error(error.message);
+      }
+      throw new Error('AI生成世界观基础设定失败，请稍后重试');
     }
   }
 
@@ -308,8 +609,63 @@ ${dto.worldSetting}
 
   async generateDetailedOutline(dto: GenerateDetailedOutlineDto) {
     console.log('开始生成情节细纲，基于故事大纲自动选择中故事');
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    if (mode === 'microdrama') {
+      const { prompt, compactPrompt, safetyPrompt } = this.buildMicrodramaDetailedOutlinePrompts(dto);
+      try {
+        const result = await this.llmService.chat([
+          { role: 'system', content: this.getStoryWritingSystemPrompt() },
+          { role: 'user', content: prompt }
+        ]);
 
-    const prompt = `基于以下故事大纲、世界观基础设定和人物设定，为200万字长篇小说自动生成完整的情节细纲：
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error) {
+        console.error('微短剧情节细纲主提示词失败，尝试精简重试:', error);
+        try {
+          const result = await this.llmService.chat([
+            { role: 'system', content: this.getStoryWritingSystemPrompt() },
+            { role: 'user', content: compactPrompt }
+          ]);
+
+          return {
+            success: true,
+            data: result,
+          };
+        } catch (compactError) {
+          console.error('微短剧情节细纲精简提示词失败，尝试安全重试:', compactError);
+          const result = await this.llmService.chat([
+            { role: 'system', content: this.getStoryWritingSystemPrompt() },
+            { role: 'user', content: safetyPrompt }
+          ]);
+
+          return {
+            success: true,
+            data: result,
+          };
+        }
+      }
+    }
+
+    const existingDetailedOutline = dto.existingDetailedOutline?.trim() || '';
+    const existingMacroStoryCount = this.countMacroStories(existingDetailedOutline);
+    const inferredBatchIndex = Math.min(4, Math.max(1, dto.outlineBatchIndex || Math.floor(existingMacroStoryCount / 10) + 1));
+    const batchIndex = inferredBatchIndex;
+    const startMacroStoryNumber = (batchIndex - 1) * 10 + 1;
+    const endMacroStoryNumber = batchIndex * 10;
+    const isFinalBatch = dto.isFinalBatch === true || batchIndex === 4;
+    const previousContextBlock = existingDetailedOutline
+      ? `\n已有中故事细纲（必须完整承接，不能重复已发生的核心事件）：\n${existingDetailedOutline}\n`
+      : '\n已有中故事细纲：无。本次为第一批中故事，应承担开局建立与第一阶段推进。\n';
+    const batchStageInstruction = isFinalBatch
+      ? '这是第4批，也是全书终局批次：必须承接前30个中故事，把主线矛盾、爱情线/事业线、人物命运和核心伏笔推向高潮并完成结尾收束。'
+      : batchIndex === 1
+        ? '这是第1批：必须建立开局吸引力、核心矛盾、主角初始成长路径和主要人物关系，但不要写成全书结尾。'
+        : `这是第${batchIndex}批：必须在完整引用世界观、人设的基础上，继续承接前${existingMacroStoryCount || startMacroStoryNumber - 1}个中故事的因果、伏笔、人物状态与关系变化，向下一阶段推进，但不要提前写成全书结尾。`;
+
+    const prompt = `基于以下故事大纲、世界观基础设定、人物设定和已有中故事进度，为200万字长篇小说生成阶段性情节细纲：
 
 故事大纲：
 ${dto.outline}
@@ -319,6 +675,15 @@ ${dto.worldSetting}
 
 人物设定：
 ${dto.characters}
+
+${previousContextBlock}
+
+**本次生成批次（必须遵守）：**
+1. 整本小说预计按约 40 个中故事完成，可分 4 次生成；每次只生成 10 个中故事。
+2. 本次是第 ${batchIndex}/4 批，只输出【中故事${this.getChineseNumber(startMacroStoryNumber)}】到【中故事${this.getChineseNumber(endMacroStoryNumber)}】，不能多、不能少。
+3. ${batchStageInstruction}
+4. 每一批都必须完整引用世界观和人设；第2、3、4批还必须把已有中故事作为前文事实，严格保持人物状态、关系、压力、目标和伏笔的连续性。
+5. 这 10 个中故事只是当前阶段，不代表用户必须先生成完 40 个中故事；用户生成任意一个中故事后，也可以进入下一步继续细化小故事。
 
 **一、故事线整体结构（必须遵守）：**
 本小说以故事线为主。一般情况下采用以下两种结构之一：
@@ -407,7 +772,7 @@ ${dto.characters}
 - **事业线中故事**：内部结构从「事业线一级结构」中选取（阻碍/危机/装逼/探明/取得/义举），节点设计参考「事业线节点类型」。
 - **爱情线中故事**：内部结构从「爱情线一级结构」中选取（好感度变化/受益/争风吃醋/发展受阻/关系危机/装逼/狗粮），并遵循「爱情线四阶段与节点要求」。
 
-**五、中故事类型池（从中选择 25–30 个）：**
+**五、中故事类型池（本次从中选择 10 个）：**
 
 **起源与成长类（4种）：** 问道初庭、潜龙初现、星火复燃、破茧之变
 
@@ -421,7 +786,7 @@ ${dto.characters}
 
 **六、生成要求：**
 1. 先确定采用「两条事业线+一条爱情线」或「两条爱情线+一条事业线」，并在细纲开头用一两句话说明三条线分别是什么。
-2. 自动选择 25–30 个最匹配的中故事类型，合理分配到各条事业线/爱情线。
+2. 本次只自动选择 10 个最匹配的中故事类型，合理分配到各条事业线/爱情线；这 10 个只对应当前批次，不代表全书全部中故事。
 3. **每个中故事必须标明：**
    - **目的**：该中故事要达成的具体目的；
    - **技法卡**：采用的叙事技法（从 13 种技法卡中选用，如舞台聚光灯、打破预期、信息差等），即主角被置于什么环境、或对事件推动起什么作用；
@@ -429,27 +794,34 @@ ${dto.characters}
 4. **涉及主角与一位或多位配角之间爱情的中故事**，除上述外，还必须按当前爱情线阶段标明：好感度、两人关系阶段、爱情线阶段，并落实该阶段的必有节点与所用可选节点。
 5. 事业线中故事的节点设计可参照「事业线节点类型」的 11 类，合理选用目标与行动、里程碑状态、地图更新、利益团体、神器宝物、角色登场退场、关系发展、矛盾出现与升级、戏剧性、预期打破、里程碑情节等。
 6. 每个中故事必须能支撑 20 章以上的详细内容，含丰富情节、支线与深度发展。
-7. 按小说时间顺序排列中故事，保证整体节奏紧凑，情节连贯、人物有成长弧线。
-8. 每个中故事包含开端、发展、高潮、转折、结局，并标明所属类别与在事业线/爱情线中的作用。
-9. 避免简单套路，中故事需有复杂冲突、多层矛盾与主题探讨。
-10. 整体能支撑 200 万字长篇小说；按中故事数量合理分卷，每卷至少 5 个中故事、至少 100 章。
-11. **格式要求：** 每个中故事用明确标题标记，格式如下：
-    【中故事一】具体的标题内容
-    【中故事二】具体的标题内容
+7. ${batchIndex === 1
+      ? '【中故事一】是决定开局生死成败的核心中故事，必须足够精彩、不能拖沓，并且对应的前20章必须严格包含三张故事卡：第1-4章完成第一张卡，第5-12章完成第二张卡，第13-20章完成第三张卡。三张卡必须连续升级、持续爆点、快速推进。'
+      : `本批第一个中故事【中故事${this.getChineseNumber(startMacroStoryNumber)}】必须承接上一批结尾的阶段状态、关系变化、压力和目标，不要重新开局，也不要推翻前文事实。`}
+8. 按小说时间顺序排列中故事，保证整体节奏紧凑，情节连贯、人物有成长弧线。
+9. 每个中故事包含开端、发展、高潮、转折、结局，并标明所属类别与在事业线/爱情线中的作用。
+10. 避免简单套路，中故事需有复杂冲突、多层矛盾与主题探讨。
+11. 每个中故事结尾必须追加「阶段状态小结」，写清：主角当前状态、主角和主要人物的关系、主角目前受到的压力、主角下一阶段目标方向。
+12. 整体按约 40 个中故事支撑 200 万字长篇小说；本次只生成第 ${batchIndex} 批 10 个中故事。${isFinalBatch ? '本批必须完成全书终局、主线收束和人物关系落点。' : '本批结尾要留下可继续生成下一批的推进空间，不能写成全书大结局。'}
+13. **格式要求：** 每个中故事用明确标题标记，必须从【中故事${this.getChineseNumber(startMacroStoryNumber)}】开始，到【中故事${this.getChineseNumber(endMacroStoryNumber)}】结束，格式如下：
+    【中故事${this.getChineseNumber(startMacroStoryNumber)}】具体的标题内容
+    【中故事${this.getChineseNumber(startMacroStoryNumber + 1)}】具体的标题内容
     以此类推。标题后直接跟情节描述，中间不要空行。
-12. **示例格式**：
-    【中故事一】问道初庭
+14. **示例格式**：
+    【中故事${this.getChineseNumber(startMacroStoryNumber)}】问道初庭
     目的：……。技法卡：舞台聚光灯、打破预期。一级结构：取得结构。节点：……
     在这里写详细的情节描述（若涉爱情线，请标明好感度/关系阶段/爱情线阶段及节点）...
+    阶段状态小结：主角当前状态：……；主要人物关系：……；当前压力：……；目标方向：……。
 
-    【中故事二】潜龙初现
+    【中故事${this.getChineseNumber(startMacroStoryNumber + 1)}】潜龙初现
     目的：……。技法卡：……。一级结构：……。……
     在这里写详细的情节描述...
+    阶段状态小结：主角当前状态：……；主要人物关系：……；当前压力：……；目标方向：……。
 
-请直接输出完整的情节细纲，不要先列出中故事名称列表。每个中故事的描述要详细具体，可作为 20 章内容的框架基础；事业线中故事体现事业线一级结构与节点类型，爱情线相关中故事必须体现爱情线阶段、节点逻辑与爱情线一级结构。`;
+请直接输出本批次的 10 个中故事细纲，不要先列出中故事名称列表。每个中故事的描述要详细具体，可作为 20 章内容的框架基础；事业线中故事体现事业线一级结构与节点类型，爱情线相关中故事必须体现爱情线阶段、节点逻辑与爱情线一级结构。`;
 
     try {
       const result = await this.llmService.chat([
+        { role: 'system', content: this.getStoryWritingSystemPrompt() },
         { role: 'user', content: prompt }
       ]);
 
@@ -466,11 +838,44 @@ ${dto.characters}
   async generateMicroStories(dto: GenerateMicroStoriesDto) {
     console.log(`开始为中故事${dto.storyIndex}生成小故事细纲`);
 
-    const chapterInfo = dto.chapterRange
-      ? `，对应小说章节范围：第${dto.chapterRange}章`
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    const unitLabel = mode === 'microdrama' ? '集' : '章';
+    const rangeInfo = dto.chapterRange
+      ? `，对应${mode === 'microdrama' ? '微短剧集数范围' : '小说章节范围'}：第${dto.chapterRange}${unitLabel}`
       : '';
 
-    const prompt = `基于以下中故事内容，为这部中故事生成10个小故事的具体情节细纲${chapterInfo}：
+    const prompt = mode === 'microdrama'
+      ? `基于以下中故事内容，为这部中故事生成10个小故事的具体情节细纲${rangeInfo}：
+
+中故事${dto.storyIndex}内容：
+${dto.macroStory}
+
+**任务要求：**
+1. 输出仍然必须是10个小故事，顺序连续、集数连续、逻辑闭环清晰；在微短剧模式下，每个小故事对应 1 集
+2. 每个小故事都必须包含完整的情节发展：开场冲突→升级→爆发→结尾钩子
+3. 与中故事的主线情节紧密关联
+4. 展现不同的叙事角度和人物成长
+5. 包含具体的场景描述、对话、冲突和转折
+6. 重要：集数编号要连续，${dto.chapterRange ? `从第${dto.chapterRange.split('-')[0]}集开始` : '从当前集开始'}，确保与整体微短剧集数连续
+7. 微短剧节奏硬约束（必须遵守）：
+   - 每一集都要完成一次“压抑 → 爆发”的闭环
+   - 每一集都必须有钩子，集尾不能平
+   - 每一集都应同时满足：解决一个当前矛盾、埋下一个新伏笔/新危机、完成一次主角心态或实力弧光
+   - 第10集必须形成这一卡点的黑场悬念或更大反转
+8. 爱情线节奏硬约束（如果本中故事涉及爱情线，必须遵守）：
+   - 必须读取中故事内标注的：好感度 / 两人关系阶段 / 爱情线阶段 / 爱情线ID / 承载中故事序号
+   - 10个小故事只能在“本中故事已标注的阶段上限”内展开与深化，不得越级推进
+   - 若中故事为某爱情线的第1-2个承载中故事，严禁写出“确认关系/公开/互许终身/婚嫁落定”等结局性节点
+   - 若中故事文本未明确标注上述字段，则默认按“萍水相逢 + 熟悉阶段 + 零好感度”处理，宁慢勿快，避免闪电攻略
+9. 生成前请先按“情绪密度与极值控制 / 桥段密度与钩子调度 / 商业闭环校验”三轮自检并完成二次修正，但不要输出自检过程
+
+**输出格式要求：**
+- 每个小故事用【小故事一】【小故事二】...【小故事十】的格式标记
+- 每个小故事后面直接跟具体的情节细纲内容
+- 内容要详细具体，便于后续写作参考
+
+请直接输出10个小故事的细纲，不要添加任何额外的说明或格式。`
+      : `基于以下中故事内容，为这部中故事生成10个小故事的具体情节细纲${rangeInfo}：
 
 中故事${dto.storyIndex}内容：
 ${dto.macroStory}
@@ -478,11 +883,11 @@ ${dto.macroStory}
 **任务要求：**
 请基于这个中故事的具体情节内容，自动抽取并设计10个小故事，每个小故事都要：
 1. 包含完整的情节发展：开端→发展→高潮→结局
-2. **强制要求：每个小故事必须写作两章，每章大约2200字，也就是每个小故事总计约4400字内容**
+2. 强制要求：每个小故事必须写作两章，每章大约2200字，也就是每个小故事总计约4400字内容
 3. 与中故事的主线情节紧密关联
 4. 展现不同的叙事角度和人物成长
 5. 包含具体的场景描述、对话、冲突和转折
-6. **重要：章节编号要连续，${dto.chapterRange ? `从第${dto.chapterRange.split('-')[0]}章开始` : '从当前章节开始'}，确保与整体小说章节连续**
+6. 重要：章节编号要连续，${dto.chapterRange ? `从第${dto.chapterRange.split('-')[0]}章开始` : '从当前章节开始'}，确保与整体小说章节连续
 
 **输出格式要求：**
 - 每个小故事用【小故事一】【小故事二】...【小故事十】的格式标记
@@ -493,6 +898,7 @@ ${dto.macroStory}
 
     try {
       const result = await this.llmService.chat([
+        { role: 'system', content: this.getStoryWritingSystemPrompt() },
         { role: 'user', content: prompt }
       ]);
 
@@ -506,8 +912,234 @@ ${dto.macroStory}
     }
   }
 
+  async generateMicroStoryVariants(dto: GenerateMicroStoryVariantsDto) {
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    if (dto.targetType === 'macro') {
+      const selectedBase = dto.selectedVariantContent
+        ? `\n【用户当前更认可的中故事候选版本】\n标题：${dto.selectedVariantTitle || dto.currentTitle}\n内容：${dto.selectedVariantContent}\n`
+        : '';
+      const noteText = dto.note?.trim()
+        ? `\n【用户批注 / 继续优化方向】\n${dto.note.trim()}\n`
+        : '';
+      const prompt = `请基于以下资料，为当前中故事重构 3 个新的方案。
+
+【世界观设定】
+${dto.worldSetting || '无'}
+
+【人物设定】
+${dto.characters || '无'}
+
+【上一个中故事，作为前文承接】
+${dto.previousContent || '无'}
+
+【当前中故事原方案】
+标题：${dto.currentTitle}
+内容：${dto.currentContent}
+
+【下一个中故事，作为后文边界】
+${dto.nextContent || '无'}
+${selectedBase}${noteText}
+重构目标：
+1. 一次性输出 3 个候选中故事方案，三条必须明显不同，不能只是换说法。
+2. 每个方案都必须比原方案更完整，写清：卡点定位、目的、技法卡/一级结构、承载主线、情绪骨架、钩子设计、商业要素、节点、详细剧情。
+3. 必须结合世界观和人物设定，不能脱离已有角色动机、能力边界、势力关系和世界规则。
+4. 必须兼顾上下中故事连续性：承接前文已经发生的结果，不提前消耗后文核心爆点。
+5. ${mode === 'microdrama'
+          ? '按微短剧中故事设计：默认承载10集，内部要有连续压抑、爆发、反转和第10集黑场钩子。'
+          : '按小说中故事设计：默认能继续拆成10个小故事、20章左右，内部要有完整目标、阻碍、升级和阶段收束。'}
+6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础。
+
+输出格式必须严格如下：
+【方案一】标题
+内容：……
+
+【方案二】标题
+内容：……
+
+【方案三】标题
+内容：……
+
+不要输出额外说明。`;
+
+      try {
+        const result = await this.llmService.chat([
+          { role: 'system', content: this.getStoryWritingSystemPrompt() },
+          { role: 'user', content: prompt }
+        ]);
+
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error) {
+        console.error('生成中故事候选方案失败:', error);
+        throw new Error('AI生成中故事候选方案失败，请稍后重试');
+      }
+    }
+
+    const unitLabel = mode === 'microdrama' ? '集' : '小故事';
+    const targetStories = (dto.targetStories || []).filter(s => s && s.content);
+    const isBatchRewrite = targetStories.length >= 1;
+    const selectedBase = dto.selectedVariantContent
+      ? `\n【用户当前更认可的候选版本】\n标题：${dto.selectedVariantTitle || dto.currentTitle}\n内容：${dto.selectedVariantContent}\n`
+      : '';
+    const selectedBatchBase = dto.selectedVariantStories?.length
+      ? `\n【用户当前更认可的一整套候选版本】\n${dto.selectedVariantStories.map(s => `第${s.index + 1}${unitLabel}\n标题：${s.title}\n内容：${s.content}`).join('\n\n')}\n`
+      : '';
+    const noteText = dto.note?.trim()
+      ? `\n【用户批注 / 继续优化方向】\n${dto.note.trim()}\n`
+      : '';
+
+    const prompt = isBatchRewrite
+      ? `请基于以下资料，为用户选中的连续${unitLabel}段落重新设计 3 套“连续改写方案”。
+
+【所属中故事内容】
+${dto.macroStory}
+
+【选中段落之前的衔接参考】
+${dto.previousContent || '无'}
+
+【用户选中的${targetStories.length}个${unitLabel}原方案】
+${targetStories.map(s => `第${s.index + 1}${unitLabel}\n标题：${s.title}\n内容：${s.content}`).join('\n\n')}
+
+【选中段落之后的衔接边界】
+${dto.nextContent || '无'}
+${selectedBatchBase}${noteText}
+生成目标：
+1. 一次性输出 3 套候选方案，每套都必须覆盖用户选中的全部${targetStories.length}个${unitLabel}，不能漏项，不能只改其中一个。
+2. 每套方案内部必须连续，前后因果要咬合：第一个${unitLabel}制造的问题，后续${unitLabel}要承接、升级或反转。
+3. 三套方案之间必须明显不同，例如冲突核心、人物主动性、反转机制、情绪爆点或结尾钩子不同。
+4. 必须兼顾选中段落前后的连续性，不能改坏前文动机，也不能提前消耗后文核心爆点。
+5. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
+6. ${mode === 'microdrama'
+        ? '按微短剧连续单集思维设计：每集都有开场冲突、升级、爆发、结尾钩子，同时整段形成更大的连续推进。'
+        : '按小说连续小故事思维设计：每个小故事有独立承载，同时整段形成章节群推进。'}
+7. 若提供了用户批注，必须显著响应批注；若提供了用户认可的一整套候选版本，以它为优化基础。
+
+输出格式必须严格如下：
+【方案一】方案标题
+【第${targetStories[0].index + 1}${unitLabel}】标题
+内容：……
+${targetStories.slice(1).map(s => `【第${s.index + 1}${unitLabel}】标题\n内容：……`).join('\n')}
+
+【方案二】方案标题
+${targetStories.map(s => `【第${s.index + 1}${unitLabel}】标题\n内容：……`).join('\n')}
+
+【方案三】方案标题
+${targetStories.map(s => `【第${s.index + 1}${unitLabel}】标题\n内容：……`).join('\n')}
+
+不要输出额外说明。`
+      : `请基于以下资料，为当前${unitLabel}重新设计 3 个更丰富、更可拍、更强戏剧性的剧内解决方案。
+
+【所属中故事内容】
+${dto.macroStory}
+
+【上一${unitLabel}内容，作为连续性参考】
+${dto.previousContent || '无'}
+
+【当前${unitLabel}原方案】
+标题：${dto.currentTitle}
+内容：${dto.currentContent}
+
+【下一${unitLabel}内容，作为衔接边界】
+${dto.nextContent || '无'}
+${selectedBase}${noteText}
+生成目标：
+1. 一次性输出 3 个候选方案，三条必须明显不同，不能只是换说法。
+2. 每个方案都要比原方案更具体，包含可执行的场景推进、人物动作、冲突升级、反转点和结尾钩子。
+3. 必须兼顾前后连续性：不能改坏上一${unitLabel}已经建立的动机，也不能提前消耗下一${unitLabel}的核心爆点。
+4. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
+5. ${mode === 'microdrama'
+      ? '按微短剧单集思维设计：开场强冲突，中段升级，后段爆发，结尾黑场钩子；内容应便于继续扩成单集剧本。'
+      : '按小说小故事思维设计：保留两章承载空间，写清章节内冲突递进和收束。'}
+6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础，而不是退回原方案。
+
+输出格式必须严格如下：
+【方案一】标题
+内容：……
+
+【方案二】标题
+内容：……
+
+【方案三】标题
+内容：……
+
+不要输出额外说明。`;
+
+    try {
+      const result = await this.llmService.chat([
+        { role: 'system', content: this.getStoryWritingSystemPrompt() },
+        { role: 'user', content: prompt }
+      ]);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      console.error('生成单集/小故事候选方案失败:', error);
+      throw new Error('AI生成候选方案失败，请稍后重试');
+    }
+  }
+
+  private buildMicrodramaEpisodePrompt(
+    contextMemory: string,
+    episodeNumber: number,
+    previousEnding: string,
+    storyData?: any,
+  ): string {
+    const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
+    return `${contextMemory}
+
+请基于以上完整的故事背景信息，生成第${episodeNumber}集的标准微短剧正文。
+
+${previousEnding ? `上一集结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一集最后一句（必须在本集开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
+${storyData ? `【当前分集核心细纲】\n标题：${storyData.title}\n内容：${storyData.content}\n所属中故事：${storyData.macroStoryTitle}\n中故事内容：${storyData.macroStoryContent}\n\n` : ''}
+
+写作目标：
+1. 输出标准微短剧拍摄剧本格式，不要写成小说正文、散文旁白或分集梗概。
+2. 单集总字数严格控制在 1200-1500 字之间；必须是可拍摄的完整剧本。
+3. 本集建议 3-5 场，每场都要有清晰场号、时间、内外景、地点、人物、画面动作和对白。
+4. 以对白和可见动作为主，少写心理描写；所有动作说明必须是镜头能拍到、演员能表演的内容。
+5. 严格遵循当前分集细纲，不能跑去写下一集的内容。
+6. 每一集都要完成一次“压抑 → 爆发”的闭环，但节奏要自然长在场景和冲突里，不要写成机械流程图。
+7. 开场第一场必须直接进入冲突、羞辱、生死压力、身份失衡或强压局面，不能平铺垫。
+8. 对话必须口语化、有情绪方向和信息增量，禁止连续三句平直陈述，禁止长篇解释设定。
+9. 每一场戏都要尽量完成三件事：解决一个当前矛盾、埋下一个新的更大危机或疑点、完成一次角色心态/实力/关系弧光。
+10. 结尾必须切在更大的危机、秘密揭露、身份反转、生死倒计时或关系爆雷上，形成黑场钩子。
+11. 衔接要求：如果提供了“上一集结尾内容”，本集开头必须从该结尾自然续写，延续同一场景/动作/对话，不要回顾式重述。
+
+必须使用以下格式：
+第${episodeNumber}集：[集标题]
+
+${episodeNumber}-1 日/夜 内/外 地点
+人物：角色A、角色B
+△ 可拍摄的场景、人物动作、表情、道具、声响或镜头提示。
+角色A（情绪/动作）：对白。
+△ 可拍摄的动作或反应。
+角色B（情绪/动作）：对白。
+
+${episodeNumber}-2 日/夜 内/外 地点
+人物：角色A、角色C
+△ 可拍摄的场景和动作。
+角色C（情绪/动作）：对白。
+
+格式硬规则：
+- 场号必须写成“${episodeNumber}-1”“${episodeNumber}-2”这种格式。
+- 每场开头必须有“人物：”。
+- 动作、场景、镜头、音效、特写、转场等说明以“△”开头；可少量使用“特写：”“闪回：”“黑屏：”“字幕：”等独立标记。
+- 对白格式必须是“角色名（情绪/动作）：对白”，不用引号。
+- 不要输出“写作目标”“本集钩子说明”“体检报告”“下面是剧本”等额外说明。
+- 不要把大段剧情写成自然段；每一行都要像拍摄剧本一样可拆解执行。
+
+请直接输出该集剧本正文。`;
+  }
+
   async generateChapter(dto: GenerateChapterDto) {
-    console.log(`开始循环生成8章内容，使用模型: deepseek-chat`);
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    const unitLabel = mode === 'microdrama' ? '集' : '章';
+    const loopCount = Math.max(1, dto.unitCount ?? (mode === 'microdrama' ? 1 : 8));
+    console.log(`开始循环生成${loopCount}${unitLabel}内容，使用模型: deepseek-chat, 模式: ${mode}`);
 
     const startChapter = dto.chapterNumber;
     let fullContent = '';
@@ -515,13 +1147,17 @@ ${dto.macroStory}
     let previousEnding = dto.previousEnding || '';
 
     try {
-      // 循环生成8章内容
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < loopCount; i++) {
         const currentChapterNum = startChapter + i;
-        console.log(`正在生成第${currentChapterNum}章...`);
+        console.log(`正在生成第${currentChapterNum}${unitLabel}...`);
 
+        const storyData = dto.savedMicroStories?.[mode === 'microdrama'
+          ? currentChapterNum - 1
+          : Math.floor((currentChapterNum - 1) / 2)];
         const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
-        const chapterPrompt = `${contextMemory}
+        const chapterPrompt = mode === 'microdrama'
+          ? this.buildMicrodramaEpisodePrompt(contextMemory, currentChapterNum, previousEnding, storyData)
+          : `${contextMemory}
 
 请基于以上完整的故事背景信息，生成第${currentChapterNum}章的内容。
 
@@ -546,10 +1182,11 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
 
         // 使用Deepseek模型进行写作
         const chapterResult = await this.llmService.chatWithWriterModel([
+          { role: 'system', content: this.getStoryWritingSystemPrompt() },
           { role: 'user', content: chapterPrompt }
         ]);
 
-        console.log(`第${currentChapterNum}章生成成功，长度: ${chapterResult?.length || 0}`);
+        console.log(`第${currentChapterNum}${unitLabel}生成成功，长度: ${chapterResult?.length || 0}`);
 
         // 添加到总内容中
         if (chapterResult) {
@@ -567,7 +1204,7 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
         }
       }
 
-      console.log(`8章内容生成完成，总长度: ${fullContent.length}`);
+      console.log(`${loopCount}${unitLabel}内容生成完成，总长度: ${fullContent.length}`);
 
       return {
         success: true,
@@ -582,39 +1219,44 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
   async generateChapterStream(dto: GenerateChapterDto): Promise<Observable<any>> {
     // 生成请求ID
     const requestId = this.storeGenerationRequest(dto);
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    const unitLabel = mode === 'microdrama' ? '集' : '章';
+    const requestedUnitCount = Math.max(1, dto.unitCount ?? (mode === 'microdrama' ? 1 : 8));
+    const loopCount = mode === 'microdrama' ? requestedUnitCount : Math.ceil(requestedUnitCount / 2);
+    const unitBatchSize = requestedUnitCount;
+    const unitsPerStory = mode === 'microdrama' ? 1 : 2;
 
     return new Observable((subscriber) => {
       (async () => {
         try {
-          console.log(`开始流式生成8章内容（4个小故事），使用模型: deepseek-chat, 请求ID: ${requestId}`);
+          console.log(`开始流式生成${unitBatchSize}${unitLabel}内容，使用模型: deepseek-chat, 请求ID: ${requestId}, 模式: ${mode}`);
 
           const startChapter = dto.chapterNumber;
           let contextMemory = dto.context;
           let previousEnding = dto.previousEnding || '';
 
-          // 如果是生成后续批次，只提供前两章的内容作为参考，避免上下文过长
+          // 如果是生成后续批次，只提供前两个单位的内容作为参考，避免上下文过长
           if (startChapter >= 9 && dto.generatedChapters) {
-            contextMemory += `\n\n【前两章内容参考】\n`;
-            // 只添加前两章的内容作为参考，避免上下文过长导致AI忽略小故事卡
+            contextMemory += `\n\n【前两个${unitLabel}内容参考】\n`;
+            // 只添加前两个单位的内容作为参考，避免上下文过长导致AI忽略小故事卡
             const referenceChapters = [1, 2];
             for (const chapterNum of referenceChapters) {
               if (dto.generatedChapters[chapterNum]) {
                 const chapterContent = dto.generatedChapters[chapterNum];
-                // 只保留章节标题和前500字符作为摘要，避免内容过长
+                // 只保留标题和前500字符作为摘要，避免内容过长
                 const lines = chapterContent.split('\n');
-                const titleLine = lines.find(line => line.match(/^第\d+章\s*\[/));
+                const titleLine = lines.find(line => line.match(/^第\d+[章节集]\s*\[/));
                 const summary = chapterContent.substring(0, 500) + (chapterContent.length > 500 ? '...' : '');
-                contextMemory += `第${chapterNum}章${titleLine ? ` ${titleLine.split(' ').slice(1).join(' ')}` : ''}：\n${summary}\n\n`;
+                contextMemory += `第${chapterNum}${unitLabel}${titleLine ? ` ${titleLine.split(' ').slice(1).join(' ')}` : ''}：\n${summary}\n\n`;
               }
             }
-            contextMemory += `请基于以上前两章的内容参考，继续创作后续章节，确保故事的连贯性和人物成长的连续性。但必须严格遵循当前小故事卡的内容，不得偏离。\n`;
+            contextMemory += `请基于以上前两个${unitLabel}的内容参考，继续创作后续${unitLabel}，确保故事的连贯性和人物成长的连续性。但必须严格遵循当前${mode === 'microdrama' ? '分集' : '小故事'}卡的内容，不得偏离。\n`;
           }
 
           // 发送开始信号
-          subscriber.next({ data: JSON.stringify({ type: 'start', message: '开始生成章节内容' }) });
+          subscriber.next({ data: JSON.stringify({ type: 'start', message: `开始生成${unitLabel}内容` }) });
 
-          // 每2章生成一个小故事
-          for (let storyIndex = 0; storyIndex < 4; storyIndex++) {
+          for (let storyIndex = 0; storyIndex < loopCount; storyIndex++) {
             // 检查是否被取消
             if (this.isCancelled(requestId)) {
               console.log(`生成请求 ${requestId} 已被用户取消`);
@@ -628,12 +1270,11 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
               return;
             }
 
-            const storyStartChapter = startChapter + (storyIndex * 2);
-            const storyEndChapter = storyStartChapter + 1;
-
-            // 计算当前小故事对应的savedMicroStories索引
-            // 根据实际章节号计算全局小故事索引：第1-2章对应索引0，第3-4章对应索引1，以此类推
-            const currentStoryIndex = Math.floor((storyStartChapter - 1) / 2);
+            const storyStartChapter = startChapter + (storyIndex * unitsPerStory);
+            const storyEndChapter = mode === 'microdrama' ? storyStartChapter : storyStartChapter + 1;
+            const currentStoryIndex = mode === 'microdrama'
+              ? storyStartChapter - 1
+              : Math.floor((storyStartChapter - 1) / 2);
             const storyData = dto.savedMicroStories?.[currentStoryIndex];
 
             // 发送小故事开始信号
@@ -641,18 +1282,22 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
               data: JSON.stringify({
                 type: 'story_start',
                 storyIndex: storyIndex + 1,
-                chapters: [storyStartChapter, storyEndChapter],
-                message: `开始生成第${storyIndex + 1}个小故事（第${storyStartChapter}-${storyEndChapter}章）`
+                chapters: mode === 'microdrama' ? [storyStartChapter] : [storyStartChapter, storyEndChapter],
+                message: mode === 'microdrama'
+                  ? `开始生成第${storyStartChapter}集`
+                  : `开始生成第${storyIndex + 1}个小故事（第${storyStartChapter}-${storyEndChapter}章）`
               })
             });
 
-            console.log(`正在生成第${storyIndex + 1}个小故事（第${storyStartChapter}-${storyEndChapter}章）...`);
+            console.log(mode === 'microdrama'
+              ? `正在生成第${storyStartChapter}集...`
+              : `正在生成第${storyIndex + 1}个小故事（第${storyStartChapter}-${storyEndChapter}章）...`);
 
             // 构建包含当前小故事的上下文
             let storyContext = contextMemory;
 
             // 添加最近生成的小故事内容作为参考，避免上下文过长
-            if (storyIndex > 0) {
+            if (storyIndex > 0 && mode !== 'microdrama') {
               storyContext += `\n\n【最近生成内容参考】\n`;
               // 只包含最近1-2个小故事的内容作为参考，避免累积过多上下文
               const maxPrevStories = Math.min(storyIndex, 2); // 最多只参考最近2个小故事
@@ -682,7 +1327,9 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
             }
 
             const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
-            const storyPrompt = `${storyContext}
+            const storyPrompt = mode === 'microdrama'
+              ? this.buildMicrodramaEpisodePrompt(storyContext, storyStartChapter, previousEnding, storyData)
+              : `${storyContext}
 
 请基于以上完整的故事背景信息，特别是当前小故事的详细内容，生成两个连续的独立章节。
 
@@ -722,7 +1369,10 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
 
               // 使用流式输出生成一个小故事
               await this.llmService.chatWithWriterModelStream(
-                [{ role: 'user', content: storyPrompt }],
+                [
+                  { role: 'system', content: this.getStoryWritingSystemPrompt() },
+                  { role: 'user', content: storyPrompt }
+                ],
                 (chunk: string) => {
                   storyContent += chunk;
 
@@ -752,9 +1402,9 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
                   })
                 });
 
-                // 直接使用AI生成的完整内容，不进行额外分割
-                // 解析AI生成的内容，按章节标题分割
-                const chapters = this.extractChaptersFromContent(storyContent, storyStartChapter, storyEndChapter);
+                const chapters = mode === 'microdrama'
+                  ? [storyContent.trim()]
+                  : this.extractChaptersFromContent(storyContent, storyStartChapter, storyEndChapter);
 
                 // 发送每个章节
                 chapters.forEach((chapter, index) => {
@@ -768,7 +1418,7 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
                     })
                   });
 
-                  console.log(`第${chapterNum}章生成完成，字数: ${this.getWordCount(chapter)}`);
+                  console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(chapter)}`);
                 });
 
                 // 更新上下文记忆
@@ -787,7 +1437,9 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
                   contextMemory += `\n\n最新生成内容：${recentSummary}...`;
                 }
 
-                console.log(`第${storyIndex + 1}个小故事生成成功，包含${chapters.length}个章节`);
+                console.log(mode === 'microdrama'
+                  ? `第${storyStartChapter}集生成成功`
+                  : `第${storyIndex + 1}个小故事生成成功，包含${chapters.length}个章节`);
               }
             } catch (storyError) {
               console.error(`第${storyIndex + 1}个小故事生成失败:`, storyError);
@@ -933,7 +1585,7 @@ ${storyContent}`;
     const lines = trimmed.split('\n');
     if (lines.length === 0) return trimmed;
     const firstLine = lines[0].trim();
-    const isTitle = /^第\d+章\b/.test(firstLine);
+    const isTitle = /^第\d+[章节集]\b/.test(firstLine);
     if (!isTitle) return trimmed;
     return lines.slice(1).join('\n').trim();
   }
@@ -943,7 +1595,7 @@ ${storyContent}`;
    */
   private buildCompactChapterDigest(chapterContent: string, chapterNum: number): string {
     const lines = (chapterContent || '').split('\n').map(l => l.trim());
-    const titleLine = lines.find(l => /^第\d+章\b/.test(l)) || `第${chapterNum}章`;
+    const titleLine = lines.find(l => /^第\d+[章节集]\b/.test(l)) || `第${chapterNum}章`;
     const body = this.stripLeadingChapterTitleLine(chapterContent);
     const head = body.slice(0, 260).trim();
     const tail = body.slice(Math.max(0, body.length - 260)).trim();
@@ -955,7 +1607,7 @@ ${storyContent}`;
    */
   private buildRecentSummaryForContext(chapters: string[], storyStartChapter: number, storyEndChapter: number): string {
     const titles = chapters
-      .map(ch => (ch.split('\n').find(l => /^第\d+章\b/.test(l.trim())) || '').trim())
+      .map(ch => (ch.split('\n').find(l => /^第\d+[章节集]\b/.test(l.trim())) || '').trim())
       .filter(Boolean)
       .join(', ');
 
@@ -1001,7 +1653,7 @@ ${storyContent}`;
   private getWordCount(content: string): number {
     // 移除标题行，然后计算中文字符数
     const lines = content.split('\n');
-    const contentLines = lines.filter(line => !line.match(/^第\d+章\s*\[/)); // 过滤掉标题行
+    const contentLines = lines.filter(line => !line.match(/^第\d+[章节集]\s*\[/)); // 过滤掉标题行
     const text = contentLines.join('\n');
 
     // 计算中文字符数（不包括英文和数字）

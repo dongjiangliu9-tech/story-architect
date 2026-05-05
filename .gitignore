@@ -2,6 +2,9 @@
 /dist
 /node_modules
 /build
+client/dist
+client/node_modules
+node_modules
 
 # Logs
 logs
@@ -45,6 +48,8 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+.story-architect-prompt-cache
+artifacts
 
 # Runtime data
 pids

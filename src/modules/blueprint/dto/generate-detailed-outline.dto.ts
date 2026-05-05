@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsIn, IsInt, Min, Max, IsBoolean } from 'class-validator';
 
 export class GenerateDetailedOutlineDto {
   @IsString()
@@ -12,4 +12,23 @@ export class GenerateDetailedOutlineDto {
   @IsString()
   @IsNotEmpty()
   characters: string; // 人物设定内容
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['novel', 'microdrama'])
+  mode?: 'novel' | 'microdrama';
+
+  @IsInt()
+  @Min(1)
+  @Max(4)
+  @IsOptional()
+  outlineBatchIndex?: number;
+
+  @IsString()
+  @IsOptional()
+  existingDetailedOutline?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isFinalBatch?: boolean;
 }

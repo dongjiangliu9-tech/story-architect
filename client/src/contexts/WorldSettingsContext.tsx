@@ -77,6 +77,11 @@ export interface WorldSettingsProject {
   worldSetting?: string;
   characters?: string;
   detailedOutline?: string;
+  worldSettingTransferRef?: string;
+  charactersTransferRef?: string;
+  detailedOutlineTransferRef?: string;
+  detailedOutlineMode?: 'novel' | 'microdrama';
+  worldSettingNeedsUpgradeSystem?: boolean;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
   microStoryOutlines?: {[key: string]: string}; // 中故事ID -> 小故事细纲内容
   savedMicroStories?: SavedMicroStory[]; // 保存的小故事列表
@@ -216,6 +221,10 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       id,
       bookName: bookName.trim(),
       outline,
+      detailedOutlineMode: base.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel',
+      worldSettingNeedsUpgradeSystem: typeof base.worldSettingNeedsUpgradeSystem === 'boolean'
+        ? base.worldSettingNeedsUpgradeSystem
+        : true,
       createdAt,
       updatedAt,
     };

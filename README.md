@@ -58,13 +58,16 @@ src/
 
 ```bash
 # API Configuration
-LYRICS_API_KEY=sk-Ep1gUiWhuoOE4NcencERkaOSsgcEELaC1XbMg8coXsc9ofgP  # Yinli API密钥
-LYRICS_BASE_URL=https://yinli.one/v1                                   # Yinli API基础URL
-LYRICS_MODEL=gemini-3-pro-preview                                     # 默认逻辑模型 (Gemini 3 Pro via Yinli)
+LYRICS_API_KEY=your_google_ai_studio_key_here                     # Google AI Studio / Gemini API Key
+LYRICS_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+LYRICS_MODEL=gemini-3.1-pro-preview                               # 默认逻辑模型 (Gemini 官方接口)
+HTTPS_PROXY=http://127.0.0.1:7897                                 # 可选：本地 Clash / HTTP 代理
+HTTP_PROXY=http://127.0.0.1:7897                                  # 可选：本地 Clash / HTTP 代理
+DEEPSEEK_USE_PROXY=false
 
 # Deepseek Official API (用于写作功能)
 DEEPSEEK_API_KEY=your_deepseek_api_key_here                          # Deepseek官网API密钥
-WRITER_MODEL=deepseek-chat                                             # 写作模型 (Deepseek官网)
+WRITER_MODEL=deepseek-v4-pro                                           # 写作模型 (Deepseek官网)
 
 # Server Configuration
 PORT=3000                                                              # 服务器端口

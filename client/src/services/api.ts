@@ -3,7 +3,7 @@ import { GenerateOutlineDto, GenerateOutlineResponse } from '../types';
 
 const api = axios.create({
   baseURL: (import.meta as any).env.VITE_API_BASE_URL || '/api',
-  timeout: 200000, // 200秒超时，给AI生成足够时间
+  timeout: 600000, // 10分钟超时，给官方 Gemini 高负载重试留出时间
   headers: {
     'Content-Type': 'application/json',
   },
@@ -11,6 +11,7 @@ const api = axios.create({
 
 export interface GenerateWorldSettingDto {
   outline: string;
+  needsUpgradeSystem?: boolean;
 }
 
 export interface GenerateCharactersDto {
@@ -22,20 +23,46 @@ export interface GenerateDetailedOutlineDto {
   outline: string;
   worldSetting: string;
   characters: string;
+  mode?: 'novel' | 'microdrama';
+  outlineBatchIndex?: number;
+  existingDetailedOutline?: string;
+  isFinalBatch?: boolean;
 }
 
 export interface GenerateMicroStoriesDto {
   macroStory: string;
   storyIndex: string;
   chapterRange?: string;
+  mode?: 'novel' | 'microdrama';
+}
+
+export interface GenerateMicroStoryVariantsDto {
+  macroStory: string;
+  currentTitle: string;
+  currentContent: string;
+  previousContent?: string;
+  nextContent?: string;
+  selectedVariantTitle?: string;
+  selectedVariantContent?: string;
+  targetStories?: Array<{ index: number; title: string; content: string }>;
+  selectedVariantStories?: Array<{ index: number; title: string; content: string }>;
+  targetType?: 'micro' | 'macro';
+  worldSetting?: string;
+  characters?: string;
+  note?: string;
+  storyIndex?: string;
+  microIndex?: string;
+  mode?: 'novel' | 'microdrama';
 }
 
 export interface GenerateChapterDto {
   context: string;
   chapterNumber: number;
+  unitCount?: number;
   previousEnding?: string;
   savedMicroStories?: any[];
   generatedChapters?: { [key: number]: string };
+  mode?: 'novel' | 'microdrama';
 }
 
 export const blueprintApi = {
@@ -61,6 +88,11 @@ export const blueprintApi = {
 
   generateMicroStories: async (data: GenerateMicroStoriesDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate-micro-stories', data);
+    return response.data;
+  },
+
+  generateMicroStoryVariants: async (data: GenerateMicroStoryVariantsDto): Promise<GenerateOutlineResponse> => {
+    const response = await api.post('/blueprint/generate-micro-story-variants', data);
     return response.data;
   },
 

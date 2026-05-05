@@ -184,7 +184,9 @@ ${outline.themes}`;
         outlineResponse = await blueprintApi.generateDetailedOutline({
           outline: outlineData,
           worldSetting: worldResponse.data,
-          characters: charactersResponse.data
+          characters: charactersResponse.data,
+          outlineBatchIndex: 1,
+          existingDetailedOutline: ''
         });
         setCachedData(bookName, 'detailed-outline', outlineResponse.data);
         updateStep('generate-outline', { status: 'completed', message: '情节细纲生成完成' });
@@ -198,6 +200,7 @@ ${outline.themes}`;
         worldSetting: worldResponse.data,
         characters: charactersResponse.data,
         detailedOutline: outlineResponse.data,
+        detailedOutlineMode: 'novel',
       });
 
       updateStep('save-project', { status: 'completed', message: '项目保存完成' });

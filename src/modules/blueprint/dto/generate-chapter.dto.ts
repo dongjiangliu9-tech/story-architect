@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsArray, IsObject } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsArray, IsObject, IsIn } from 'class-validator';
 
 export class GenerateChapterDto {
   @IsString()
@@ -6,6 +6,10 @@ export class GenerateChapterDto {
 
   @IsNumber()
   chapterNumber: number; // 章节编号
+
+  @IsNumber()
+  @IsOptional()
+  unitCount?: number; // 本次要生成的章/集数量
 
   @IsString()
   @IsOptional()
@@ -18,4 +22,9 @@ export class GenerateChapterDto {
   @IsObject()
   @IsOptional()
   generatedChapters?: { [key: number]: string }; // 已生成的章节内容（可选）
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['novel', 'microdrama'])
+  mode?: 'novel' | 'microdrama';
 }

@@ -46,6 +46,24 @@ function cleanMicroStoryContent(content: string): string {
 }
 
 type MicroStoryDraft = { title: string; content: string };
+type MicroStoryVariantState = {
+  loading: boolean;
+  note: string;
+  variants: MicroStoryDraft[];
+  selectedIndex: number | null;
+  error?: string;
+};
+type MicroStoryBatchVariant = {
+  title: string;
+  stories: MicroStoryDraft[];
+};
+type MicroStoryBatchVariantState = {
+  loading: boolean;
+  note: string;
+  variants: MicroStoryBatchVariant[];
+  selectedIndex: number | null;
+  error?: string;
+};
 
 interface StoryStructurePageProps {
   onBack: (targetPage?: string) => void;
@@ -56,6 +74,23 @@ interface StoryStructurePageProps {
 
 export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep, setAutoFlowProgress }: StoryStructurePageProps) {
   const { currentProject, updateProject } = useWorldSettings();
+  const detailedOutlineMode = currentProject?.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
+  const isMicrodrama = detailedOutlineMode === 'microdrama';
+  const structureLabels = isMicrodrama
+    ? {
+        unit: '集',
+        macro: '卡点中故事',
+        micro: '单集剧本细纲',
+        microButton: '生成10集分集细纲',
+        emptyHint: '点击左侧的卡点中故事，查看或生成10集单集剧本细纲',
+      }
+    : {
+        unit: '章',
+        macro: '中故事',
+        micro: '小故事细纲',
+        microButton: '生成小故事细纲',
+        emptyHint: '点击左侧的中故事列表，选择要查看的小故事细纲',
+      };
   // 用索引而不是内容字符串来选择中故事，避免内容重复/空白差异导致 indexOf 失效
   const [selectedMacroStoryIndex, setSelectedMacroStoryIndex] = useState<number | null>(null);
   const [macroStories, setMacroStories] = useState<string[]>([]);
@@ -63,11 +98,16 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [generatingStories, setGeneratingStories] = useState<{[key: string]: boolean}>({});
   const [expandedStories, setExpandedStories] = useState<{[key: string]: boolean}>({});
   const [batchGenerating, setBatchGenerating] = useState(false);
+  const [continuingMacroBatch, setContinuingMacroBatch] = useState(false);
   const [batchGenerationProgress, setBatchGenerationProgress] = useState<{current: number, total: number, currentStory: string} | null>(null);
   const [isEditingMacroStory, setIsEditingMacroStory] = useState(false);
   const [macroStoryDraft, setMacroStoryDraft] = useState('');
   const [microStoryDraftsByMacro, setMicroStoryDraftsByMacro] = useState<Record<string, MicroStoryDraft[]>>({});
   const [editingMicroStory, setEditingMicroStory] = useState<{ storyKey: string; index: number } | null>(null);
+  const [variantStates, setVariantStates] = useState<Record<string, MicroStoryVariantState>>({});
+  const [selectedMicroStoryIndexesByMacro, setSelectedMicroStoryIndexesByMacro] = useState<Record<string, number[]>>({});
+  const [batchVariantStates, setBatchVariantStates] = useState<Record<string, MicroStoryBatchVariantState>>({});
+  const [macroVariantStates, setMacroVariantStates] = useState<Record<string, MicroStoryVariantState>>({});
   const editingMicroStoryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedMacroStory = selectedMacroStoryIndex !== null ? macroStories[selectedMacroStoryIndex] : null;
@@ -131,8 +171,24 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   // 解析小故事内容，正确提取【小故事X】标记之间的内容
   const parseMicroStoriesFromOutline = (content: string): string[] => {
     const stories: string[] = [];
-    const microStoryRegex = /【小故事[一二三四五六七八九十\d]+】/g;
+    const microStoryRegex = /【(?:小故事|分集|单集)[一二三四五六七八九十\d]+】/g;
     const matches = [...content.matchAll(microStoryRegex)];
+
+    if (matches.length === 0) {
+      const sceneLikeEpisodeRegex = /(?:^|\n)(?:第\s*[一二三四五六七八九十\d]+\s*集|[一二三四五六七八九十\d]+-\d+\s+(?:日|夜))/g;
+      const sceneMatches = [...content.matchAll(sceneLikeEpisodeRegex)];
+      if (sceneMatches.length > 0) {
+        for (let i = 0; i < sceneMatches.length; i++) {
+          const currentMatch = sceneMatches[i];
+          const nextMatch = sceneMatches[i + 1];
+          const startIndex = currentMatch.index!;
+          const endIndex = nextMatch ? nextMatch.index! : content.length;
+          const storyContent = content.slice(startIndex, endIndex).trim();
+          if (storyContent.length > 0) stories.push(storyContent);
+        }
+      }
+      return stories;
+    }
 
     for (let i = 0; i < matches.length; i++) {
       const currentMatch = matches[i];
@@ -147,6 +203,146 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       }
     }
     return stories;
+  };
+
+  const buildMicroStoryDraftsFromOutline = (outlineContent: string): MicroStoryDraft[] => {
+    return parseMicroStoriesFromOutline(outlineContent).map((c, idx) => ({
+      title: getMicroStoryDefaultTitle(idx + 1),
+      content: cleanMicroStoryContent(c)
+    }));
+  };
+
+  const parseVariantDrafts = (content: string): MicroStoryDraft[] => {
+    const variants: MicroStoryDraft[] = [];
+    const variantRegex = /【方案[一二三\d]+】([^\n]*)/g;
+    const matches = [...content.matchAll(variantRegex)];
+
+    if (matches.length === 0) {
+      return buildMicroStoryDraftsFromOutline(content).slice(0, 3);
+    }
+
+    for (let i = 0; i < matches.length; i++) {
+      const current = matches[i];
+      const next = matches[i + 1];
+      const startIndex = current.index! + current[0].length;
+      const endIndex = next ? next.index! : content.length;
+      const title = (current[1] || `方案${getChineseNumber(i + 1)}`)
+        .replace(/^[:：\s]+/, '')
+        .trim();
+      const body = content
+        .slice(startIndex, endIndex)
+        .replace(/^\s*内容[:：]\s*/m, '')
+        .trim();
+      if (body) {
+        variants.push({
+          title: title || `方案${getChineseNumber(i + 1)}`,
+          content: cleanMicroStoryContent(body)
+        });
+      }
+    }
+
+    return variants.slice(0, 3);
+  };
+
+  const parseBatchVariantDrafts = (content: string, selectedIndexes: number[]): MicroStoryBatchVariant[] => {
+    const variants: MicroStoryBatchVariant[] = [];
+    const variantRegex = /【方案[一二三\d]+】([^\n]*)/g;
+    const matches = [...content.matchAll(variantRegex)];
+    const unitName = structureLabels.unit;
+
+    for (let i = 0; i < matches.length; i++) {
+      const current = matches[i];
+      const next = matches[i + 1];
+      const startIndex = current.index! + current[0].length;
+      const endIndex = next ? next.index! : content.length;
+      const section = content.slice(startIndex, endIndex).trim();
+      const schemeTitle = (current[1] || `方案${getChineseNumber(i + 1)}`).replace(/^[:：\s]+/, '').trim();
+      const stories: MicroStoryDraft[] = [];
+
+      selectedIndexes.forEach((selectedIndex) => {
+        const labelPattern = `(?:第\\s*${selectedIndex + 1}\\s*${unitName}|${selectedIndex + 1}\\s*${unitName}|${getChineseNumber(selectedIndex + 1)}\\s*${unitName}|小故事\\s*${getChineseNumber(selectedIndex + 1)}|分集\\s*${getChineseNumber(selectedIndex + 1)})`;
+        const currentRegex = new RegExp(`【\\s*${labelPattern}\\s*】([^\\n]*)`, 'g');
+        const currentMatch = currentRegex.exec(section);
+        if (!currentMatch?.index && currentMatch?.index !== 0) return;
+
+        const itemStart = currentMatch.index + currentMatch[0].length;
+        const laterHeading = section.slice(itemStart).search(/\n\s*【(?:第\s*\d+\s*[章节集]|小故事|分集|单集)/);
+        const itemEnd = laterHeading >= 0 ? itemStart + laterHeading : section.length;
+        const title = (currentMatch[1] || getMicroStoryDefaultTitle(selectedIndex + 1)).replace(/^[:：\s]+/, '').trim();
+        const body = section.slice(itemStart, itemEnd).replace(/^\s*内容[:：]\s*/m, '').trim();
+        stories.push({
+          title: title || getMicroStoryDefaultTitle(selectedIndex + 1),
+          content: cleanMicroStoryContent(body)
+        });
+      });
+
+      if (stories.length === selectedIndexes.length) {
+        variants.push({
+          title: schemeTitle || `方案${getChineseNumber(i + 1)}`,
+          stories
+        });
+      }
+    }
+
+    return variants.slice(0, 3);
+  };
+
+  const getVariantKey = (storyKey: string, microIndex: number) => `${storyKey}_micro_${microIndex}`;
+
+  const updateVariantState = (variantKey: string, update: Partial<MicroStoryVariantState>) => {
+    setVariantStates(prev => ({
+      ...prev,
+      [variantKey]: {
+        ...(prev[variantKey] || {
+          loading: false,
+          note: '',
+          variants: [],
+          selectedIndex: null
+        }),
+        ...update
+      }
+    }));
+  };
+
+  const updateBatchVariantState = (storyKey: string, update: Partial<MicroStoryBatchVariantState>) => {
+    setBatchVariantStates(prev => ({
+      ...prev,
+      [storyKey]: {
+        ...(prev[storyKey] || {
+          loading: false,
+          note: '',
+          variants: [],
+          selectedIndex: null
+        }),
+        ...update
+      }
+    }));
+  };
+
+  const updateMacroVariantState = (storyKey: string, update: Partial<MicroStoryVariantState>) => {
+    setMacroVariantStates(prev => ({
+      ...prev,
+      [storyKey]: {
+        ...(prev[storyKey] || {
+          loading: false,
+          note: '',
+          variants: [],
+          selectedIndex: null
+        }),
+        ...update
+      }
+    }));
+  };
+
+  const toggleMicroStorySelection = (storyKey: string, microIndex: number) => {
+    setSelectedMicroStoryIndexesByMacro(prev => {
+      const current = prev[storyKey] || [];
+      const exists = current.includes(microIndex);
+      const next = exists
+        ? current.filter(i => i !== microIndex)
+        : [...current, microIndex].sort((a, b) => a - b).slice(0, 10);
+      return { ...prev, [storyKey]: next };
+    });
   };
 
   // 在 detailedOutline 中，替换某个【中故事X】段落的内容（尽量保留其它文本不变）
@@ -186,7 +382,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     // 小故事草稿：只在首次进入该中故事时初始化
     setMicroStoryDraftsByMacro(prev => {
-      if (prev[storyKey]) return prev;
+      if (prev[storyKey]?.length > 0) return prev;
 
       const savedForThisMacro = (currentProject?.savedMicroStories || [])
         .filter(s => s.macroStoryId === storyKey)
@@ -196,7 +392,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         return {
           ...prev,
           [storyKey]: savedForThisMacro.map((s, idx) => ({
-            title: (s.title || `小故事 ${getChineseNumber(idx + 1)}`).trim(),
+            title: (s.title || getMicroStoryDefaultTitle(idx + 1)).trim(),
             content: s.content ?? ''
           }))
         };
@@ -204,13 +400,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
       const outlineContent = microStoryOutlines[storyKey];
       if (outlineContent) {
-        const parsed = parseMicroStoriesFromOutline(outlineContent);
         return {
           ...prev,
-          [storyKey]: parsed.map((c, idx) => ({
-            title: `小故事 ${getChineseNumber(idx + 1)}`,
-            content: cleanMicroStoryContent(c)
-          }))
+          [storyKey]: buildMicroStoryDraftsFromOutline(outlineContent)
         };
       }
 
@@ -235,15 +427,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       const response = await blueprintApi.generateDetailedOutline({
         outline: formatOutlineData(currentProject.outline),
         worldSetting: currentProject.worldSetting || '',
-        characters: currentProject.characters || ''
+        characters: currentProject.characters || '',
+        mode: detailedOutlineMode,
+        outlineBatchIndex: 1,
+        existingDetailedOutline: '',
       });
 
       console.log('重新生成的中故事内容:', response.data);
-
-      // 更新项目
-      await updateProject(currentProject.id, {
-        detailedOutline: response.data
-      });
 
       // 重新解析并设置中故事
       const newStories = parseMacroStories(response.data);
@@ -252,7 +442,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
       // 清除旧的小故事数据
       setMicroStoryOutlines({});
-      await updateProject(currentProject.id, {
+      updateProject(currentProject.id, {
+        detailedOutline: response.data,
         microStoryOutlines: {}
       });
 
@@ -260,6 +451,61 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     } catch (error) {
       console.error('重新生成中故事失败:', error);
       alert('重新生成中故事失败，请稍后重试');
+    }
+  };
+
+  // 继续生成下一批网文中故事（每批10个，最多4批40个）
+  const continueNextMacroStoryBatch = async () => {
+    if (!currentProject) {
+      alert('未找到当前项目');
+      return;
+    }
+    if (isMicrodrama) {
+      alert('微短剧模式固定为100集大纲，不需要继续追加中故事批次');
+      return;
+    }
+
+    const existingDetailedOutline = currentProject.detailedOutline || '';
+    const existingCount = parseMacroStories(existingDetailedOutline).length || macroStories.length;
+    if (existingCount >= 40) {
+      alert('已经生成到40个中故事，可以进入完整细化和写作了');
+      return;
+    }
+    if (existingCount > 0 && existingCount % 10 !== 0) {
+      alert('当前中故事数量不是10的整数倍，请先补齐或手动整理后再继续生成下一批');
+      return;
+    }
+
+    const nextBatchIndex = Math.min(4, Math.floor(existingCount / 10) + 1);
+    setContinuingMacroBatch(true);
+    try {
+      const response = await blueprintApi.generateDetailedOutline({
+        outline: formatOutlineData(currentProject.outline),
+        worldSetting: currentProject.worldSetting || '',
+        characters: currentProject.characters || '',
+        mode: 'novel',
+        outlineBatchIndex: nextBatchIndex,
+        existingDetailedOutline,
+        isFinalBatch: nextBatchIndex === 4,
+      });
+
+      const combinedDetailedOutline = [existingDetailedOutline.trim(), response.data.trim()]
+        .filter(Boolean)
+        .join('\n\n');
+      const newStories = parseMacroStories(combinedDetailedOutline);
+
+      updateProject(currentProject.id, {
+        detailedOutline: combinedDetailedOutline
+      });
+      setMacroStories(newStories);
+      setSelectedMacroStoryIndex(existingCount);
+
+      alert(`已生成第${nextBatchIndex}批中故事（第${existingCount + 1}-${Math.min(existingCount + 10, 40)}个）！`);
+    } catch (error) {
+      console.error('继续生成下一批中故事失败:', error);
+      alert('继续生成下一批中故事失败，请稍后重试');
+    } finally {
+      setContinuingMacroBatch(false);
     }
   };
 
@@ -317,15 +563,21 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
   // 将数字转换为中文数字
   const getChineseNumber = (num: number): string => {
-    const chineseNumbers = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
-                           '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-                           '二十一', '二十二', '二十三', '二十四', '二十五', '二十六', '二十七', '二十八', '二十九', '三十'];
-    return chineseNumbers[num - 1] || num.toString();
+    const digits = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    if (num <= 10) return num === 10 ? '十' : digits[num];
+    if (num < 20) return `十${digits[num - 10]}`;
+    const tens = Math.floor(num / 10);
+    const ones = num % 10;
+    return `${digits[tens]}十${ones ? digits[ones] : ''}`;
   };
 
-  // 计算中故事的章节范围
+  const getMicroStoryDefaultTitle = (num: number): string => (
+    isMicrodrama ? `第${num}集` : `小故事 ${getChineseNumber(num)}`
+  );
+
+  // 计算中故事的章节或集数范围
   const getChapterRange = (storyIndex: number) => {
-    const chaptersPerMacroStory = 20;
+    const chaptersPerMacroStory = isMicrodrama ? 10 : 20;
     const startChapter = storyIndex * chaptersPerMacroStory + 1;
     const endChapter = (storyIndex + 1) * chaptersPerMacroStory;
     return { startChapter, endChapter };
@@ -357,14 +609,21 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       const response = await blueprintApi.generateMicroStories({
         macroStory,
         storyIndex: chineseIndex,
-        chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`
+        chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
+        mode: detailedOutlineMode,
       });
 
-      console.log(`生成中故事${chineseIndex}的小故事细纲成功 (章节: ${chapterRange.startChapter}-${chapterRange.endChapter})`);
+      console.log(`生成中故事${chineseIndex}的小故事细纲成功 (${structureLabels.unit}: ${chapterRange.startChapter}-${chapterRange.endChapter})`);
 
-      // 保存到本地状态
-      const newOutlines = { ...microStoryOutlines, [storyKey]: response.data };
-      setMicroStoryOutlines(newOutlines);
+	      // 保存到本地状态
+	      const newOutlines = { ...microStoryOutlines, [storyKey]: response.data };
+	      setMicroStoryOutlines(newOutlines);
+	      setMicroStoryDraftsByMacro(prev => ({
+	        ...prev,
+	        [storyKey]: buildMicroStoryDraftsFromOutline(response.data)
+	      }));
+	      setExpandedStories(prev => ({ ...prev, [storyKey]: true }));
+	      setSelectedMacroStoryIndex(storyIndex);
 
       // 保存到项目
       if (currentProject) {
@@ -440,7 +699,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           const response = await blueprintApi.generateMicroStories({
             macroStory,
             storyIndex: chineseIndex,
-            chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`
+            chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
+            mode: detailedOutlineMode,
           });
 
           console.log(`批量生成：中故事${chineseIndex}的小故事细纲成功`);
@@ -464,32 +724,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         const outlineContent = generatedOutlines[storyKey];
         if (outlineContent) {
           // 解析小故事内容
-          const parseMicroStories = (content: string): string[] => {
-            const stories: string[] = [];
-            const microStoryRegex = /【小故事[一二三四五六七八九十\d]+】/g;
-            const matches = [...content.matchAll(microStoryRegex)];
-
-            for (let j = 0; j < matches.length; j++) {
-              const currentMatch = matches[j];
-              const nextMatch = matches[j + 1];
-
-              const startIndex = currentMatch.index! + currentMatch[0].length;
-              const endIndex = nextMatch ? nextMatch.index! : content.length;
-
-              const storyContent = content.slice(startIndex, endIndex).trim();
-              if (storyContent.length > 0) {
-                stories.push(storyContent);
-              }
-            }
-            return stories;
-          };
-
-          const microStoriesParsed = parseMicroStories(outlineContent);
+	          const microStoriesParsed = parseMicroStoriesFromOutline(outlineContent);
 
           // 创建保存的小故事数据
           const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
             id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
-            title: `小故事 ${getChineseNumber(index + 1)}`,
+            title: getMicroStoryDefaultTitle(index + 1),
             content: cleanMicroStoryContent(content),
             macroStoryId: storyKey,
             macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -507,8 +747,15 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         }
       }
 
-      // 更新本地状态
-      setMicroStoryOutlines(generatedOutlines);
+	      // 更新本地状态
+	      setMicroStoryOutlines(generatedOutlines);
+	      setMicroStoryDraftsByMacro(prev => {
+	        const next = { ...prev };
+	        Object.entries(generatedOutlines).forEach(([storyKey, outline]) => {
+	          next[storyKey] = buildMicroStoryDraftsFromOutline(outline);
+	        });
+	        return next;
+	      });
 
       // 保存所有小故事到项目
       updateProject(currentProject.id, {
@@ -564,13 +811,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     let storyDraftsToSave: MicroStoryDraft[] | null = null;
     if (drafts && drafts.length > 0) {
       storyDraftsToSave = drafts;
-    } else if (outlineContent) {
-      // 2) 兼容旧流程：没有草稿时，从 microStoryOutlines 解析并保存
-      const parsed = parseMicroStoriesFromOutline(outlineContent);
-      storyDraftsToSave = parsed.map((c, idx) => ({
-        title: `小故事 ${getChineseNumber(idx + 1)}`,
-        content: cleanMicroStoryContent(c)
-      }));
+	    } else if (outlineContent) {
+	      // 2) 兼容旧流程：没有草稿时，从 microStoryOutlines 解析并保存
+	      storyDraftsToSave = buildMicroStoryDraftsFromOutline(outlineContent);
     }
 
     if (!storyDraftsToSave || storyDraftsToSave.length === 0) {
@@ -591,7 +834,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       const prev = existingByOrder.get(index);
       return {
         id: prev?.id || `${storyKey}_micro_${index}_${Date.now()}`,
-        title: (draft.title || `小故事 ${getChineseNumber(index + 1)}`).trim(),
+        title: (draft.title || getMicroStoryDefaultTitle(index + 1)).trim(),
         content: draft.content ?? '',
         macroStoryId: storyKey,
         macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -636,12 +879,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   // 保存“中故事”人工修改（回写 detailedOutline，并同步更新引用到该中故事的小故事）
-  const saveEditedMacroStory = () => {
+  const saveEditedMacroStory = (overrideContent?: string, opts?: { silent?: boolean }) => {
     if (!currentProject || selectedMacroStoryIndex === null) return;
 
     const idx = selectedMacroStoryIndex;
     const storyKey = `story_${idx}`;
-    const newContent = macroStoryDraft ?? '';
+    const newContent = overrideContent ?? macroStoryDraft ?? '';
 
     const updatedMacroStories = [...macroStories];
     updatedMacroStories[idx] = newContent;
@@ -675,7 +918,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     });
 
     setIsEditingMacroStory(false);
-    alert('中故事修改已保存！后续引用会自动使用新内容。');
+    setMacroStoryDraft(newContent);
+    if (!opts?.silent) alert('中故事修改已保存！后续引用会自动使用新内容。');
   };
 
   // 保存单条小故事的人工修改（立即落库到 savedMicroStories，并同步 selectedMicroStories）
@@ -692,6 +936,494 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         : (macroStories[macroIndex] || '');
     saveMicroStories(macroIndex, macroContentToUse);
     setEditingMicroStory(null);
+  };
+
+  const generateMacroStoryVariants = async (macroIndex: number) => {
+    if (!currentProject) return;
+    const storyKey = `story_${macroIndex}`;
+    const state = macroVariantStates[storyKey];
+    const selectedVariant = state?.selectedIndex !== null && state?.selectedIndex !== undefined
+      ? state.variants[state.selectedIndex]
+      : undefined;
+
+    updateMacroVariantState(storyKey, { loading: true, error: undefined });
+
+    try {
+      const response = await blueprintApi.generateMicroStoryVariants({
+        targetType: 'macro',
+        macroStory: macroStories[macroIndex] || '',
+        currentTitle: `${structureLabels.macro} ${macroIndex + 1}`,
+        currentContent: macroStories[macroIndex] || '',
+        previousContent: macroStories[macroIndex - 1],
+        nextContent: macroStories[macroIndex + 1],
+        selectedVariantTitle: selectedVariant?.title,
+        selectedVariantContent: selectedVariant?.content,
+        note: state?.note,
+        storyIndex: getChineseNumber(macroIndex + 1),
+        mode: detailedOutlineMode,
+        worldSetting: currentProject.worldSetting || '',
+        characters: currentProject.characters || '',
+      });
+
+      const variants = parseVariantDrafts(response.data);
+      updateMacroVariantState(storyKey, {
+        loading: false,
+        variants,
+        selectedIndex: null,
+        error: variants.length === 0 ? '没有解析到中故事候选方案，请重试一次。' : undefined
+      });
+    } catch (error) {
+      console.error('生成中故事候选方案失败:', error);
+      updateMacroVariantState(storyKey, {
+        loading: false,
+        error: '生成中故事候选方案失败，请稍后重试。'
+      });
+    }
+  };
+
+  const applyMacroStoryVariant = (macroIndex: number, variant: MicroStoryDraft) => {
+    const content = `${variant.title ? `${variant.title}\n` : ''}${variant.content || ''}`.trim();
+    setSelectedMacroStoryIndex(macroIndex);
+    saveEditedMacroStory(content, { silent: true });
+    setIsEditingMacroStory(false);
+  };
+
+  const renderMacroVariantTools = (macroIndex: number) => {
+    const storyKey = `story_${macroIndex}`;
+    const state = macroVariantStates[storyKey] || {
+      loading: false,
+      note: '',
+      variants: [],
+      selectedIndex: null
+    };
+
+    return (
+      <div className="mt-5 border border-amber-100 bg-amber-50/70 rounded-lg p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-amber-900">中故事重构方案池</div>
+            <div className="text-xs text-amber-700 mt-1">结合世界观、人设和上下中故事，生成3个新方案。</div>
+          </div>
+          <button
+            onClick={() => generateMacroStoryVariants(macroIndex)}
+            disabled={state.loading}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium"
+          >
+            {state.loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {state.variants.length > 0 ? '再生成3个中故事方案' : '生成3个中故事方案'}
+          </button>
+        </div>
+
+        {state.error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            {state.error}
+          </div>
+        )}
+
+        {state.variants.length > 0 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              {state.variants.map((variant, variantIndex) => {
+                const isSelected = state.selectedIndex === variantIndex;
+                return (
+                  <div
+                    key={`${storyKey}_macro_${variantIndex}`}
+                    className={`border rounded-lg p-3 bg-white ${isSelected ? 'border-amber-300 ring-2 ring-amber-100' : 'border-secondary-200'}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h5 className="font-medium text-secondary-900 text-sm">{variant.title || `方案${getChineseNumber(variantIndex + 1)}`}</h5>
+                      <button
+                        onClick={() => updateMacroVariantState(storyKey, { selectedIndex: variantIndex })}
+                        className={`px-2 py-1 text-xs rounded ${isSelected ? 'bg-amber-600 text-white' : 'bg-secondary-100 hover:bg-secondary-200 text-secondary-700'}`}
+                      >
+                        {isSelected ? '已选' : '选择'}
+                      </button>
+                    </div>
+                    <div className="text-xs text-secondary-700 whitespace-pre-wrap max-h-72 overflow-y-auto leading-relaxed">
+                      {variant.content}
+                    </div>
+                    <button
+                      onClick={() => applyMacroStoryVariant(macroIndex, variant)}
+                      className="mt-3 w-full px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                    >
+                      采用为当前中故事
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <textarea
+              value={state.note}
+              onChange={(e) => updateMacroVariantState(storyKey, { note: e.target.value })}
+              className="w-full min-h-[72px] p-3 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-secondary-800 bg-white"
+              placeholder="写批注：比如更贴近女主成长、反派压迫感更强、不要改掉下一中故事的开端、爱情线慢一点..."
+            />
+            <div className="flex justify-end">
+              <button
+                onClick={() => generateMacroStoryVariants(macroIndex)}
+                disabled={state.loading}
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 text-white rounded-md text-sm"
+              >
+                {state.loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+                根据批注再生成3个
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const generateMicroStoryVariants = async (
+    macroIndex: number,
+    microIndex: number,
+    currentDraft: MicroStoryDraft,
+    allDrafts: MicroStoryDraft[]
+  ) => {
+    if (!currentProject) return;
+
+    const storyKey = `story_${macroIndex}`;
+    const variantKey = getVariantKey(storyKey, microIndex);
+    const state = variantStates[variantKey];
+    const selectedVariant = state?.selectedIndex !== null && state?.selectedIndex !== undefined
+      ? state.variants[state.selectedIndex]
+      : undefined;
+
+    updateVariantState(variantKey, { loading: true, error: undefined });
+
+    try {
+      const response = await blueprintApi.generateMicroStoryVariants({
+        macroStory: macroStories[macroIndex] || '',
+        currentTitle: currentDraft.title || getMicroStoryDefaultTitle(microIndex + 1),
+        currentContent: currentDraft.content || '',
+        previousContent: allDrafts[microIndex - 1]?.content,
+        nextContent: allDrafts[microIndex + 1]?.content,
+        selectedVariantTitle: selectedVariant?.title,
+        selectedVariantContent: selectedVariant?.content,
+        note: state?.note,
+        storyIndex: getChineseNumber(macroIndex + 1),
+        microIndex: `${microIndex + 1}`,
+        mode: detailedOutlineMode,
+      });
+
+      const variants = parseVariantDrafts(response.data);
+      updateVariantState(variantKey, {
+        loading: false,
+        variants,
+        selectedIndex: null,
+        error: variants.length === 0 ? '没有解析到候选方案，请重试一次。' : undefined
+      });
+    } catch (error) {
+      console.error('生成候选方案失败:', error);
+      updateVariantState(variantKey, {
+        loading: false,
+        error: '生成候选方案失败，请稍后重试。'
+      });
+    }
+  };
+
+  const applyMicroStoryVariant = (
+    storyKey: string,
+    microIndex: number,
+    variant: MicroStoryDraft,
+    allDrafts: MicroStoryDraft[]
+  ) => {
+    const nextDrafts = [...allDrafts];
+    nextDrafts[microIndex] = {
+      title: variant.title || getMicroStoryDefaultTitle(microIndex + 1),
+      content: variant.content || ''
+    };
+
+    setMicroStoryDraftsByMacro(prev => ({
+      ...prev,
+      [storyKey]: nextDrafts
+    }));
+    setEditingMicroStory(null);
+    setExpandedStories(prev => ({ ...prev, [storyKey]: true }));
+  };
+
+  const renderVariantTools = (
+    macroIndex: number,
+    storyKey: string,
+    microIndex: number,
+    draft: MicroStoryDraft,
+    allDrafts: MicroStoryDraft[]
+  ) => {
+    const variantKey = getVariantKey(storyKey, microIndex);
+    const state = variantStates[variantKey] || {
+      loading: false,
+      note: '',
+      variants: [],
+      selectedIndex: null
+    };
+
+    return (
+      <div className="mt-4 border-t border-secondary-100 pt-3 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => generateMicroStoryVariants(macroIndex, microIndex, draft, allDrafts)}
+            disabled={state.loading || !draft.content}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-100 disabled:text-gray-400 text-indigo-700 rounded-md font-medium disabled:cursor-not-allowed"
+            title="结合前后内容和中故事，生成3个候选方案"
+          >
+            {state.loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {state.variants.length > 0 ? '再生成3个方案' : '生成3个方案'}
+          </button>
+          {state.variants.length > 0 && (
+            <span className="text-xs text-secondary-500">选择一个方案后，可写批注继续迭代。</span>
+          )}
+        </div>
+
+        {state.error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            {state.error}
+          </div>
+        )}
+
+        {state.variants.length > 0 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {state.variants.map((variant, variantIndex) => {
+                const isSelected = state.selectedIndex === variantIndex;
+                return (
+                  <div
+                    key={`${variantKey}_${variantIndex}`}
+                    className={`border rounded-lg p-3 transition-all ${
+                      isSelected ? 'border-indigo-300 bg-indigo-50 ring-2 ring-indigo-100' : 'border-secondary-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h5 className="font-medium text-secondary-900 text-sm">
+                        {variant.title || `方案${getChineseNumber(variantIndex + 1)}`}
+                      </h5>
+                      <button
+                        onClick={() => updateVariantState(variantKey, { selectedIndex: variantIndex })}
+                        className={`px-2 py-1 text-xs rounded ${
+                          isSelected ? 'bg-indigo-600 text-white' : 'bg-secondary-100 hover:bg-secondary-200 text-secondary-700'
+                        }`}
+                      >
+                        {isSelected ? '已选' : '选择'}
+                      </button>
+                    </div>
+                    <div className="text-xs text-secondary-700 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                      {variant.content}
+                    </div>
+                    <button
+                      onClick={() => applyMicroStoryVariant(storyKey, microIndex, variant, allDrafts)}
+                      className="mt-3 w-full px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                    >
+                      采用为当前{structureLabels.unit}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2">
+              <textarea
+                value={state.note}
+                onChange={(e) => updateVariantState(variantKey, { note: e.target.value })}
+                className="w-full min-h-[72px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800"
+                placeholder="写批注：比如更狠一点、保留方案二的反转、让女主主动破局、结尾钩子再强一些..."
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={() => generateMicroStoryVariants(macroIndex, microIndex, draft, allDrafts)}
+                  disabled={state.loading}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-md text-sm"
+                >
+                  {state.loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  根据批注再生成3条
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const generateBatchMicroStoryVariants = async (macroIndex: number, storyKey: string, allDrafts: MicroStoryDraft[]) => {
+    if (!currentProject) return;
+    const selectedIndexes = [...(selectedMicroStoryIndexesByMacro[storyKey] || [])].sort((a, b) => a - b);
+
+    if (selectedIndexes.length < 1 || selectedIndexes.length > 10) {
+      updateBatchVariantState(storyKey, { error: '请至少选择1个、最多选择10个小故事。' });
+      return;
+    }
+
+    const isContinuous = selectedIndexes.every((idx, i) => i === 0 || idx === selectedIndexes[i - 1] + 1);
+    if (!isContinuous) {
+      updateBatchVariantState(storyKey, { error: '请尽量选择连续的小故事，比如2、3、4。' });
+      return;
+    }
+
+    const state = batchVariantStates[storyKey];
+    const selectedVariant = state?.selectedIndex !== null && state?.selectedIndex !== undefined
+      ? state.variants[state.selectedIndex]
+      : undefined;
+    const firstIndex = selectedIndexes[0];
+    const lastIndex = selectedIndexes[selectedIndexes.length - 1];
+
+    updateBatchVariantState(storyKey, { loading: true, error: undefined });
+
+    try {
+      const response = await blueprintApi.generateMicroStoryVariants({
+        macroStory: macroStories[macroIndex] || '',
+        currentTitle: selectedIndexes.map(i => allDrafts[i]?.title || getMicroStoryDefaultTitle(i + 1)).join(' / '),
+        currentContent: selectedIndexes.map(i => allDrafts[i]?.content || '').join('\n\n'),
+        previousContent: allDrafts[firstIndex - 1]?.content,
+        nextContent: allDrafts[lastIndex + 1]?.content,
+        targetStories: selectedIndexes.map(i => ({
+          index: i,
+          title: allDrafts[i]?.title || getMicroStoryDefaultTitle(i + 1),
+          content: allDrafts[i]?.content || ''
+        })),
+        selectedVariantStories: selectedVariant?.stories.map((story, offset) => ({
+          index: selectedIndexes[offset],
+          title: story.title,
+          content: story.content
+        })),
+        note: state?.note,
+        storyIndex: getChineseNumber(macroIndex + 1),
+        microIndex: selectedIndexes.map(i => `${i + 1}`).join(','),
+        mode: detailedOutlineMode,
+      });
+
+      const variants = parseBatchVariantDrafts(response.data, selectedIndexes);
+      updateBatchVariantState(storyKey, {
+        loading: false,
+        variants,
+        selectedIndex: null,
+        error: variants.length === 0 ? '没有解析到连续候选方案，请重试一次。' : undefined
+      });
+    } catch (error) {
+      console.error('生成连续候选方案失败:', error);
+      updateBatchVariantState(storyKey, {
+        loading: false,
+        error: '生成连续候选方案失败，请稍后重试。'
+      });
+    }
+  };
+
+  const applyBatchMicroStoryVariant = (
+    storyKey: string,
+    allDrafts: MicroStoryDraft[],
+    selectedIndexes: number[],
+    variant: MicroStoryBatchVariant
+  ) => {
+    const nextDrafts = [...allDrafts];
+    selectedIndexes.forEach((microIndex, offset) => {
+      const replacement = variant.stories[offset];
+      if (!replacement) return;
+      nextDrafts[microIndex] = {
+        title: replacement.title || getMicroStoryDefaultTitle(microIndex + 1),
+        content: replacement.content || ''
+      };
+    });
+
+    setMicroStoryDraftsByMacro(prev => ({
+      ...prev,
+      [storyKey]: nextDrafts
+    }));
+    setExpandedStories(prev => ({ ...prev, [storyKey]: true }));
+  };
+
+  const renderBatchVariantTools = (macroIndex: number, storyKey: string, allDrafts: MicroStoryDraft[]) => {
+    const selectedIndexes = [...(selectedMicroStoryIndexesByMacro[storyKey] || [])].sort((a, b) => a - b);
+    const state = batchVariantStates[storyKey] || {
+      loading: false,
+      note: '',
+      variants: [],
+      selectedIndex: null
+    };
+
+    return (
+      <div className="mb-4 border border-indigo-100 bg-indigo-50/60 rounded-lg p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-indigo-900">
+              连续改写方案池
+            </div>
+            <div className="text-xs text-indigo-700 mt-1">
+              已选择 {selectedIndexes.length} 个：{selectedIndexes.length ? selectedIndexes.map(i => getMicroStoryDefaultTitle(i + 1)).join('、') : '请在下方勾选'}
+            </div>
+          </div>
+          <button
+            onClick={() => generateBatchMicroStoryVariants(macroIndex, storyKey, allDrafts)}
+            disabled={state.loading || selectedIndexes.length < 1 || selectedIndexes.length > 10}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+          >
+            {state.loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {state.variants.length > 0 ? '再生成3套连续方案' : '生成3套连续方案'}
+          </button>
+        </div>
+
+        {state.error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            {state.error}
+          </div>
+        )}
+
+        {state.variants.length > 0 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              {state.variants.map((variant, variantIndex) => {
+                const isSelected = state.selectedIndex === variantIndex;
+                return (
+                  <div
+                    key={`${storyKey}_batch_${variantIndex}`}
+                    className={`border rounded-lg p-3 bg-white ${isSelected ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-secondary-200'}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h5 className="font-medium text-secondary-900 text-sm">{variant.title}</h5>
+                      <button
+                        onClick={() => updateBatchVariantState(storyKey, { selectedIndex: variantIndex })}
+                        className={`px-2 py-1 text-xs rounded ${isSelected ? 'bg-indigo-600 text-white' : 'bg-secondary-100 hover:bg-secondary-200 text-secondary-700'}`}
+                      >
+                        {isSelected ? '已选' : '选择'}
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {variant.stories.map((story, idx) => (
+                        <div key={idx} className="text-xs text-secondary-700 border-t border-secondary-100 pt-2 first:border-t-0 first:pt-0">
+                          <div className="font-medium text-secondary-900">{selectedIndexes[idx] + 1}. {story.title}</div>
+                          <div className="whitespace-pre-wrap mt-1 leading-relaxed">{story.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => applyBatchMicroStoryVariant(storyKey, allDrafts, selectedIndexes, variant)}
+                      className="mt-3 w-full px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                    >
+                      采用整套方案
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <textarea
+              value={state.note}
+              onChange={(e) => updateBatchVariantState(storyKey, { note: e.target.value })}
+              className="w-full min-h-[72px] p-3 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800 bg-white"
+              placeholder="写批注：比如第2集压迫更狠，第3集让反击提前露出，第4集结尾要接回原来的危机..."
+            />
+            <div className="flex justify-end">
+              <button
+                onClick={() => generateBatchMicroStoryVariants(macroIndex, storyKey, allDrafts)}
+                disabled={state.loading || selectedIndexes.length < 1}
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-md text-sm"
+              >
+                {state.loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+                根据批注再生成3套
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // 清空当前项目的全部小故事相关数据，便于在人设/设定更新后重新生成
@@ -795,6 +1527,26 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 <RotateCcw className="w-4 h-4" />
                 <span>刷新中故事</span>
               </button>
+              {!isMicrodrama && macroStories.length > 0 && macroStories.length < 40 && (
+                <button
+                  onClick={continueNextMacroStoryBatch}
+                  disabled={continuingMacroBatch || macroStories.length % 10 !== 0}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-primary-100 hover:bg-primary-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-primary-700 text-sm font-medium transition-colors"
+                  title="承接已有中故事，继续生成下一批10个中故事"
+                >
+                  {continuingMacroBatch ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>续写中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>继续第{Math.floor(macroStories.length / 10) + 1}批</span>
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 onClick={batchGenerateAndSaveMicroStories}
                 disabled={batchGenerating || macroStories.length < 3}
@@ -870,19 +1622,21 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     <div className="text-3xl font-bold text-primary-600 mb-2">
                       {currentProject.savedMicroStories.length}
                     </div>
-                    <div className="text-sm text-secondary-600">已保存小故事</div>
+                    <div className="text-sm text-secondary-600">{isMicrodrama ? '已保存分集' : '已保存小故事'}</div>
                     <div className="text-xs text-secondary-400 mt-1">
-                      可生成 {currentProject.savedMicroStories.length * 2} 章节
+                      {isMicrodrama
+                        ? `可生成 ${currentProject.savedMicroStories.length} 集剧本正文`
+                        : `可生成 ${currentProject.savedMicroStories.length * 2} 章节`}
                     </div>
                   </div>
 
                   <div className="text-center p-4 bg-white rounded-lg shadow-sm">
                     <div className="text-3xl font-bold text-green-600 mb-2">
-                      {currentProject.savedMicroStories.length * 4400}
+                      {isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 4400}
                     </div>
                     <div className="text-sm text-secondary-600">预计总字数</div>
                     <div className="text-xs text-secondary-400 mt-1">
-                      约{Math.round(currentProject.savedMicroStories.length * 4400 / 1000)}千字
+                      约{Math.round((isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 4400) / 1000)}千字
                     </div>
                   </div>
 
@@ -920,7 +1674,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             <div className="card p-6">
               <div className="flex items-center space-x-3 mb-6">
                 <BookOpen className="w-5 h-5 text-primary-600" />
-                <h2 className="text-lg font-semibold text-secondary-900">中故事列表</h2>
+                <h2 className="text-lg font-semibold text-secondary-900">{structureLabels.macro}列表</h2>
               </div>
 
               <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -952,10 +1706,10 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                             <h3 className={`font-medium mb-1 ${
                               canGenerate ? 'text-secondary-900' : 'text-secondary-500'
                             }`}>
-                              中故事 {index + 1}
+                              {structureLabels.macro} {index + 1}
                             </h3>
                             <span className="text-xs text-secondary-400 bg-secondary-100 px-2 py-1 rounded">
-                              第{chapterRange.startChapter}-{chapterRange.endChapter}章
+                              第{chapterRange.startChapter}-{chapterRange.endChapter}{structureLabels.unit}
                             </span>
                           </div>
                           <div className={`text-xs mb-1 ${
@@ -973,7 +1727,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                               {hasGenerated ? (
                                 <span className="text-xs text-green-600 flex items-center">
                                   <CheckCircle className="w-3 h-3 mr-1" />
-                                  {hasOutline ? '已生成细纲' : '已保存小故事'}
+                                  {hasOutline ? '已生成细纲' : isMicrodrama ? '已保存分集' : '已保存小故事'}
                                 </span>
                               ) : canGenerate ? (
                                 <span className="text-xs text-blue-500">
@@ -1012,7 +1766,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 <div className="card p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-secondary-900">
-                      中故事 {selectedMacroStoryIndex! + 1} 内容
+                      {structureLabels.macro} {selectedMacroStoryIndex! + 1} 内容
                     </h3>
                     <div className="flex items-center space-x-2">
                       {!isEditingMacroStory ? (
@@ -1029,8 +1783,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                         </button>
                       ) : (
                         <>
-                          <button
-                            onClick={saveEditedMacroStory}
+	                          <button
+	                            onClick={() => saveEditedMacroStory()}
                             className="flex items-center space-x-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg"
                             title="保存中故事修改"
                           >
@@ -1064,15 +1818,15 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                         ) : (
                           <>
                             <Plus className="w-4 h-4" />
-                            <span>生成小故事细纲</span>
+                            <span>{structureLabels.microButton}</span>
                           </>
                         )}
                       </button>
                     </div>
                   </div>
-                  <div className="prose prose-sm max-w-none">
-                    {isEditingMacroStory ? (
-                      <textarea
+	                  <div className="prose prose-sm max-w-none">
+	                    {isEditingMacroStory ? (
+	                      <textarea
                         value={macroStoryDraft}
                         onChange={(e) => setMacroStoryDraft(e.target.value)}
                         className="w-full min-h-[180px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-secondary-800"
@@ -1080,17 +1834,18 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                       />
                     ) : (
                       <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
-                        {selectedMacroStory}
-                      </div>
-                    )}
-                  </div>
-                </div>
+	                        {selectedMacroStory}
+	                      </div>
+	                    )}
+	                  </div>
+	                  {renderMacroVariantTools(selectedMacroStoryIndex!)}
+	                </div>
 
                 {/* 小故事细纲显示 */}
                 <div className="card p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-lg font-semibold text-secondary-900">
-                      小故事细纲 (10个)
+                      {structureLabels.micro} (10个)
                     </h3>
                     <div className="flex items-center space-x-2">
                       <button
@@ -1103,7 +1858,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                         title="保存这些小故事到项目（支持手动编辑后的内容）"
                       >
                         <Plus className="w-4 h-4" />
-                        <span>保存小故事</span>
+                        <span>{isMicrodrama ? '保存分集' : '保存小故事'}</span>
                       </button>
                       <button
                         onClick={() => toggleExpanded(selectedMacroStoryIndex!)}
@@ -1131,36 +1886,48 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     const isExpanded = expandedStories[storyKey];
 
                     // 1) 优先展示已保存的小故事（人工修改后也在这里生效）
-                    const savedForThisMacro = (currentProject.savedMicroStories || [])
-                      .filter(s => s.macroStoryId === storyKey)
-                      .sort((a, b) => a.order - b.order);
+	                    const savedForThisMacro = (currentProject.savedMicroStories || [])
+	                      .filter(s => s.macroStoryId === storyKey)
+	                      .sort((a, b) => a.order - b.order);
 
-                    if (savedForThisMacro.length > 0) {
-                      const drafts = microStoryDraftsByMacro[storyKey] || [];
-                      return (
-                        <div className="space-y-4">
-                          {savedForThisMacro.map((s, microIndex) => {
-                            const isEditing = editingMicroStory?.storyKey === storyKey && editingMicroStory?.index === microIndex;
-                            const draft = drafts[microIndex] || { title: s.title || `小故事 ${getChineseNumber(microIndex + 1)}`, content: s.content || '' };
+	                    if (savedForThisMacro.length > 0 && (!outlineContent || !(microStoryDraftsByMacro[storyKey]?.length > 0))) {
+	                      const drafts = microStoryDraftsByMacro[storyKey] || [];
+	                      const allDrafts = savedForThisMacro.map((s, idx) => drafts[idx] || {
+	                        title: s.title || getMicroStoryDefaultTitle(idx + 1),
+	                        content: s.content || ''
+	                      });
+	                      return (
+	                        <div className="space-y-4">
+	                          {renderBatchVariantTools(storyIndex, storyKey, allDrafts)}
+	                          {savedForThisMacro.map((s, microIndex) => {
+	                            const isEditing = editingMicroStory?.storyKey === storyKey && editingMicroStory?.index === microIndex;
+	                            const draft = allDrafts[microIndex];
+	                            const isSelectedForBatch = (selectedMicroStoryIndexesByMacro[storyKey] || []).includes(microIndex);
 
-                            return (
-                              <div
+	                            return (
+	                              <div
                                 key={s.id}
                                 id={`micro-edit-${storyKey}-${microIndex}`}
                                 className={`border border-secondary-200 rounded-lg p-4 transition-all ${
                                   isExpanded || isEditing ? '' : 'max-h-24 overflow-hidden'
                                 }`}
                               >
-                                <div className="flex items-start space-x-3">
-                                  <div className="flex-shrink-0 w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-sm font-medium">
-                                    {microIndex + 1}
-                                  </div>
+	                                <div className="flex items-start space-x-3">
+	                                  <button
+	                                    onClick={() => toggleMicroStorySelection(storyKey, microIndex)}
+	                                    className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium border ${
+	                                      isSelectedForBatch ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-primary-100 text-primary-700 border-primary-100'
+	                                    }`}
+	                                    title={isSelectedForBatch ? '取消选择' : '选择加入连续改写'}
+	                                  >
+	                                    {microIndex + 1}
+	                                  </button>
                                   <div className="flex-1">
                                     <div className={`flex items-start justify-between gap-3 mb-2 ${isEditing ? 'flex-col' : ''}`}>
                                       <div className={`${isEditing ? 'w-full' : 'flex-1'}`}>
                                         {!isEditing ? (
                                           <h4 className="font-medium text-secondary-900">
-                                            {s.title || `小故事 ${getChineseNumber(microIndex + 1)}`}
+                                            {s.title || getMicroStoryDefaultTitle(microIndex + 1)}
                                           </h4>
                                         ) : (
                                           <input
@@ -1177,7 +1944,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                               }));
                                             }}
                                             className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-900"
-                                            placeholder={`小故事 ${getChineseNumber(microIndex + 1)} 标题`}
+                                            placeholder={`${getMicroStoryDefaultTitle(microIndex + 1)} 标题`}
                                           />
                                         )}
                                       </div>
@@ -1192,7 +1959,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                                 if (prev[storyKey]?.[microIndex]) return prev;
                                                 const next = [...(prev[storyKey] || [])];
                                                 next[microIndex] = {
-                                                  title: (s.title || `小故事 ${getChineseNumber(microIndex + 1)}`).trim(),
+                                                  title: (s.title || getMicroStoryDefaultTitle(microIndex + 1)).trim(),
                                                   content: s.content || ''
                                                 };
                                                 return { ...prev, [storyKey]: next };
@@ -1219,7 +1986,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                                 setMicroStoryDraftsByMacro(prev => ({
                                                   ...prev,
                                                   [storyKey]: (prev[storyKey] || []).map((d, i) => i === microIndex ? {
-                                                    title: (s.title || `小故事 ${getChineseNumber(microIndex + 1)}`).trim(),
+                                                    title: (s.title || getMicroStoryDefaultTitle(microIndex + 1)).trim(),
                                                     content: s.content || ''
                                                   } : d)
                                                 }));
@@ -1240,8 +2007,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                       }`}>
                                         {s.content}
                                       </div>
-                                    ) : (
-                                      <textarea
+	                                    ) : (
+	                                      <textarea
                                         ref={editingMicroStory?.storyKey === storyKey && editingMicroStory?.index === microIndex ? editingMicroStoryTextareaRef : undefined}
                                         value={draft.content}
                                         onChange={(e) => {
@@ -1259,11 +2026,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                         className="w-full min-h-[260px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
                                         style={{ overflowY: 'auto', resize: 'none' }}
                                         placeholder="在这里修改小故事内容，保存后写作会引用这里的最新内容。"
-                                      />
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
+	                                      />
+	                                    )}
+	                                    {renderVariantTools(storyIndex, storyKey, microIndex, draft, allDrafts)}
+	                                  </div>
+	                                </div>
+	                              </div>
                             );
                           })}
                         </div>
@@ -1275,23 +2043,23 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                       return (
                         <div className="text-center py-8 text-secondary-500">
                           <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                          <p>尚未生成小故事细纲</p>
-                          <p className="text-sm mt-1">点击上方"生成小故事细纲"按钮</p>
+                          <p>尚未生成{structureLabels.micro}</p>
+                          <p className="text-sm mt-1">点击上方“{structureLabels.microButton}”按钮</p>
                         </div>
                       );
                     }
 
-                    const microStories = parseMicroStoriesFromOutline(outlineContent);
-                    const drafts = microStoryDraftsByMacro[storyKey] || microStories.map((c, idx) => ({
-                      title: `小故事 ${getChineseNumber(idx + 1)}`,
-                      content: cleanMicroStoryContent(c)
-                    }));
+	                    const drafts = microStoryDraftsByMacro[storyKey]?.length
+	                      ? microStoryDraftsByMacro[storyKey]
+	                      : buildMicroStoryDraftsFromOutline(outlineContent);
 
-                    return (
-                      <div className="space-y-4">
-                        {drafts.map((draft, microIndex) => {
-                          const isEditing = editingMicroStory?.storyKey === storyKey && editingMicroStory?.index === microIndex;
-                          return (
+	                    return (
+	                      <div className="space-y-4">
+	                        {renderBatchVariantTools(storyIndex, storyKey, drafts)}
+	                        {drafts.map((draft, microIndex) => {
+	                          const isEditing = editingMicroStory?.storyKey === storyKey && editingMicroStory?.index === microIndex;
+	                          const isSelectedForBatch = (selectedMicroStoryIndexesByMacro[storyKey] || []).includes(microIndex);
+	                          return (
                             <div
                               key={microIndex}
                               id={`micro-edit-${storyKey}-${microIndex}`}
@@ -1299,16 +2067,22 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                 isExpanded || isEditing ? '' : 'max-h-24 overflow-hidden'
                               }`}
                             >
-                              <div className="flex items-start space-x-3">
-                                <div className="flex-shrink-0 w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-sm font-medium">
-                                  {microIndex + 1}
-                                </div>
+	                              <div className="flex items-start space-x-3">
+	                                <button
+	                                  onClick={() => toggleMicroStorySelection(storyKey, microIndex)}
+	                                  className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium border ${
+	                                    isSelectedForBatch ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-primary-100 text-primary-700 border-primary-100'
+	                                  }`}
+	                                  title={isSelectedForBatch ? '取消选择' : '选择加入连续改写'}
+	                                >
+	                                  {microIndex + 1}
+	                                </button>
                                 <div className="flex-1">
                                   <div className={`flex items-start justify-between gap-3 mb-2 ${isEditing ? 'flex-col' : ''}`}>
                                     <div className={`${isEditing ? 'w-full' : 'flex-1'}`}>
                                       {!isEditing ? (
                                         <h4 className="font-medium text-secondary-900">
-                                          {draft.title || `小故事 ${getChineseNumber(microIndex + 1)}`}
+                                          {draft.title || getMicroStoryDefaultTitle(microIndex + 1)}
                                         </h4>
                                       ) : (
                                         <input
@@ -1325,7 +2099,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                             }));
                                           }}
                                           className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-900"
-                                          placeholder={`小故事 ${getChineseNumber(microIndex + 1)} 标题`}
+                                          placeholder={`${getMicroStoryDefaultTitle(microIndex + 1)} 标题`}
                                         />
                                       )}
                                     </div>
@@ -1375,8 +2149,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                     }`}>
                                       {draft.content}
                                     </div>
-                                  ) : (
-                                    <textarea
+	                                  ) : (
+	                                    <textarea
                                       ref={editingMicroStory?.storyKey === storyKey && editingMicroStory?.index === microIndex ? editingMicroStoryTextareaRef : undefined}
                                       value={draft.content}
                                       onChange={(e) => {
@@ -1394,11 +2168,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                       className="w-full min-h-[260px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
                                       style={{ overflowY: 'auto', resize: 'none' }}
                                       placeholder="在这里修改小故事内容，保存后写作会引用这里的最新内容。"
-                                    />
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+	                                    />
+	                                  )}
+	                                  {renderVariantTools(storyIndex, storyKey, microIndex, draft, drafts)}
+	                                </div>
+	                              </div>
+	                            </div>
                           );
                         })}
                       </div>
@@ -1410,10 +2185,10 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               <div className="card p-8 text-center">
                 <FileText className="w-16 h-16 text-secondary-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-secondary-900 mb-2">
-                  选择一个中故事查看小故事细纲
+                  选择一个{structureLabels.macro}查看{structureLabels.micro}
                 </h3>
                 <p className="text-secondary-600">
-                  点击左侧的中故事列表，选择要查看的小故事细纲
+                  {structureLabels.emptyHint}
                 </p>
               </div>
             )}
