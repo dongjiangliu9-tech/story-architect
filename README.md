@@ -61,6 +61,7 @@ src/
 LYRICS_API_KEY=your_google_ai_studio_key_here                     # Google AI Studio / Gemini API Key
 LYRICS_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 LYRICS_MODEL=gemini-3.1-pro-preview                               # 默认逻辑模型 (Gemini 官方接口)
+GEMINI_FALLBACK_MODELS=gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite # Pro 高负载/超时时自动降级
 HTTPS_PROXY=http://127.0.0.1:7897                                 # 可选：本地 Clash / HTTP 代理
 HTTP_PROXY=http://127.0.0.1:7897                                  # 可选：本地 Clash / HTTP 代理
 DEEPSEEK_USE_PROXY=false

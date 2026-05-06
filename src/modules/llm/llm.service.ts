@@ -119,6 +119,49 @@ export class LlmService {
     return status === 524 || status === 504 || status === 502 || status === 503;
   }
 
+  private isRetryableLogicError(error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    const code = String((error as { code?: string })?.code || '');
+    const name = String((error as { name?: string })?.name || '');
+    const message = String((error as { message?: string })?.message || '');
+
+    return (
+      status === 408 ||
+      status === 409 ||
+      status === 429 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504 ||
+      status === 524 ||
+      /timeout|timed out|connection|socket/i.test(`${name} ${message}`) ||
+      /ECONNRESET|ETIMEDOUT|ECONNABORTED|ENOTFOUND|EAI_AGAIN/i.test(code)
+    );
+  }
+
+  private canFallbackLogicModel(error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    return (
+      this.isRetryableLogicError(error) ||
+      status === 403 ||
+      status === 404
+    );
+  }
+
+  private getLogicModelCandidates(primaryModel: string): string[] {
+    const fallbackRaw =
+      this.configService.get<string>('LYRICS_FALLBACK_MODELS') ||
+      this.configService.get<string>('GEMINI_FALLBACK_MODELS') ||
+      'gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite';
+
+    const candidates = [primaryModel, ...fallbackRaw.split(',')]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => !this.isDeepseekModel(item));
+
+    return Array.from(new Set(candidates));
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -133,84 +176,106 @@ export class LlmService {
       this.configService.get<string>('GEMINI_MODEL') ||
       AI_MODELS.DEFAULT_MODEL;
 
-    const client = this.isDeepseekModel(targetModel)
-      ? this.deepseekClient
-      : this.logicClient;
+    const isDeepseek = this.isDeepseekModel(targetModel);
+    const candidateModels = isDeepseek
+      ? [targetModel]
+      : this.getLogicModelCandidates(targetModel);
+    let lastError: unknown;
 
-    const effectiveMaxAttempts = this.isDeepseekModel(targetModel) ? 3 : 4;
-    const effectiveRetryDelays = this.isDeepseekModel(targetModel)
-      ? [3000, 8000]
-      : [5000, 12000, 25000];
+    for (let modelIndex = 0; modelIndex < candidateModels.length; modelIndex++) {
+      const currentModel = candidateModels[modelIndex];
+      const client = isDeepseek ? this.deepseekClient : this.logicClient;
+      const effectiveMaxAttempts = isDeepseek ? 3 : 3;
+      const effectiveRetryDelays = isDeepseek ? [3000, 8000] : [3000, 8000];
 
-    for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
-      try {
-        console.log(
-          `[LLM] 准备调用 model=${targetModel}, attempt=${attempt}/${effectiveMaxAttempts}, openaiCompatible=${!this.isDeepseekModel(targetModel)}`,
-        );
-
-        const completion = await client.chat.completions.create({
-          messages,
-          model: targetModel,
-          temperature: this.isDeepseekModel(targetModel) ? 1.2 : 0.7,
-          max_tokens: this.isDeepseekModel(targetModel) ? 8192 : undefined,
-        });
-
-        const content = completion.choices?.[0]?.message?.content;
-        if (typeof content === 'string' && content.trim()) {
-          return content;
-        }
-
-        if (Array.isArray(content)) {
-          const merged = content
-            .map((item: any) =>
-              typeof item === 'string' ? item : String(item?.text || ''),
-            )
-            .join('')
-            .trim();
-          if (merged) return merged;
-        }
-
-        throw new Error('AI 服务返回了空内容，请稍后重试');
-      } catch (error) {
-        console.error(
-          `LLM API Call Failed (attempt ${attempt}/${effectiveMaxAttempts}):`,
-          error,
-          'Model:',
-          targetModel,
-        );
-
-        const isRetryable = this.isTimeoutOrGatewayError(error);
-        const hasMoreAttempts = attempt < effectiveMaxAttempts;
-
-        if (isRetryable && hasMoreAttempts) {
-          const delay = effectiveRetryDelays[attempt - 1] ?? 5000;
-          console.warn(`将在 ${delay / 1000} 秒后重试...`);
-          await this.sleep(delay);
-          continue;
-        }
-
-        if (this.isTimeoutOrGatewayError(error)) {
-          throw new Error('AI 服务响应超时或上游暂时不可用，请稍后重试');
-        }
-
-        const status = (error as { status?: number })?.status;
-        if (status === 401 || status === 403) {
-          throw new Error('官方 Gemini API 拒绝访问，请检查 Key、模型权限或账户额度');
-        }
-        if (status === 404) {
-          throw new Error(`模型 ${targetModel} 当前不可用或接口路径不匹配`);
-        }
-        if (status === 429 || status === 503) {
-          throw new Error(
-            `官方 Gemini 模型 ${targetModel} 当前高负载，请稍后重试`,
+      for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
+        try {
+          console.log(
+            `[LLM] 准备调用 model=${currentModel}, attempt=${attempt}/${effectiveMaxAttempts}, fallbackIndex=${modelIndex}/${candidateModels.length - 1}, openaiCompatible=${!isDeepseek}`,
           );
-        }
 
-        throw new Error('AI 服务暂时不可用，请稍后重试');
+          const completion = await client.chat.completions.create({
+            messages,
+            model: currentModel,
+            temperature: isDeepseek ? 1.2 : 0.7,
+            max_tokens: isDeepseek ? 8192 : undefined,
+          });
+
+          const content = completion.choices?.[0]?.message?.content;
+          if (typeof content === 'string' && content.trim()) {
+            if (currentModel !== targetModel) {
+              console.warn(`[LLM] 主模型 ${targetModel} 不可用，已降级使用 ${currentModel}`);
+            }
+            return content;
+          }
+
+          if (Array.isArray(content)) {
+            const merged = content
+              .map((item: any) =>
+                typeof item === 'string' ? item : String(item?.text || ''),
+              )
+              .join('')
+              .trim();
+            if (merged) {
+              if (currentModel !== targetModel) {
+                console.warn(`[LLM] 主模型 ${targetModel} 不可用，已降级使用 ${currentModel}`);
+              }
+              return merged;
+            }
+          }
+
+          throw new Error('AI 服务返回了空内容，请稍后重试');
+        } catch (error) {
+          lastError = error;
+          console.error(
+            `LLM API Call Failed (model ${currentModel}, attempt ${attempt}/${effectiveMaxAttempts}):`,
+            error,
+          );
+
+          const isRetryable = isDeepseek
+            ? this.isTimeoutOrGatewayError(error)
+            : this.isRetryableLogicError(error);
+          const hasMoreAttempts = attempt < effectiveMaxAttempts;
+
+          if (isRetryable && hasMoreAttempts) {
+            const delay = effectiveRetryDelays[attempt - 1] ?? 5000;
+            console.warn(`将在 ${delay / 1000} 秒后重试 ${currentModel}...`);
+            await this.sleep(delay);
+            continue;
+          }
+
+          const hasFallbackModel = !isDeepseek && modelIndex < candidateModels.length - 1;
+          if (hasFallbackModel && this.canFallbackLogicModel(error)) {
+            const nextModel = candidateModels[modelIndex + 1];
+            console.warn(`[LLM] ${currentModel} 暂不可用，降级切换到 ${nextModel}`);
+            break;
+          }
+
+          if (this.isTimeoutOrGatewayError(error)) {
+            throw new Error('AI 服务响应超时或上游暂时不可用，请稍后重试');
+          }
+
+          const status = (error as { status?: number })?.status;
+          if (status === 401 || status === 403) {
+            throw new Error('官方 Gemini API 拒绝访问，请检查 Key、模型权限或账户额度');
+          }
+          if (status === 404) {
+            throw new Error(`模型 ${currentModel} 当前不可用或接口路径不匹配`);
+          }
+          if (status === 429 || status === 503) {
+            throw new Error(
+              `官方 Gemini 模型 ${currentModel} 当前高负载，请稍后重试`,
+            );
+          }
+
+          throw new Error('AI 服务暂时不可用，请稍后重试');
+        }
       }
     }
 
-    throw new Error('AI 服务暂时不可用，请稍后重试');
+    const triedModels = candidateModels.join(' -> ');
+    console.error('[LLM] 所有候选模型均不可用:', triedModels, lastError);
+    throw new Error(`Gemini 当前高负载，已尝试 ${triedModels}，请稍后重试`);
   }
 
   private isDeepseekModel(model: string): boolean {
