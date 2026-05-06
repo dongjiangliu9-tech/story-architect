@@ -31,7 +31,7 @@ export class LlmService {
       baseURL: this.logicBaseUrl,
       ...(this.logicHttpAgent ? { httpAgent: this.logicHttpAgent } : {}),
       timeout: 180000,
-      maxRetries: 1,
+      maxRetries: 0,
       defaultHeaders: {
         Connection: 'keep-alive',
       },
@@ -162,6 +162,32 @@ export class LlmService {
     return Array.from(new Set(candidates));
   }
 
+  private getConfigNumber(name: string, fallback: number): number {
+    const rawValue = this.configService.get<string>(name);
+    const parsed = Number(rawValue);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  private getLogicMaxAttempts(modelIndex: number): number {
+    if (modelIndex === 0) {
+      return this.getConfigNumber('GEMINI_PRIMARY_MAX_ATTEMPTS', 1);
+    }
+
+    return this.getConfigNumber('GEMINI_FALLBACK_MAX_ATTEMPTS', 2);
+  }
+
+  private getLogicRetryDelays(modelIndex: number): number[] {
+    return modelIndex === 0 ? [] : [2000];
+  }
+
+  private getLogicRequestTimeoutMs(modelIndex: number): number {
+    if (modelIndex === 0) {
+      return this.getConfigNumber('GEMINI_PRIMARY_TIMEOUT_MS', 15000);
+    }
+
+    return this.getConfigNumber('GEMINI_FALLBACK_TIMEOUT_MS', 120000);
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -185,21 +211,31 @@ export class LlmService {
     for (let modelIndex = 0; modelIndex < candidateModels.length; modelIndex++) {
       const currentModel = candidateModels[modelIndex];
       const client = isDeepseek ? this.deepseekClient : this.logicClient;
-      const effectiveMaxAttempts = isDeepseek ? 3 : 3;
-      const effectiveRetryDelays = isDeepseek ? [3000, 8000] : [3000, 8000];
+      const effectiveMaxAttempts = isDeepseek
+        ? 3
+        : this.getLogicMaxAttempts(modelIndex);
+      const effectiveRetryDelays = isDeepseek
+        ? [3000, 8000]
+        : this.getLogicRetryDelays(modelIndex);
+      const requestTimeoutMs = isDeepseek
+        ? undefined
+        : this.getLogicRequestTimeoutMs(modelIndex);
 
       for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
         try {
           console.log(
-            `[LLM] 准备调用 model=${currentModel}, attempt=${attempt}/${effectiveMaxAttempts}, fallbackIndex=${modelIndex}/${candidateModels.length - 1}, openaiCompatible=${!isDeepseek}`,
+            `[LLM] 准备调用 model=${currentModel}, attempt=${attempt}/${effectiveMaxAttempts}, fallbackIndex=${modelIndex}/${candidateModels.length - 1}, timeoutMs=${requestTimeoutMs ?? 'client-default'}, openaiCompatible=${!isDeepseek}`,
           );
 
-          const completion = await client.chat.completions.create({
-            messages,
-            model: currentModel,
-            temperature: isDeepseek ? 1.2 : 0.7,
-            max_tokens: isDeepseek ? 8192 : undefined,
-          });
+          const completion = await client.chat.completions.create(
+            {
+              messages,
+              model: currentModel,
+              temperature: isDeepseek ? 1.2 : 0.7,
+              max_tokens: isDeepseek ? 8192 : undefined,
+            },
+            requestTimeoutMs ? { timeout: requestTimeoutMs } : undefined,
+          );
 
           const content = completion.choices?.[0]?.message?.content;
           if (typeof content === 'string' && content.trim()) {
