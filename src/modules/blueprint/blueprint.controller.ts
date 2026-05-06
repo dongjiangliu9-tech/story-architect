@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, MessageEvent, Post, Query, Sse, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Headers, MessageEvent, Post, Query, Sse } from '@nestjs/common';
 import { BlueprintService } from './blueprint.service';
 import { GenerateOutlineDto } from './dto/generate-outline.dto';
 import { GenerateWorldSettingDto } from './dto/generate-world-setting.dto';
@@ -8,76 +8,80 @@ import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
+import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
 
 @Controller('blueprint')
 export class BlueprintController {
-  constructor(private readonly blueprintService: BlueprintService) {}
+  constructor(
+    private readonly blueprintService: BlueprintService,
+    private readonly activationQuotaService: ActivationQuotaService,
+  ) {}
 
-  private assertActivationCode(code?: string) {
-    const configuredCodes = (process.env.ACTIVATION_CODES || '')
-      .split(',')
-      .map((item) => item.trim().toUpperCase())
-      .filter(Boolean);
-
-    if (configuredCodes.length === 0) {
-      return;
-    }
-
-    const normalizedCode = (code || '').trim().toUpperCase();
-    if (!normalizedCode || !configuredCodes.includes(normalizedCode)) {
-      throw new UnauthorizedException('请输入有效激活码后再调用AI功能');
+  private async runWithQuota<T>(
+    code: string | undefined,
+    model: ActivationModelKind,
+    action: () => Promise<T>,
+    options: { refundOnError?: boolean } = { refundOnError: true },
+  ): Promise<T> {
+    const activationCode = this.activationQuotaService.validateAndConsume(code, model);
+    try {
+      return await action();
+    } catch (error) {
+      if (options.refundOnError !== false) {
+        this.activationQuotaService.refund(activationCode, model);
+      }
+      throw error;
     }
   }
 
   @Post('generate')
   async generate(@Body() dto: GenerateOutlineDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateInspiration(dto);
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateInspiration(dto));
   }
 
   @Post('generate-world-setting')
   async generateWorldSetting(@Body() dto: GenerateWorldSettingDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateWorldSetting(dto);
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateWorldSetting(dto));
   }
 
   @Post('generate-characters')
   async generateCharacters(@Body() dto: GenerateCharactersDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateCharacters(dto);
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateCharacters(dto));
   }
 
   @Post('generate-detailed-outline')
   async generateDetailedOutline(@Body() dto: GenerateDetailedOutlineDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateDetailedOutline(dto);
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateDetailedOutline(dto));
   }
 
   @Post('generate-micro-stories')
   async generateMicroStories(@Body() dto: GenerateMicroStoriesDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateMicroStories(dto);
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateMicroStories(dto));
   }
 
   @Post('generate-micro-story-variants')
   async generateMicroStoryVariants(@Body() dto: GenerateMicroStoryVariantsDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateMicroStoryVariants(dto);
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateMicroStoryVariants(dto));
   }
 
   @Post('generate-chapter')
   async generateChapter(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    return this.blueprintService.generateChapter(dto);
+    return this.runWithQuota(activationCode, 'deepseek', () => this.blueprintService.generateChapter(dto));
   }
 
   @Post('prepare-stream')
   async prepareStream(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
-    this.assertActivationCode(activationCode);
-    console.log('收到准备流式请求，章节:', dto.chapterNumber);
-    const requestId = this.blueprintService.storeGenerationRequest(dto);
-    console.log('存储请求成功, requestId:', requestId);
-    return { requestId };
+    return this.runWithQuota(
+      activationCode,
+      'deepseek',
+      async () => {
+        console.log('收到准备流式请求，章节:', dto.chapterNumber);
+        const requestId = this.blueprintService.storeGenerationRequest(dto);
+        console.log('存储请求成功, requestId:', requestId);
+        return { requestId };
+      },
+      { refundOnError: false },
+    );
   }
 
   @Post('cancel-generation')
@@ -104,5 +108,10 @@ export class BlueprintController {
   @Post('export-docx')
   async exportDocx(@Body() body: { chapters: { [key: number]: string }, bookName: string }) {
     return this.blueprintService.exportAsDocx(body.chapters, body.bookName);
+  }
+
+  @Post('activation-status')
+  async activationStatus(@Headers('x-activation-code') activationCode?: string) {
+    return this.activationQuotaService.getStatus(activationCode);
   }
 }

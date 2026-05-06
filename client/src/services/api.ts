@@ -10,6 +10,7 @@ const api = axios.create({
 });
 
 const ACTIVATION_CODE_STORAGE_KEY = 'story-architect-activation-code';
+const ACTIVATION_BADGE_ID = 'story-architect-activation-quota';
 const AI_ENDPOINTS = new Set([
   '/blueprint/generate',
   '/blueprint/generate-world-setting',
@@ -20,6 +21,14 @@ const AI_ENDPOINTS = new Set([
   '/blueprint/generate-chapter',
   '/blueprint/prepare-stream',
 ]);
+
+interface ActivationStatusResponse {
+  enabled: boolean;
+  code: string;
+  gemini: { used: number; limit: number; remaining: number };
+  deepseek: { used: number; limit: number; remaining: number };
+  disabled: boolean;
+}
 
 function normalizeActivationCode(code: string): string {
   return code.trim().toUpperCase();
@@ -51,6 +60,70 @@ function clearActivationCode() {
   window.localStorage.removeItem(ACTIVATION_CODE_STORAGE_KEY);
 }
 
+function removeActivationBadge() {
+  if (typeof document === 'undefined') return;
+  document.getElementById(ACTIVATION_BADGE_ID)?.remove();
+}
+
+function renderActivationBadge(status: ActivationStatusResponse) {
+  if (typeof document === 'undefined' || !status.enabled) return;
+
+  let badge = document.getElementById(ACTIVATION_BADGE_ID);
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = ACTIVATION_BADGE_ID;
+    badge.style.position = 'fixed';
+    badge.style.right = '16px';
+    badge.style.bottom = '16px';
+    badge.style.zIndex = '9999';
+    badge.style.padding = '10px 12px';
+    badge.style.borderRadius = '10px';
+    badge.style.border = '1px solid rgba(37, 99, 235, 0.24)';
+    badge.style.background = 'rgba(255, 255, 255, 0.94)';
+    badge.style.boxShadow = '0 10px 30px rgba(15, 23, 42, 0.16)';
+    badge.style.color = '#1f2937';
+    badge.style.fontSize = '12px';
+    badge.style.lineHeight = '1.5';
+    badge.style.backdropFilter = 'blur(10px)';
+    document.body.appendChild(badge);
+  }
+
+  badge.innerHTML = `
+    <div style="font-weight: 700; color: ${status.disabled ? '#b91c1c' : '#1d4ed8'};">
+      激活码余额${status.disabled ? '（已熔断）' : ''}
+    </div>
+    <div>Gemini：${status.gemini.remaining}/${status.gemini.limit}</div>
+    <div>DeepSeek V4：${status.deepseek.remaining}/${status.deepseek.limit}</div>
+  `;
+}
+
+async function refreshActivationStatus() {
+  if (shouldBypassActivationPrompt()) {
+    removeActivationBadge();
+    return;
+  }
+
+  const code = readStoredActivationCode();
+  if (!code) {
+    removeActivationBadge();
+    return;
+  }
+
+  try {
+    const response = await api.post<ActivationStatusResponse>(
+      '/blueprint/activation-status',
+      {},
+      { headers: { 'X-Activation-Code': code } },
+    );
+    renderActivationBadge(response.data);
+  } catch (error) {
+    if ((error as any)?.response?.status === 401) {
+      clearActivationCode();
+    }
+    removeActivationBadge();
+  }
+}
+
 function requestActivationCode(message = '请输入激活码后再调用AI功能：'): string {
   if (typeof window === 'undefined') {
     throw new Error('需要激活码才能调用AI功能');
@@ -63,6 +136,7 @@ function requestActivationCode(message = '请输入激活码后再调用AI功能
   }
 
   storeActivationCode(normalizedCode);
+  void refreshActivationStatus();
   return normalizedCode;
 }
 
@@ -90,7 +164,12 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (isAiEndpoint(response.config.url)) {
+      void refreshActivationStatus();
+    }
+    return response;
+  },
   async (error) => {
     const config = error.config as any;
     const message = error?.response?.data?.message || '';
@@ -111,6 +190,12 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+if (typeof window !== 'undefined') {
+  window.setTimeout(() => {
+    void refreshActivationStatus();
+  }, 500);
+}
 
 export interface GenerateWorldSettingDto {
   outline: string;
@@ -220,6 +305,17 @@ export const blueprintApi = {
 
   cancelGeneration: async (requestId: string): Promise<void> => {
     await api.post('/blueprint/cancel-generation', { requestId });
+  },
+
+  getActivationStatus: async (): Promise<ActivationStatusResponse> => {
+    const code = readStoredActivationCode() || requestActivationCode();
+    const response = await api.post<ActivationStatusResponse>(
+      '/blueprint/activation-status',
+      {},
+      { headers: { 'X-Activation-Code': code } },
+    );
+    renderActivationBadge(response.data);
+    return response.data;
   },
 
   exportAsDocx: async (data: { chapters: { [key: number]: string }, bookName: string }): Promise<{ success: boolean, data: string, filename: string }> => {
