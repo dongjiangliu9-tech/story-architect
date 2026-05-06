@@ -9,6 +9,109 @@ const api = axios.create({
   },
 });
 
+const ACTIVATION_CODE_STORAGE_KEY = 'story-architect-activation-code';
+const AI_ENDPOINTS = new Set([
+  '/blueprint/generate',
+  '/blueprint/generate-world-setting',
+  '/blueprint/generate-characters',
+  '/blueprint/generate-detailed-outline',
+  '/blueprint/generate-micro-stories',
+  '/blueprint/generate-micro-story-variants',
+  '/blueprint/generate-chapter',
+  '/blueprint/prepare-stream',
+]);
+
+function normalizeActivationCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+function isAiEndpoint(url?: string): boolean {
+  if (!url) return false;
+  const path = url.split('?')[0];
+  return AI_ENDPOINTS.has(path);
+}
+
+function shouldBypassActivationPrompt(): boolean {
+  if (typeof window === 'undefined') return true;
+  return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+}
+
+function readStoredActivationCode(): string {
+  if (typeof window === 'undefined') return '';
+  return normalizeActivationCode(window.localStorage.getItem(ACTIVATION_CODE_STORAGE_KEY) || '');
+}
+
+function storeActivationCode(code: string) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(ACTIVATION_CODE_STORAGE_KEY, normalizeActivationCode(code));
+}
+
+function clearActivationCode() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(ACTIVATION_CODE_STORAGE_KEY);
+}
+
+function requestActivationCode(message = '请输入激活码后再调用AI功能：'): string {
+  if (typeof window === 'undefined') {
+    throw new Error('需要激活码才能调用AI功能');
+  }
+
+  const code = window.prompt(message, readStoredActivationCode());
+  const normalizedCode = normalizeActivationCode(code || '');
+  if (!normalizedCode) {
+    throw new Error('需要激活码才能调用AI功能');
+  }
+
+  storeActivationCode(normalizedCode);
+  return normalizedCode;
+}
+
+function attachActivationCode(config: any, code: string) {
+  config.headers = config.headers || {};
+  config.headers['X-Activation-Code'] = code;
+}
+
+api.interceptors.request.use((config) => {
+  if (!isAiEndpoint(config.url)) {
+    return config;
+  }
+
+  const storedCode = readStoredActivationCode();
+  if (storedCode) {
+    attachActivationCode(config, storedCode);
+    return config;
+  }
+
+  if (!shouldBypassActivationPrompt()) {
+    attachActivationCode(config, requestActivationCode());
+  }
+
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config as any;
+    const message = error?.response?.data?.message || '';
+
+    if (
+      config &&
+      !config.__activationRetried &&
+      isAiEndpoint(config.url) &&
+      error?.response?.status === 401 &&
+      String(message).includes('激活码')
+    ) {
+      config.__activationRetried = true;
+      clearActivationCode();
+      attachActivationCode(config, requestActivationCode('激活码无效，请重新输入：'));
+      return api(config);
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export interface GenerateWorldSettingDto {
   outline: string;
   needsUpgradeSystem?: boolean;

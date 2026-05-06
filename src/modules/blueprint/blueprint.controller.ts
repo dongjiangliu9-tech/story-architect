@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Sse, MessageEvent, Query } from '@nestjs/common';
+import { Body, Controller, Headers, MessageEvent, Post, Query, Sse, UnauthorizedException } from '@nestjs/common';
 import { BlueprintService } from './blueprint.service';
 import { GenerateOutlineDto } from './dto/generate-outline.dto';
 import { GenerateWorldSettingDto } from './dto/generate-world-setting.dto';
@@ -13,43 +13,67 @@ import { Observable } from 'rxjs';
 export class BlueprintController {
   constructor(private readonly blueprintService: BlueprintService) {}
 
+  private assertActivationCode(code?: string) {
+    const configuredCodes = (process.env.ACTIVATION_CODES || '')
+      .split(',')
+      .map((item) => item.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (configuredCodes.length === 0) {
+      return;
+    }
+
+    const normalizedCode = (code || '').trim().toUpperCase();
+    if (!normalizedCode || !configuredCodes.includes(normalizedCode)) {
+      throw new UnauthorizedException('请输入有效激活码后再调用AI功能');
+    }
+  }
+
   @Post('generate')
-  async generate(@Body() dto: GenerateOutlineDto) {
+  async generate(@Body() dto: GenerateOutlineDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateInspiration(dto);
   }
 
   @Post('generate-world-setting')
-  async generateWorldSetting(@Body() dto: GenerateWorldSettingDto) {
+  async generateWorldSetting(@Body() dto: GenerateWorldSettingDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateWorldSetting(dto);
   }
 
   @Post('generate-characters')
-  async generateCharacters(@Body() dto: GenerateCharactersDto) {
+  async generateCharacters(@Body() dto: GenerateCharactersDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateCharacters(dto);
   }
 
   @Post('generate-detailed-outline')
-  async generateDetailedOutline(@Body() dto: GenerateDetailedOutlineDto) {
+  async generateDetailedOutline(@Body() dto: GenerateDetailedOutlineDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateDetailedOutline(dto);
   }
 
   @Post('generate-micro-stories')
-  async generateMicroStories(@Body() dto: GenerateMicroStoriesDto) {
+  async generateMicroStories(@Body() dto: GenerateMicroStoriesDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateMicroStories(dto);
   }
 
   @Post('generate-micro-story-variants')
-  async generateMicroStoryVariants(@Body() dto: GenerateMicroStoryVariantsDto) {
+  async generateMicroStoryVariants(@Body() dto: GenerateMicroStoryVariantsDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateMicroStoryVariants(dto);
   }
 
   @Post('generate-chapter')
-  async generateChapter(@Body() dto: GenerateChapterDto) {
+  async generateChapter(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     return this.blueprintService.generateChapter(dto);
   }
 
   @Post('prepare-stream')
-  async prepareStream(@Body() dto: GenerateChapterDto) {
+  async prepareStream(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
+    this.assertActivationCode(activationCode);
     console.log('收到准备流式请求，章节:', dto.chapterNumber);
     const requestId = this.blueprintService.storeGenerationRequest(dto);
     console.log('存储请求成功, requestId:', requestId);
