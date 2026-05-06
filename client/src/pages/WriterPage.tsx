@@ -117,6 +117,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [showChapterSelector, setShowChapterSelector] = useState(false);
   const [selectedStartChapter, setSelectedStartChapter] = useState<number | null>(null);
   const [isRegenerateMode, setIsRegenerateMode] = useState(false); // 是否为重新生成模式
+  const [chapterListOrder, setChapterListOrder] = useState<'desc' | 'asc'>('desc');
 
   // 正文编辑：支持编辑已写内容并保存（落库到项目 generatedChapters）
   const [isEditingChapter, setIsEditingChapter] = useState(false);
@@ -356,7 +357,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   }, [generatedContent]);
 
   useEffect(() => {
-    if (!isEditingChapter || pendingEditScrollYRef.current === null) return;
+    if (pendingEditScrollYRef.current === null) return;
     const scrollY = pendingEditScrollYRef.current;
     pendingEditScrollYRef.current = null;
     requestAnimationFrame(() => {
@@ -1521,6 +1522,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     setIsEditingChapter(false);
     setChapterDraftTouched(false);
+    pendingEditScrollYRef.current = window.scrollY;
 
     if (!opts?.silent) alert(`第${currentChapter}${unitLabel}内容已保存（已更新为最新文档）。`);
   };
@@ -1534,6 +1536,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   const cancelEditChapter = () => {
+    pendingEditScrollYRef.current = window.scrollY;
     setIsEditingChapter(false);
     setChapterDraft(generatedChapters[currentChapter] ?? generatedContent ?? '');
     setChapterDraftTouched(false);
@@ -2074,22 +2077,45 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                  <div ref={contentEndRef} />
 	                </div>
                   ) : (
-                    <textarea
-                      value={chapterDraft}
-                      onChange={(e) => {
-                        setChapterDraft(e.target.value);
-                        setChapterDraftTouched(true);
-                      }}
-                      className="w-full min-h-[520px] p-4 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-secondary-800"
-                      style={{
-                        lineHeight: '1.8',
-                        fontFamily: '"Noto Serif SC", "Source Han Serif SC", "宋体", serif',
-                        fontSize: '16px',
-                        letterSpacing: '0.3px',
-                        whiteSpace: 'pre-wrap',
-                      }}
-                      placeholder="在这里编辑正文内容，保存后后续生成会引用最新文档。"
-                    />
+                    <div className="space-y-4">
+                      <textarea
+                        value={chapterDraft}
+                        onChange={(e) => {
+                          setChapterDraft(e.target.value);
+                          setChapterDraftTouched(true);
+                        }}
+                        className="w-full min-h-[520px] p-4 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-secondary-800"
+                        style={{
+                          lineHeight: '1.8',
+                          fontFamily: '"Noto Serif SC", "Source Han Serif SC", "宋体", serif',
+                          fontSize: '16px',
+                          letterSpacing: '0.3px',
+                          whiteSpace: 'pre-wrap',
+                        }}
+                        placeholder="在这里编辑正文内容，保存后后续生成会引用最新文档。"
+                      />
+                      <div className="sticky bottom-4 z-10 flex justify-end gap-2 rounded-lg border border-secondary-200 bg-white/95 p-3 shadow-lg backdrop-blur">
+                        <button
+                          onClick={cancelEditChapter}
+                          className="px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-lg text-sm font-medium"
+                          title="取消编辑（不保存修改）"
+                        >
+                          取消
+                        </button>
+                        <button
+                          onClick={() => {
+                            pendingEditScrollYRef.current = window.scrollY;
+                            saveChapter();
+                          }}
+                          disabled={!chapterDraft}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                          title={`保存当前${unitLabel}修改`}
+                        >
+                          <Save className="w-4 h-4" />
+                          保存
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2265,8 +2291,38 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               {microStoriesInOrder && microStoriesInOrder.length > 0 ? (
                 <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div className="text-sm text-gray-700">
+                      共 {microStoriesInOrder.length * unitsPerMicroStory} {unitLabel}，默认从最新内容往前选
+                    </div>
+                    <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                      <button
+                        onClick={() => setChapterListOrder('desc')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                          chapterListOrder === 'desc'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        倒序
+                      </button>
+                      <button
+                        onClick={() => setChapterListOrder('asc')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                          chapterListOrder === 'asc'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        正序
+                      </button>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {microStoriesInOrder.map((story, storyIndex) => {
+                    {(chapterListOrder === 'desc'
+                      ? microStoriesInOrder.map((story, storyIndex) => ({ story, storyIndex })).reverse()
+                      : microStoriesInOrder.map((story, storyIndex) => ({ story, storyIndex }))
+                    ).map(({ story, storyIndex }) => {
                       const chapterStart = storyIndex * unitsPerMicroStory + 1;
                       const chapterEnd = storyIndex * unitsPerMicroStory + unitsPerMicroStory;
                       const isGenerated = isMicrodrama
