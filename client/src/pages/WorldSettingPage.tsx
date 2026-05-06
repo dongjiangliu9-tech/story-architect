@@ -57,6 +57,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
   const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
   const [needsUpgradeSystem, setNeedsUpgradeSystem] = useState(true);
+  const [useEnglishNames, setUseEnglishNames] = useState(false);
 
   // 调试：监听项目状态变化
   useEffect(() => {
@@ -244,7 +245,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       const response = await blueprintApi.generateCharacters({
         outline: outlineData,
-        worldSetting: worldSetting
+        worldSetting: worldSetting,
+        useEnglishNames,
       });
 
       console.log('生成的人物数据:', response.data);
@@ -331,6 +333,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const response = await blueprintApi.generateCharacters({
         outline: outlineData,
         worldSetting,
+        useEnglishNames,
         existingCharacters: characters,
         note,
       });
@@ -576,7 +579,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       // 第二步：生成人物设定
       const charactersResponse = await blueprintApi.generateCharacters({
         outline: outlineData,
-        worldSetting: worldResponse.data
+        worldSetting: worldResponse.data,
+        useEnglishNames,
       });
 
       console.log('批量生成：人物设定成功');
@@ -854,6 +858,21 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
               </div>
 
               <div className="space-y-4">
+                <label className="flex items-start gap-3 rounded-lg border border-secondary-200 bg-secondary-50 px-3 py-3 text-sm text-secondary-700">
+                  <input
+                    type="checkbox"
+                    checked={useEnglishNames}
+                    onChange={(e) => setUseEnglishNames(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span>
+                    <span className="font-medium text-secondary-900">生成英文人物</span>
+                    <span className="mt-1 block text-xs text-secondary-600">
+                      使用欧美英文名，并排除华裔、俄裔角色设定
+                    </span>
+                  </span>
+                </label>
+
                 <button
                   onClick={handleGenerateCharacters}
                   disabled={isGeneratingCharacters || !worldSettingGenerated}

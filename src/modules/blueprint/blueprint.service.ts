@@ -597,6 +597,16 @@ ${dto.outline}
 
   async generateCharacters(dto: GenerateCharactersDto) {
     console.log('开始基于世界观基础设定生成人物设定');
+    const characterNameRestrictions = dto.useEnglishNames
+      ? `6. 继续遵守限制：本次按英文人物设定处理，角色姓名使用自然的欧美英文名；不要设置华裔角色，不要设置俄裔角色，姓名、家族背景、移民背景和文化标识都要避开华裔/俄裔指向。`
+      : `6. 继续遵守限制：主角不可以姓叶、不可以姓陈、不可以姓顾，名字里不可有默字。`;
+    const characterNameLimitBlock = dto.useEnglishNames
+      ? `⚠️ 本次生成英文人物：角色姓名使用自然的欧美英文名
+⚠️ 不要设置华裔角色，不要设置俄裔角色
+⚠️ 姓名、家族背景、移民背景和文化标识都要避开华裔/俄裔指向`
+      : `⚠️ 生成的主角不可以姓叶、不可以姓陈、不可以姓顾
+⚠️ 名字里不可有默字`;
+
     if (dto.existingCharacters?.trim() && dto.note?.trim()) {
       const supplementalPrompt = `你是一名长篇小说人物设定统筹。现在需要根据用户批注，在既有人物设定正文的基础上补充内容，并把新增内容插入到最合适的位置。
 
@@ -618,7 +628,7 @@ ${dto.note}
 3. 根据批注把新增角色、关系、动机、当前状态或冲突线插入最合适的类别；如果原文没有合适位置，可以新增一个小节。
 4. 不要删除与批注无关的角色，不要重写成另一套人物体系。
 5. 新增内容必须与故事大纲、世界观和既有人设一致，并能直接服务后续中故事/小故事生成。
-6. 继续遵守限制：主角不可以姓叶、不可以姓陈、不可以姓顾，名字里不可有默字。`;
+${characterNameRestrictions}`;
 
       try {
         const result = await this.llmService.chat([
@@ -660,8 +670,7 @@ ${dto.worldSetting}
 7. 2-3个龙套角色 - 简单背景和作用
 
 **重要限制条件：**
-⚠️ 生成的主角不可以姓叶、不可以姓陈、不可以姓顾
-⚠️ 名字里不可有默字
+${characterNameLimitBlock}
 
 **要求：**
 - 每个角色都要有姓名、年龄、背景设定、性格特征

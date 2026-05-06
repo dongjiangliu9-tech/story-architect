@@ -207,6 +207,7 @@ export interface GenerateWorldSettingDto {
 export interface GenerateCharactersDto {
   outline: string;
   worldSetting: string;
+  useEnglishNames?: boolean;
   existingCharacters?: string;
   note?: string;
 }
