@@ -243,43 +243,13 @@ function BlueprintPage({
       }
     })();
 
-    const finalOutline = latestOutline || latestSavedOutline;
-
-    if (!finalOutline) {
-      setError('请先生成或保存一个灵感架构，再进入人设与世界观');
-      return;
-    }
-
-    onNavigate('world-setting', finalOutline);
-  };
-
-
-  // 全流程自动化处理
-  const handleAutoFlowGenerate = async () => {
-    if (!selectedCategory || selectedStyles.length === 0 || !theme.trim() || !outlines.length) {
-      setError('请先选择频道、风格、输入主题并生成至少一个故事架构');
-      return;
-    }
-
-    if (!bookName.trim()) {
-      setError('请输入书名');
-      return;
-    }
+    const finalOutline = latestOutline || latestSavedOutline || {
+      ...createBlankOutline(),
+      title: bookName.trim() || '未命名灵感架构',
+    };
 
     setError(null);
-
-    try {
-      // 设置自动化标志并跳转到人设与世界观界面
-      localStorage.setItem('story-architect-auto-flow', 'start');
-      localStorage.setItem('story-architect-book-name', bookName.trim());
-
-      // 跳转到人设与世界观界面
-      onNavigate('world-setting', currentOutline || undefined);
-
-    } catch (error) {
-      console.error('全流程自动化启动失败:', error);
-      setError('全流程自动化启动失败，请稍后重试');
-    }
+    onNavigate('world-setting', finalOutline);
   };
 
 
@@ -370,46 +340,12 @@ function BlueprintPage({
                   isLoading={isGenerating}
                 />
 
-                {/* 全流程自动化生成按钮 */}
-                {outlines.length > 0 && (
-                  <div className="mt-6 space-y-3">
-                    <div className="text-center">
-                      <div className="w-full h-px bg-gradient-to-r from-transparent via-secondary-300 to-transparent mb-4"></div>
-                      <p className="text-sm text-secondary-600 mb-4">智能全流程自动化生成</p>
-                    </div>
-
-                    <button
-                      onClick={handleAutoFlowGenerate}
-                      disabled={!bookName.trim()}
-                      className={`w-full py-4 px-6 rounded-xl font-semibold text-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center space-x-3 ${
-                        bookName.trim()
-                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white'
-                          : 'bg-secondary-300 text-secondary-500 cursor-not-allowed'
-                      }`}
-                    >
-                      <Sparkles className="w-6 h-6" />
-                      <div className="text-left">
-                        <div className="font-bold">全流程自动化</div>
-                        <div className="text-sm opacity-90">监听界面进度智能操作</div>
-                      </div>
-                    </button>
-
-
-                    <div className="text-xs text-secondary-500 space-y-1">
-                      <p>• 自动监听界面进度，从头到尾全流程监控</p>
-                      <p>• 智能跳转界面并自动点击相应按钮</p>
-                      <p>• 自动等待生成完成并继续下一环节</p>
-                      <p>• 生成完成后自动保存并下载完整小说</p>
-                    </div>
-                  </div>
-                )}
-
                 {/* 跳转到World Setting按钮 */}
                 <button
                   onClick={handleEnterWorldSetting}
-                  className="w-full btn btn-secondary py-3 flex items-center justify-center space-x-2"
+                  className="w-full py-4 px-6 rounded-xl font-semibold text-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white flex items-center justify-center space-x-3"
                 >
-                  <BookOpen className="w-5 h-5" />
+                  <BookOpen className="w-6 h-6" />
                   <span>进入人设与世界观</span>
                 </button>
               </div>

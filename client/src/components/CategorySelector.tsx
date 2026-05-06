@@ -3,15 +3,22 @@ import { BookOpen } from 'lucide-react';
 import { NovelCategory } from '../types';
 import { categories } from '../data/novelCategories';
 
+type Channel = keyof typeof categories;
+
 interface CategorySelectorProps {
   selectedCategory: NovelCategory | null;
   onSelectCategory: (category: NovelCategory | null) => void;
 }
 
 export function CategorySelector({ selectedCategory, onSelectCategory }: CategorySelectorProps) {
-  const [gender, setGender] = useState<'male' | 'female'>('male');
+  const [channel, setChannel] = useState<Channel>('male');
 
-  const currentCategories = categories[gender];
+  const currentCategories = categories[channel];
+  const channelOptions: Array<{ id: Channel; label: string }> = [
+    { id: 'male', label: '男频' },
+    { id: 'female', label: '女频' },
+    { id: 'tiktok', label: 'TikTok' },
+  ];
 
   return (
     <div className="space-y-3">
@@ -19,34 +26,24 @@ export function CategorySelector({ selectedCategory, onSelectCategory }: Categor
         网文频道
       </label>
 
-      {/* 性别选择 */}
+      {/* 频道选择 */}
       <div className="flex bg-secondary-100 rounded-lg p-1">
-        <button
-          onClick={() => {
-            setGender('male');
-            onSelectCategory(null);
-          }}
-          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-            gender === 'male'
-              ? 'bg-white text-primary-700 shadow-sm'
-              : 'text-secondary-600 hover:text-secondary-900'
-          }`}
-        >
-          男频
-        </button>
-        <button
-          onClick={() => {
-            setGender('female');
-            onSelectCategory(null);
-          }}
-          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-            gender === 'female'
-              ? 'bg-white text-primary-700 shadow-sm'
-              : 'text-secondary-600 hover:text-secondary-900'
-          }`}
-        >
-          女频
-        </button>
+        {channelOptions.map((option) => (
+          <button
+            key={option.id}
+            onClick={() => {
+              setChannel(option.id);
+              onSelectCategory(null);
+            }}
+            className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+              channel === option.id
+                ? 'bg-white text-primary-700 shadow-sm'
+                : 'text-secondary-600 hover:text-secondary-900'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
 
       {/* 分类选择 */}

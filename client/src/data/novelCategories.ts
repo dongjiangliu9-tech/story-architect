@@ -98,6 +98,60 @@ export const femaleCategories: NovelCategory[] = [
   },
 ];
 
+// TikTok / 海外竖屏短剧流行分类
+export const tiktokCategories: NovelCategory[] = [
+  {
+    id: 'tiktok_fantasy',
+    name: '奇幻',
+    description: '魔法、王国、命运血脉与高概念反转',
+  },
+  {
+    id: 'tiktok_werewolf',
+    name: '狼人',
+    description: 'Alpha、Mate Bond、族群权力与禁忌爱情',
+  },
+  {
+    id: 'tiktok_vampire',
+    name: '吸血鬼',
+    description: '永生诅咒、血族契约与危险诱惑',
+  },
+  {
+    id: 'tiktok_mafia',
+    name: '黑手党',
+    description: '危险家族、地下权力与强冲突爱情',
+  },
+  {
+    id: 'tiktok_billionaire',
+    name: '亿万富豪',
+    description: '霸总、阶层差、身份误会与高甜反转',
+  },
+  {
+    id: 'tiktok_contract_marriage',
+    name: '契约婚姻',
+    description: '先婚后爱、协议关系与情感破防',
+  },
+  {
+    id: 'tiktok_revenge',
+    name: '复仇逆袭',
+    description: '背叛后归来、身份升级与连续打脸',
+  },
+  {
+    id: 'tiktok_secret_baby',
+    name: '带球跑',
+    description: '秘密孩子、重逢修罗场与亲情揭露',
+  },
+  {
+    id: 'tiktok_heir',
+    name: '豪门继承',
+    description: '隐藏身份、继承权争夺与家族阴谋',
+  },
+  {
+    id: 'tiktok_supernatural',
+    name: '超自然悬疑',
+    description: '灵异谜团、神秘力量与惊险追查',
+  },
+];
+
 // 风格分类
 export const novelStyles: NovelStyle[] = [
   {
@@ -230,4 +284,5 @@ export const novelStyles: NovelStyle[] = [
 export const categories = {
   male: maleCategories,
   female: femaleCategories,
+  tiktok: tiktokCategories,
 };
