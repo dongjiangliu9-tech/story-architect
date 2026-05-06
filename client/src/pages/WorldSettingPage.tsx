@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X } from 'lucide-react';
+import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw } from 'lucide-react';
 import { blueprintApi } from '../services/api';
 import { OutlineData } from '../types';
 import { useWorldSettings } from '../contexts/WorldSettingsContext';
@@ -94,6 +94,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     outline: ''
   });
   const [inlineSaveSection, setInlineSaveSection] = useState<'world' | 'characters' | 'outline' | null>(null);
+  const [supplementNotes, setSupplementNotes] = useState<{ world: string; characters: string }>({
+    world: '',
+    characters: ''
+  });
+  const [isSupplementingWorldSetting, setIsSupplementingWorldSetting] = useState(false);
+  const [isSupplementingCharacters, setIsSupplementingCharacters] = useState(false);
 
   const outlineModeMeta = outlineMode === 'microdrama'
     ? {
@@ -249,6 +255,107 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       alert('生成人物失败，请稍后重试');
     } finally {
       setIsGeneratingCharacters(false);
+    }
+  };
+
+  const handleSupplementWorldSetting = async () => {
+    if (!selectedOutline) {
+      alert('未找到选中的故事大纲，请返回第一步重新选择');
+      return;
+    }
+
+    const note = supplementNotes.world.trim();
+    if (!worldSetting.trim()) {
+      alert('请先生成或填写世界观基础设定');
+      return;
+    }
+    if (!note) {
+      alert('请先填写要补充的批注');
+      return;
+    }
+
+    setIsSupplementingWorldSetting(true);
+    try {
+      const outlineData = formatOutlineData(selectedOutline);
+      const response = await blueprintApi.generateWorldSetting({
+        outline: outlineData,
+        needsUpgradeSystem,
+        existingWorldSetting: worldSetting,
+        note,
+      });
+
+      setWorldSetting(response.data);
+      setWorldSettingGenerated(true);
+      setSupplementNotes(prev => ({ ...prev, world: '' }));
+
+      if (currentProject) {
+        updateProject(currentProject.id, {
+          worldSetting: response.data,
+          worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        });
+      }
+
+      setInlineSaveSection('world');
+      setTimeout(() => setInlineSaveSection(null), 1500);
+    } catch (error) {
+      console.error('补充世界观基础设定失败:', error);
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '补充世界观基础设定失败，请稍后重试';
+      alert(errorMessage);
+    } finally {
+      setIsSupplementingWorldSetting(false);
+    }
+  };
+
+  const handleSupplementCharacters = async () => {
+    if (!selectedOutline) {
+      alert('未找到选中的故事大纲，请返回第一步重新选择');
+      return;
+    }
+
+    const note = supplementNotes.characters.trim();
+    if (!characters.trim()) {
+      alert('请先生成或填写人物设定');
+      return;
+    }
+    if (!note) {
+      alert('请先填写要补充的批注');
+      return;
+    }
+
+    setIsSupplementingCharacters(true);
+    try {
+      const outlineData = formatOutlineData(selectedOutline);
+      const response = await blueprintApi.generateCharacters({
+        outline: outlineData,
+        worldSetting,
+        existingCharacters: characters,
+        note,
+      });
+
+      setCharacters(response.data);
+      setCharactersGenerated(true);
+      setSupplementNotes(prev => ({ ...prev, characters: '' }));
+
+      if (currentProject) {
+        updateProject(currentProject.id, {
+          characters: response.data,
+        });
+      }
+
+      setInlineSaveSection('characters');
+      setTimeout(() => setInlineSaveSection(null), 1500);
+    } catch (error) {
+      console.error('补充人物设定失败:', error);
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '补充人物设定失败，请稍后重试';
+      alert(errorMessage);
+    } finally {
+      setIsSupplementingCharacters(false);
     }
   };
 
@@ -923,6 +1030,30 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                           )}
                         </div>
                       </div>
+                      {editingSection !== 'world' && (
+                        <div className="mb-5 border border-primary-100 bg-primary-50/70 rounded-lg p-4 space-y-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium text-primary-900">按批注补充世界观</div>
+                              <div className="text-xs text-primary-700 mt-1">AI会基于当前正文补充内容，并插入到合适位置。</div>
+                            </div>
+                            <button
+                              onClick={handleSupplementWorldSetting}
+                              disabled={isSupplementingWorldSetting || !supplementNotes.world.trim()}
+                              className="inline-flex items-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                            >
+                              {isSupplementingWorldSetting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                              补充生成
+                            </button>
+                          </div>
+                          <textarea
+                            value={supplementNotes.world}
+                            onChange={(e) => setSupplementNotes(prev => ({ ...prev, world: e.target.value }))}
+                            className="w-full min-h-[84px] p-3 border border-primary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm text-secondary-800 bg-white"
+                            placeholder="写批注：比如补充货币体系、某个宗门的历史、特殊能力代价、城市地下势力规则..."
+                          />
+                        </div>
+                      )}
                       <div className="prose prose-sm max-w-none">
                         {editingSection === 'world' ? (
                           <textarea
@@ -1001,6 +1132,30 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                           )}
                         </div>
                       </div>
+                      {editingSection !== 'characters' && (
+                        <div className="mb-5 border border-primary-100 bg-primary-50/70 rounded-lg p-4 space-y-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium text-primary-900">按批注补充人物设定</div>
+                              <div className="text-xs text-primary-700 mt-1">AI会基于当前人设补充角色、关系或状态，并插入到合适位置。</div>
+                            </div>
+                            <button
+                              onClick={handleSupplementCharacters}
+                              disabled={isSupplementingCharacters || !supplementNotes.characters.trim()}
+                              className="inline-flex items-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                            >
+                              {isSupplementingCharacters ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                              补充生成
+                            </button>
+                          </div>
+                          <textarea
+                            value={supplementNotes.characters}
+                            onChange={(e) => setSupplementNotes(prev => ({ ...prev, characters: e.target.value }))}
+                            className="w-full min-h-[84px] p-3 border border-primary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm text-secondary-800 bg-white"
+                            placeholder="写批注：比如补充女主当前状态、增加反派阵营、强化主角和师门关系、给配角加隐藏动机..."
+                          />
+                        </div>
+                      )}
                       <div className="prose prose-sm max-w-none">
                         {editingSection === 'characters' ? (
                           <textarea

@@ -8,4 +8,12 @@ export class GenerateWorldSettingDto {
   @IsBoolean()
   @IsOptional()
   needsUpgradeSystem?: boolean;
+
+  @IsString()
+  @IsOptional()
+  existingWorldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
 }

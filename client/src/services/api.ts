@@ -12,11 +12,15 @@ const api = axios.create({
 export interface GenerateWorldSettingDto {
   outline: string;
   needsUpgradeSystem?: boolean;
+  existingWorldSetting?: string;
+  note?: string;
 }
 
 export interface GenerateCharactersDto {
   outline: string;
   worldSetting: string;
+  existingCharacters?: string;
+  note?: string;
 }
 
 export interface GenerateDetailedOutlineDto {

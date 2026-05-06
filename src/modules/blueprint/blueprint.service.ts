@@ -427,6 +427,43 @@ ${template.power}`
 
   async generateWorldSetting(dto: GenerateWorldSettingDto) {
     console.log('开始生成世界观基础设定');
+    if (dto.existingWorldSetting?.trim() && dto.note?.trim()) {
+      const supplementalPrompt = `你是一名长篇小说世界观总设定师。现在需要根据用户批注，在既有世界观正文的基础上补充内容，并把新增内容插入到最合适的位置。
+
+故事大纲：
+${dto.outline}
+
+既有世界观正文：
+${dto.existingWorldSetting}
+
+用户批注：
+${dto.note}
+
+请严格按以下要求输出：
+1. 输出“完整更新后的世界观正文”，不要只输出新增段落、补丁说明或修改清单。
+2. 保留原文已有结构、有效设定和写作口吻，只在需要的位置补充、扩写或微调衔接。
+3. 根据批注把新增内容插入最合适的章节或段落；如果原文没有合适位置，可以新增一个小节。
+4. 不要删除与批注无关的内容，不要重写成另一套世界观。
+5. 新增内容必须与故事大纲和既有设定一致，并能直接服务后续人物设定与情节生成。`;
+
+      try {
+        const result = await this.llmService.chat([
+          { role: 'user', content: supplementalPrompt }
+        ]);
+
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error) {
+        console.error('补充世界观基础设定失败:', error);
+        if (error instanceof Error && error.message) {
+          throw new Error(error.message);
+        }
+        throw new Error('AI补充世界观基础设定失败，请稍后重试');
+      }
+    }
+
     const needsUpgradeSystem = dto.needsUpgradeSystem !== false;
     const prompt = needsUpgradeSystem
       ? `基于以下故事大纲，为200万字长篇小说生成完整的世界观基础设定体系：
@@ -560,6 +597,46 @@ ${dto.outline}
 
   async generateCharacters(dto: GenerateCharactersDto) {
     console.log('开始基于世界观基础设定生成人物设定');
+    if (dto.existingCharacters?.trim() && dto.note?.trim()) {
+      const supplementalPrompt = `你是一名长篇小说人物设定统筹。现在需要根据用户批注，在既有人物设定正文的基础上补充内容，并把新增内容插入到最合适的位置。
+
+故事大纲：
+${dto.outline}
+
+世界观基础设定：
+${dto.worldSetting}
+
+既有人物设定正文：
+${dto.existingCharacters}
+
+用户批注：
+${dto.note}
+
+请严格按以下要求输出：
+1. 输出“完整更新后的人物设定正文”，不要只输出新增角色、补丁说明或修改清单。
+2. 保留原文已有角色、关系网、结构和写作口吻，只在需要的位置补充、扩写或微调衔接。
+3. 根据批注把新增角色、关系、动机、当前状态或冲突线插入最合适的类别；如果原文没有合适位置，可以新增一个小节。
+4. 不要删除与批注无关的角色，不要重写成另一套人物体系。
+5. 新增内容必须与故事大纲、世界观和既有人设一致，并能直接服务后续中故事/小故事生成。
+6. 继续遵守限制：主角不可以姓叶、不可以姓陈、不可以姓顾，名字里不可有默字。`;
+
+      try {
+        const result = await this.llmService.chat([
+          { role: 'user', content: supplementalPrompt }
+        ]);
+
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error) {
+        console.error('补充人物设定失败:', error);
+        if (error instanceof Error && error.message) {
+          throw new Error(error.message);
+        }
+        throw new Error('AI补充人物设定失败，请稍后重试');
+      }
+    }
 
     const prompt = `基于以下故事大纲和世界观基础设定，为200万字长篇小说生成完整的人物设定体系：
 

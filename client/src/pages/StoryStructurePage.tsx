@@ -1020,6 +1020,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           </div>
         )}
 
+        <textarea
+          value={state.note}
+          onChange={(e) => updateMacroVariantState(storyKey, { note: e.target.value })}
+          className="w-full min-h-[72px] p-3 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-secondary-800 bg-white"
+          placeholder="可先写批注再生成：比如更贴近女主成长、反派压迫感更强、不要改掉下一中故事的开端、爱情线慢一点..."
+        />
+
         {state.variants.length > 0 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
@@ -1053,12 +1060,6 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               })}
             </div>
 
-            <textarea
-              value={state.note}
-              onChange={(e) => updateMacroVariantState(storyKey, { note: e.target.value })}
-              className="w-full min-h-[72px] p-3 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-secondary-800 bg-white"
-              placeholder="写批注：比如更贴近女主成长、反派压迫感更强、不要改掉下一中故事的开端、爱情线慢一点..."
-            />
             <div className="flex justify-end">
               <button
                 onClick={() => generateMacroStoryVariants(macroIndex)}
@@ -1181,6 +1182,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           </div>
         )}
 
+        <textarea
+          value={state.note}
+          onChange={(e) => updateVariantState(variantKey, { note: e.target.value })}
+          className="w-full min-h-[72px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800"
+          placeholder="可先写批注再生成：比如更狠一点、保留方案二的反转、让女主主动破局、结尾钩子再强一些..."
+        />
+
         {state.variants.length > 0 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1220,23 +1228,15 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               })}
             </div>
 
-            <div className="space-y-2">
-              <textarea
-                value={state.note}
-                onChange={(e) => updateVariantState(variantKey, { note: e.target.value })}
-                className="w-full min-h-[72px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800"
-                placeholder="写批注：比如更狠一点、保留方案二的反转、让女主主动破局、结尾钩子再强一些..."
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={() => generateMicroStoryVariants(macroIndex, microIndex, draft, allDrafts)}
-                  disabled={state.loading}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-md text-sm"
-                >
-                  {state.loading && <RefreshCw className="w-4 h-4 animate-spin" />}
-                  根据批注再生成3条
-                </button>
-              </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => generateMicroStoryVariants(macroIndex, microIndex, draft, allDrafts)}
+                disabled={state.loading}
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-md text-sm"
+              >
+                {state.loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+                根据批注再生成3条
+              </button>
             </div>
           </div>
         )}
@@ -1366,6 +1366,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           </div>
         )}
 
+        <textarea
+          value={state.note}
+          onChange={(e) => updateBatchVariantState(storyKey, { note: e.target.value })}
+          className="w-full min-h-[72px] p-3 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800 bg-white"
+          placeholder="可先写批注再生成：比如第2集压迫更狠，第3集让反击提前露出，第4集结尾要接回原来的危机..."
+        />
+
         {state.variants.length > 0 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
@@ -1404,12 +1411,6 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               })}
             </div>
 
-            <textarea
-              value={state.note}
-              onChange={(e) => updateBatchVariantState(storyKey, { note: e.target.value })}
-              className="w-full min-h-[72px] p-3 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800 bg-white"
-              placeholder="写批注：比如第2集压迫更狠，第3集让反击提前露出，第4集结尾要接回原来的危机..."
-            />
             <div className="flex justify-end">
               <button
                 onClick={() => generateBatchMicroStoryVariants(macroIndex, storyKey, allDrafts)}
