@@ -54,7 +54,7 @@ export class ActivationQuotaService {
 
     usage[usedKey] += 1;
 
-    if (usage.geminiUsed >= this.geminiLimit && usage.deepseekUsed >= this.deepseekLimit) {
+    if (usage[usedKey] >= limit) {
       usage.disabled = true;
     }
 
