@@ -14,10 +14,19 @@ export function parseOutlineContent(content: string): OutlineData[] {
  */
 function parseDetailedFormat(content: string): OutlineData[] {
   const outlines: OutlineData[] = [];
-  const sections = content.split(/(?=### 架构\d+：)/);
+  const headingSplitRegex = /^(?:#{1,6}\s*)?(?:\*\*)?\s*(?:故事)?(?:架构|方案)\s*([0-9一二三四五六七八九十]+)\s*[:：\-—]\s*(.+?)(?:\*\*)?\s*$/gmi;
+  const headingLineRegex = /^(?:#{1,6}\s*)?(?:\*\*)?\s*(?:故事)?(?:架构|方案)\s*([0-9一二三四五六七八九十]+)\s*[:：\-—]\s*(.+?)(?:\*\*)?\s*$/i;
+  const headings = Array.from(content.matchAll(headingSplitRegex));
+  const sections = headings.length > 0
+    ? headings.map((match, index) => {
+        const start = match.index ?? 0;
+        const end = headings[index + 1]?.index ?? content.length;
+        return content.slice(start, end);
+      })
+    : [content];
 
   sections.forEach((section, index) => {
-    if (!section.trim() || !section.includes('### 架构')) return;
+    if (!section.trim()) return;
 
     const outline: OutlineData = {
       id: index + 1,
@@ -31,63 +40,103 @@ function parseDetailedFormat(content: string): OutlineData[] {
     };
 
     // 提取标题
-    const titleMatch = section.match(/### 架构\d+：(.+)/);
-    if (titleMatch) {
-      outline.title = titleMatch[1].trim();
-    }
+    const titleMatch = section.match(headingLineRegex);
+    const firstLine = section.split('\n').find(line => line.trim());
+    outline.title = cleanOutlineLine(titleMatch?.[2] || firstLine || '')
+      .replace(/^(?:#{1,6}\s*)?(?:故事)?(?:架构|方案)\s*[0-9一二三四五六七八九十]+\s*[:：\-—]\s*/, '')
+      .trim();
 
     const lines = section.split('\n');
     let currentSection = '';
 
     lines.forEach((line) => {
-      const trimmedLine = line.trim();
+      const trimmedLine = cleanOutlineLine(line);
+      const labelMatch = trimmedLine.match(/^(.{1,32}?)[：:]\s*(.*)$/);
+      const label = labelMatch?.[1]?.trim();
+      const inlineContent = labelMatch?.[2]?.trim() || '';
+      const nextSection = label ? getOutlineSectionKey(label) : '';
 
       // 检测各部分开始
-      if (trimmedLine === '核心概念：') {
-        currentSection = 'logline';
-      } else if (trimmedLine === '人物关系：') {
-        currentSection = 'characters';
-      } else if (trimmedLine === '世界观设定：') {
-        currentSection = 'world';
-      } else if (trimmedLine === '主要冲突：') {
-        currentSection = 'hook';
-      } else if (trimmedLine === '金手指设定：') {
-        currentSection = 'themes';
-      } else if (currentSection && trimmedLine && !trimmedLine.includes('：') && trimmedLine.length > 1) {
-        // 累积内容，去掉markdown符号
-        const cleanLine = trimmedLine
-          .replace(/\*\*/g, '') // 去掉粗体符号
-          .replace(/[🌍🎯👥💎🎣📖]/g, '') // 去掉表情符号
-          .trim();
-
-        if (cleanLine) {
-          switch (currentSection) {
-            case 'logline':
-              outline.logline += (outline.logline ? ' ' : '') + cleanLine;
-              break;
-            case 'hook':
-              outline.hook += (outline.hook ? '\n' : '') + cleanLine;
-              break;
-            case 'characters':
-              outline.characters += (outline.characters ? '\n' : '') + cleanLine;
-              break;
-            case 'world':
-              outline.world += (outline.world ? '\n' : '') + cleanLine;
-              break;
-            case 'themes':
-              outline.themes += (outline.themes ? '\n' : '') + cleanLine;
-              break;
-          }
-        }
+      if (nextSection) {
+        currentSection = nextSection;
+        appendOutlineSection(outline, currentSection, inlineContent);
+      } else if (
+        currentSection &&
+        trimmedLine &&
+        !headingLineRegex.test(trimmedLine) &&
+        trimmedLine.length > 1
+      ) {
+        appendOutlineSection(outline, currentSection, trimmedLine);
       }
     });
 
-    if (outline.title) {
+    if (
+      outline.title &&
+      (outline.logline || outline.characters || outline.world || outline.hook || outline.themes)
+    ) {
       outlines.push(outline);
     }
   });
 
   return outlines;
+}
+
+function cleanOutlineLine(line: string): string {
+  return line
+    .trim()
+    .replace(/^\s*[-*+]\s+/, '')
+    .replace(/^\s*\d+[.)、]\s+/, '')
+    .replace(/\*\*/g, '')
+    .replace(/[🌍🎯👥💎🎣📖]/g, '')
+    .trim();
+}
+
+function getOutlineSectionKey(label: string): keyof Pick<OutlineData, 'logline' | 'characters' | 'world' | 'hook' | 'themes'> | '' {
+  const normalized = label
+    .replace(/\s+/g, '')
+    .replace(/[【】\[\]（）()]/g, '')
+    .toLowerCase();
+
+  if (['核心概念', '一句话核心', '故事核心', 'coreconcept', 'logline', 'premise'].includes(normalized)) {
+    return 'logline';
+  }
+  if (['人物关系', '角色关系', '人物设定', '角色设定', 'characters', 'characterdynamics', 'cast'].includes(normalized)) {
+    return 'characters';
+  }
+  if (['世界观设定', '世界设定', '世界观', 'worldsetting', 'worldbuilding', 'setting'].includes(normalized)) {
+    return 'world';
+  }
+  if (['主要冲突', '核心冲突', '主线冲突', 'mainconflict', 'conflict'].includes(normalized)) {
+    return 'hook';
+  }
+  if (['金手指设定', '金手指', '独特能力', '爽点机制', 'specialpower', 'cheat', 'power', 'hook'].includes(normalized)) {
+    return 'themes';
+  }
+
+  return '';
+}
+
+function appendOutlineSection(outline: OutlineData, section: string, content: string) {
+  const cleanContent = cleanOutlineLine(content);
+  if (!cleanContent) return;
+
+  switch (section) {
+    case 'logline':
+      outline.logline += (outline.logline ? ' ' : '') + cleanContent;
+      break;
+    case 'hook':
+      outline.hook += (outline.hook ? '\n' : '') + cleanContent;
+      break;
+    case 'characters':
+      outline.characters += (outline.characters ? '\n' : '') + cleanContent;
+      break;
+    case 'world':
+      outline.world += (outline.world ? '\n' : '') + cleanContent;
+      break;
+    case 'themes':
+      outline.themes += (outline.themes ? '\n' : '') + cleanContent;
+      break;
+  }
 }
 
 
