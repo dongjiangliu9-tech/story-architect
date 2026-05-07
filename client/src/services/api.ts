@@ -217,6 +217,7 @@ export interface GenerateDetailedOutlineDto {
   worldSetting: string;
   characters: string;
   mode?: 'novel' | 'microdrama';
+  microdramaEpisodeCount?: 30 | 60 | 100;
   outlineBatchIndex?: number;
   existingDetailedOutline?: string;
   isFinalBatch?: boolean;

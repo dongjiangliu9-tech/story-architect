@@ -19,6 +19,11 @@ export class GenerateDetailedOutlineDto {
   mode?: 'novel' | 'microdrama';
 
   @IsInt()
+  @IsIn([30, 60, 100])
+  @IsOptional()
+  microdramaEpisodeCount?: 30 | 60 | 100;
+
+  @IsInt()
   @Min(1)
   @Max(4)
   @IsOptional()

@@ -76,13 +76,17 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const { currentProject, updateProject } = useWorldSettings();
   const detailedOutlineMode = currentProject?.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
   const isMicrodrama = detailedOutlineMode === 'microdrama';
+  const microdramaEpisodeCount: 30 | 60 | 100 =
+    currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
+      ? currentProject.microdramaEpisodeCount
+      : 30;
   const structureLabels = isMicrodrama
     ? {
         unit: '集',
         macro: '卡点中故事',
         micro: '单集剧本细纲',
-        microButton: '生成10集分集细纲',
-        emptyHint: '点击左侧的卡点中故事，查看或生成10集单集剧本细纲',
+        microButton: '生成分集细纲',
+        emptyHint: '点击左侧的卡点中故事，查看或生成对应集数的单集剧本细纲',
       }
     : {
         unit: '章',
@@ -171,7 +175,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   // 解析小故事内容，正确提取【小故事X】标记之间的内容
   const parseMicroStoriesFromOutline = (content: string): string[] => {
     const stories: string[] = [];
-    const microStoryRegex = /【(?:小故事|分集|单集)[一二三四五六七八九十\d]+】/g;
+    const microStoryRegex = /【(?:(?:小故事|分集|单集)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*集)】/g;
     const matches = [...content.matchAll(microStoryRegex)];
 
     if (matches.length === 0) {
@@ -429,6 +433,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         worldSetting: currentProject.worldSetting || '',
         characters: currentProject.characters || '',
         mode: detailedOutlineMode,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         outlineBatchIndex: 1,
         existingDetailedOutline: '',
       });
@@ -461,7 +466,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       return;
     }
     if (isMicrodrama) {
-      alert('微短剧模式固定为100集大纲，不需要继续追加中故事批次');
+      alert(`微短剧模式固定为${microdramaEpisodeCount}集大纲，不需要继续追加中故事批次`);
       return;
     }
 
@@ -575,8 +580,54 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     isMicrodrama ? `第${num}集` : `小故事 ${getChineseNumber(num)}`
   );
 
+  const getMicrodramaMacroPlans = (episodeCount: 30 | 60 | 100) => {
+    if (episodeCount === 100) {
+      return Array.from({ length: 10 }, (_, index) => ({
+        startChapter: index * 10 + 1,
+        endChapter: (index + 1) * 10
+      }));
+    }
+
+    const plans = [
+      { startChapter: 1, endChapter: 2 },
+      { startChapter: 3, endChapter: 5 },
+    ];
+
+    for (let start = 6; start <= episodeCount; start += 5) {
+      plans.push({
+        startChapter: start,
+        endChapter: Math.min(start + 4, episodeCount)
+      });
+    }
+
+    return plans;
+  };
+
+  const parseMicrodramaRangeFromMacroStory = (storyIndex: number) => {
+    const content = macroStories[storyIndex] || '';
+    const match = content.match(/对应集数[:：]\s*第\s*(\d+)\s*[-~—至到]\s*(\d+)\s*集/)
+      || content.match(/第\s*(\d+)\s*[-~—至到]\s*(\d+)\s*集/);
+
+    if (match) {
+      const startChapter = Number(match[1]);
+      const endChapter = Number(match[2]);
+      if (Number.isFinite(startChapter) && Number.isFinite(endChapter) && endChapter >= startChapter) {
+        return { startChapter, endChapter };
+      }
+    }
+
+    return getMicrodramaMacroPlans(microdramaEpisodeCount)[storyIndex] || {
+      startChapter: storyIndex * 10 + 1,
+      endChapter: (storyIndex + 1) * 10
+    };
+  };
+
   // 计算中故事的章节或集数范围
   const getChapterRange = (storyIndex: number) => {
+    if (isMicrodrama) {
+      return parseMicrodramaRangeFromMacroStory(storyIndex);
+    }
+
     const chaptersPerMacroStory = isMicrodrama ? 10 : 20;
     const startChapter = storyIndex * chaptersPerMacroStory + 1;
     const endChapter = (storyIndex + 1) * chaptersPerMacroStory;
@@ -653,15 +704,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     }
 
     try {
-      // 根据已保存的小故事数量计算应该生成哪几个中故事
-      // 每个中故事有10个小故事
+      // 根据已保存的小故事所属中故事，计算应该生成哪几个中故事。
       const savedMicroStoriesCount = currentProject.savedMicroStories?.length || 0;
-      const completedMacroStories = Math.floor(savedMicroStoriesCount / 10); // 已完成的中故事数量
-      const startMacroStoryIndex = completedMacroStories; // 从下一个中故事开始
+      const savedMacroStoryIds = new Set((currentProject.savedMicroStories || []).map(story => story.macroStoryId));
+      const startMacroStoryIndex = macroStories.findIndex((_, index) => !savedMacroStoryIds.has(`story_${index}`));
 
       // 检查是否有足够的未生成中故事
       const availableMacroStories = macroStories.length - startMacroStoryIndex;
-      if (availableMacroStories <= 0) {
+      if (startMacroStoryIndex < 0 || availableMacroStories <= 0) {
         alert(`所有中故事都已生成完毕！已保存 ${savedMicroStoriesCount} 个小故事。`);
         return;
       }
@@ -673,7 +723,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       setBatchGenerating(true);
       setBatchGenerationProgress({ current: 0, total: targetCount, currentStory: '准备开始...' });
 
-      console.log(`检测到已保存 ${savedMicroStoriesCount} 个小故事，相当于 ${completedMacroStories} 个中故事已完成`);
+      console.log(`检测到已保存 ${savedMicroStoriesCount} 个小故事，下一个未保存中故事序号：${startMacroStoryIndex + 1}`);
       console.log(`将生成中故事 ${startMacroStoryIndex + 1} 到 ${startMacroStoryIndex + targetCount} 的小故事`);
 
       let generatedOutlines = { ...microStoryOutlines };
@@ -716,7 +766,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
         setBatchGenerationProgress({
           current: i + 1,
-          total: 3,
+          total: targetCount,
           currentStory: `正在保存中故事 ${storyIndex + 1} 的小故事...`
         });
 
@@ -725,11 +775,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         if (outlineContent) {
           // 解析小故事内容
 	          const microStoriesParsed = parseMicroStoriesFromOutline(outlineContent);
+          const chapterRange = getChapterRange(storyIndex);
 
           // 创建保存的小故事数据
           const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
             id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
-            title: getMicroStoryDefaultTitle(index + 1),
+            title: isMicrodrama
+              ? `第${chapterRange.startChapter + index}集`
+              : getMicroStoryDefaultTitle(index + 1),
             content: cleanMicroStoryContent(content),
             macroStoryId: storyKey,
             macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -828,13 +881,16 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     const existingByOrder = new Map(existingForMacro.map(s => [s.order, s] as const));
 
     const nowIso = new Date().toISOString();
+    const chapterRange = getChapterRange(storyIndex);
 
     // 创建保存的小故事数据（尽量复用旧id/createdAt，避免引用失效）
     const savedMicroStories: SavedMicroStory[] = storyDraftsToSave.map((draft, index) => {
       const prev = existingByOrder.get(index);
       return {
         id: prev?.id || `${storyKey}_micro_${index}_${Date.now()}`,
-        title: (draft.title || getMicroStoryDefaultTitle(index + 1)).trim(),
+        title: (draft.title || (isMicrodrama
+          ? `第${chapterRange.startChapter + index}集`
+          : getMicroStoryDefaultTitle(index + 1))).trim(),
         content: draft.content ?? '',
         macroStoryId: storyKey,
         macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -1560,12 +1616,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     <span>批量生成中...</span>
                   </>
                 ) : (
-                  (() => {
-                    const savedCount = currentProject?.savedMicroStories?.length || 0;
-                    const completedMacroStories = Math.floor(savedCount / 10);
-                    const nextStart = completedMacroStories + 1;
-                    const nextEnd = Math.min(completedMacroStories + 3, macroStories.length);
-                    const availableCount = Math.max(0, macroStories.length - completedMacroStories);
+	                  (() => {
+	                    const savedMacroStoryIds = new Set((currentProject?.savedMicroStories || []).map(story => story.macroStoryId));
+	                    const nextIndex = macroStories.findIndex((_, index) => !savedMacroStoryIds.has(`story_${index}`));
+	                    const availableCount = nextIndex < 0 ? 0 : Math.max(0, macroStories.length - nextIndex);
+	                    const nextStart = nextIndex + 1;
+	                    const nextEnd = nextIndex < 0 ? 0 : Math.min(nextIndex + 3, macroStories.length);
 
                     if (availableCount === 0) {
                       return (

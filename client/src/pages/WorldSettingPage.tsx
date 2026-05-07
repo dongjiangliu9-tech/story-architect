@@ -56,6 +56,7 @@ interface WorldSettingPageProps {
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
   const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
   const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
+  const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<30 | 60 | 100>(30);
   const [needsUpgradeSystem, setNeedsUpgradeSystem] = useState(true);
   const [useEnglishNames, setUseEnglishNames] = useState(false);
 
@@ -104,12 +105,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   const outlineModeMeta = outlineMode === 'microdrama'
     ? {
-        shortName: '微短剧100集',
-        buttonText: '生成微短剧100集大纲',
-        generateHint: '固定10个中故事卡点，每个卡点拆10集，共100集微短剧大纲',
-        resultTitle: '微短剧100集大纲结果',
-        emptyTitle: '尚未生成微短剧100集大纲',
-        emptyActionText: '手动填写微短剧100集大纲',
+        shortName: `微短剧${microdramaEpisodeCount}集`,
+        buttonText: `生成微短剧${microdramaEpisodeCount}集大纲`,
+        generateHint: microdramaEpisodeCount === 30
+          ? '30集约7个中故事：1-2集、3-5集，其余每5集一个卡点'
+          : microdramaEpisodeCount === 60
+            ? '60集约13个中故事：1-2集、3-5集，其余每5集一个卡点'
+            : '100集保留10个中故事卡点，每个卡点拆10集',
+        resultTitle: `微短剧${microdramaEpisodeCount}集大纲结果`,
+        emptyTitle: `尚未生成微短剧${microdramaEpisodeCount}集大纲`,
+        emptyActionText: `手动填写微短剧${microdramaEpisodeCount}集大纲`,
       }
     : {
         shortName: '网文情节细纲',
@@ -142,6 +147,11 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setWorldSettingGenerated(!!currentProject.worldSetting);
       setCharactersGenerated(!!currentProject.characters);
       setOutlineMode(currentProject.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel');
+      setMicrodramaEpisodeCount(
+        currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
+          ? currentProject.microdramaEpisodeCount
+          : 30
+      );
       setNeedsUpgradeSystem(currentProject.worldSettingNeedsUpgradeSystem !== false);
 
       // 如果有内容，自动切换到对应的标签页
@@ -377,6 +387,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         worldSetting: worldSetting,
         characters: characters,
         mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
         outlineBatchIndex: 1,
         existingDetailedOutline: '',
       });
@@ -424,6 +435,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           characters,
           detailedOutline: outline,
           detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
       } else {
@@ -434,6 +446,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           characters,
           detailedOutline: outline,
           detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
         console.log('新项目创建完成，项目ID:', newProject.id);
@@ -599,6 +612,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         worldSetting: worldResponse.data,
         characters: charactersResponse.data,
         mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
         outlineBatchIndex: 1,
         existingDetailedOutline: '',
       });
@@ -615,6 +629,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           characters: charactersResponse.data,
           detailedOutline: outlineResponse.data,
           detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
       } else {
@@ -623,6 +638,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           characters: charactersResponse.data,
           detailedOutline: outlineResponse.data,
           detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
         console.log('批量生成：新项目创建完成，项目ID:', newProject.id);
@@ -918,9 +934,29 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                           : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
                       }`}
                     >
-                      微短剧100集大纲
+                      微短剧大纲
                     </button>
                   </div>
+                  {outlineMode === 'microdrama' && (
+                    <div className="mt-4">
+                      <div className="text-xs font-medium text-secondary-700 mb-2">集数规格</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([30, 60, 100] as const).map((count) => (
+                          <button
+                            key={count}
+                            onClick={() => setMicrodramaEpisodeCount(count)}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                              microdramaEpisodeCount === count
+                                ? 'bg-primary-100 text-primary-700 border border-primary-300'
+                                : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+                            }`}
+                          >
+                            {count}集
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleGenerateOutline}

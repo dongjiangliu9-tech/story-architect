@@ -81,6 +81,7 @@ export interface WorldSettingsProject {
   charactersTransferRef?: string;
   detailedOutlineTransferRef?: string;
   detailedOutlineMode?: 'novel' | 'microdrama';
+  microdramaEpisodeCount?: 30 | 60 | 100;
   worldSettingNeedsUpgradeSystem?: boolean;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
   microStoryOutlines?: {[key: string]: string}; // 中故事ID -> 小故事细纲内容
@@ -222,6 +223,9 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       bookName: bookName.trim(),
       outline,
       detailedOutlineMode: base.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel',
+      microdramaEpisodeCount: base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
+        ? base.microdramaEpisodeCount
+        : 30,
       worldSettingNeedsUpgradeSystem: typeof base.worldSettingNeedsUpgradeSystem === 'boolean'
         ? base.worldSettingNeedsUpgradeSystem
         : true,
