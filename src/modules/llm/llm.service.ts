@@ -182,7 +182,7 @@ export class LlmService {
 
   private getLogicRequestTimeoutMs(modelIndex: number): number {
     if (modelIndex === 0) {
-      return this.getConfigNumber('GEMINI_PRIMARY_TIMEOUT_MS', 15000);
+      return this.getConfigNumber('GEMINI_PRIMARY_TIMEOUT_MS', 120000);
     }
 
     return this.getConfigNumber('GEMINI_FALLBACK_TIMEOUT_MS', 120000);

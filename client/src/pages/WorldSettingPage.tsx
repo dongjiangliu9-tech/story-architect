@@ -554,6 +554,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setBatchGenerating(true);
     setBatchGenerationProgress({ current: 1, total: 4, message: '正在生成世界观基础设定...' });
+    localStorage.removeItem('story-architect-auto-flow');
 
     // 更新自动化状态
     if (isAutoFlowRunning && setAutoFlowStep) setAutoFlowStep('正在生成世界观基础设定...');
@@ -627,19 +628,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         console.log('批量生成：新项目创建完成，项目ID:', newProject.id);
       }
 
-      setBatchGenerationProgress({ current: 4, total: 4, message: '保存完成，正在跳转...' });
+      setBatchGenerationProgress({ current: 4, total: 4, message: '保存完成' });
+      setActiveTab('outline');
 
       // 更新自动化状态
-      if (isAutoFlowRunning && setAutoFlowStep) setAutoFlowStep('世界观设定完成，正在跳转到情节结构细化...');
-      if (isAutoFlowRunning && setAutoFlowProgress) setAutoFlowProgress(90);
+      if (isAutoFlowRunning && setAutoFlowStep) setAutoFlowStep('世界观、人设与中故事已生成完成');
+      if (isAutoFlowRunning && setAutoFlowProgress) setAutoFlowProgress(100);
 
-      // 等待一下显示完成状态，然后自动导航到情节结构细化页面
-      setTimeout(() => {
-        console.log('批量生成完成，自动跳转到情节结构细化页面');
-        // 设置自动化标志，让StoryStructurePage知道需要继续自动化
-        localStorage.setItem('story-architect-auto-flow', 'story-structure');
-        onNavigateToStructure();
-      }, 1500);
+      console.log('批量生成完成，停留在人设与世界观页面');
 
     } catch (error) {
       console.error('批量生成失败:', error);
