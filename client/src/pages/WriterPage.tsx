@@ -71,7 +71,8 @@ function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentPr
   const outlineText = [
     project.detailedOutline,
     ...Object.values(project.microStoryOutlines || {}),
-    ...(project.savedMicroStories || []).map(story => `${story.title || ''}\n${story.content || ''}`)
+    ...(project.savedMicroStories || []).map(story => `${story.title || ''}\n${story.content || ''}`),
+    ...Object.values(project.generatedChapters || {})
   ].join('\n');
 
   return /微短剧|分集|第\s*\d+\s*集|100\s*集/.test(outlineText) ? 'microdrama' : 'novel';
@@ -2123,13 +2124,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                 </div>
 
-                {isMicrodrama && visibleChapterContent && !isEditingChapter && (
+                {isMicrodrama && (
                   <div className="p-4 bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200 rounded-lg">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div>
                         <h4 className="text-sm font-semibold text-sky-900">当前集字数重写</h4>
                         <p className="text-xs text-sky-700 mt-1">
-                          当前约 {visibleChapterWords} 字，目标约 {rewriteTargetWords} 字
+                          {visibleChapterContent
+                            ? `当前约 ${visibleChapterWords} 字，目标约 ${rewriteTargetWords} 字`
+                            : `先生成或打开一集正文，再按比例压缩/膨胀`}
                         </p>
                       </div>
                       <div className={`px-2 py-1 rounded-md text-xs font-bold ${
@@ -2150,7 +2153,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       step="1"
                       value={rewritePercent}
                       onChange={(e) => setRewritePercent(Number(e.target.value))}
-                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
+                      disabled={
+                        !visibleChapterContent ||
+                        isEditingChapter ||
+                        generationState.isGenerating ||
+                        isBatchGenerating ||
+                        isFullCycleGenerating ||
+                        isRewritingChapter
+                      }
                       className="w-full accent-sky-600"
                     />
                     <div className="flex justify-between text-[11px] text-sky-700 mt-1">
@@ -2165,7 +2175,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           key={value}
                           type="button"
                           onClick={() => setRewritePercent(value)}
-                          disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
+                          disabled={
+                            !visibleChapterContent ||
+                            isEditingChapter ||
+                            generationState.isGenerating ||
+                            isBatchGenerating ||
+                            isFullCycleGenerating ||
+                            isRewritingChapter
+                          }
                           className="px-2 py-1 bg-white hover:bg-sky-100 disabled:bg-gray-100 disabled:text-gray-400 border border-sky-200 text-sky-800 rounded text-xs font-medium"
                         >
                           {value > 0 ? '+' : ''}{value}%
@@ -2176,6 +2193,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     <button
                       onClick={rewriteCurrentEpisodeLength}
                       disabled={
+                        !visibleChapterContent ||
+                        isEditingChapter ||
                         generationState.isGenerating ||
                         isBatchGenerating ||
                         isFullCycleGenerating ||
@@ -2185,7 +2204,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
                     >
                       <RefreshCw className={`w-4 h-4 ${isRewritingChapter ? 'animate-spin' : ''}`} />
-                      <span>{isRewritingChapter ? '重写中...' : '按比例重写当前集'}</span>
+                      <span>
+                        {isRewritingChapter
+                          ? '重写中...'
+                          : visibleChapterContent
+                            ? '按比例重写当前集'
+                            : '请先生成或打开当前集'}
+                      </span>
                     </button>
                   </div>
                 )}
