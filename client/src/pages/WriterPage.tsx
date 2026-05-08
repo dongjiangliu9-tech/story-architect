@@ -80,6 +80,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const storiesPerBatch = isMicrodrama ? 1 : 4;
   const unitsPerBatch = isMicrodrama ? 1 : 8;
   const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
+  const [actionFirstScript, setActionFirstScript] = useState(false);
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -246,6 +247,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setCurrentChapter(restoredChapter);
           setJumpToChapter(restoredChapter.toString());
           setPreviousChapterEnding(state.previousChapterEnding || '');
+          setActionFirstScript(Boolean(state.actionFirstScript));
           // 合并项目中的章节和localStorage中的章节
           const mergedChapters = { ...currentProject?.generatedChapters, ...state.generatedChapters };
           setGeneratedChapters(mergedChapters);
@@ -281,6 +283,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setGeneratedContent(state.generatedContent || '');
           setCurrentChapter(state.currentChapter || 1);
           setPreviousChapterEnding(state.previousChapterEnding || '');
+          setActionFirstScript(Boolean(state.actionFirstScript));
           setGeneratedChapters(state.generatedChapters || {});
           setGenerationState(state.generationState || {
             isGenerating: false,
@@ -303,6 +306,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         generatedContent: isEditingChapter ? chapterDraft : generatedContent,
         currentChapter,
         previousChapterEnding,
+        actionFirstScript,
         generatedChapters,
         generationState,
         timestamp: Date.now()
@@ -325,7 +329,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     const interval = setInterval(saveWriterState, 30000);
     return () => clearInterval(interval);
-  }, [generatedContent, currentChapter, previousChapterEnding, generatedChapters, generationState]);
+  }, [generatedContent, currentChapter, previousChapterEnding, actionFirstScript, generatedChapters, generationState]);
 
   // 离开页面时保存状态
   useEffect(() => {
@@ -674,6 +678,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	        savedMicroStories: microStoriesToUse,
 	        mode: writerMode,
 	        writerModelProvider,
+	        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
 	        generatedChapters: startChapter > 1 ? generatedChapters : undefined
       });
@@ -1121,6 +1126,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            savedMicroStories: microStoriesToUse,
 	            mode: writerMode,
 	            writerModelProvider,
+	            actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
 	          });
 
@@ -1699,6 +1705,23 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                    </button>
 	                  ))}
 	                </div>
+
+	                {isMicrodrama && (
+	                  <button
+	                    type="button"
+	                    onClick={() => setActionFirstScript(prev => !prev)}
+	                    disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+	                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+	                      actionFirstScript
+	                        ? 'bg-emerald-600 border-emerald-600 text-white'
+	                        : 'bg-white/80 border-secondary-200 text-secondary-700 hover:bg-secondary-50 disabled:text-secondary-400'
+	                    }`}
+	                    title="开启后，微短剧剧本会以动作、镜头和人物行为为主，台词为辅"
+	                  >
+	                    <PenTool className="w-3.5 h-3.5" />
+	                    <span>动作主导</span>
+	                  </button>
+	                )}
 	              </div>
 
               {/* 章节导航 - 美化版 */}

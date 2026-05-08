@@ -258,6 +258,7 @@ export interface GenerateChapterDto {
   generatedChapters?: { [key: number]: string };
   mode?: 'novel' | 'microdrama';
   writerModelProvider?: 'deepseek' | 'gemini';
+  actionFirstScript?: boolean;
 }
 
 export const blueprintApi = {

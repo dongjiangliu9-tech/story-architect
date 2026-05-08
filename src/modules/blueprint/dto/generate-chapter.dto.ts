@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsArray, IsObject, IsIn } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsArray, IsObject, IsIn, IsBoolean } from 'class-validator';
 
 export class GenerateChapterDto {
   @IsString()
@@ -32,4 +32,8 @@ export class GenerateChapterDto {
   @IsOptional()
   @IsIn(['deepseek', 'gemini'])
   writerModelProvider?: 'deepseek' | 'gemini';
+
+  @IsBoolean()
+  @IsOptional()
+  actionFirstScript?: boolean;
 }
