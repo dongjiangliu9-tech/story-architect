@@ -127,6 +127,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [selectedStartChapter, setSelectedStartChapter] = useState<number | null>(null);
   const [isRegenerateMode, setIsRegenerateMode] = useState(false); // 是否为重新生成模式
   const [chapterListOrder, setChapterListOrder] = useState<'desc' | 'asc'>('desc');
+  const [rewritePercent, setRewritePercent] = useState(20);
+  const [isRewritingChapter, setIsRewritingChapter] = useState(false);
 
   // 正文编辑：支持编辑已写内容并保存（落库到项目 generatedChapters）
   const [isEditingChapter, setIsEditingChapter] = useState(false);
@@ -150,6 +152,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     : isStreamingCurrentChapter
       ? generatedContent
       : (generatedChapters[currentChapter] ?? generatedContent);
+  const visibleChapterWords = getWordCount(visibleChapterContent || '');
+  const rewriteTargetWords = Math.max(300, Math.round(visibleChapterWords * (1 + rewritePercent / 100)));
 
   const hasChapter = (chapterNumber: number): boolean => {
     return generatedChapters[chapterNumber] !== undefined;
@@ -1549,7 +1553,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   const startEditChapter = () => {
-    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
     pendingEditScrollYRef.current = window.scrollY;
     setIsEditingChapter(true);
     setChapterDraft(generatedChapters[currentChapter] ?? generatedContent ?? '');
@@ -1565,7 +1569,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const clearCurrentChapter = () => {
     if (!currentProject) return;
-    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
 
     const currentContent = visibleChapterContent;
     if (!currentContent) {
@@ -1590,6 +1594,61 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     });
 
     alert(`第${currentChapter}${unitLabel}已清空，你可以重新生成该${unitLabel}。`);
+  };
+
+  const rewriteCurrentEpisodeLength = async () => {
+    if (!currentProject || !isMicrodrama) return;
+    if (isEditingChapter || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
+
+    const currentContent = visibleChapterContent;
+    if (!currentContent) {
+      alert('当前集没有可重写的内容');
+      return;
+    }
+    if (rewritePercent === 0) {
+      alert('请先拖动滑块选择压缩或膨胀比例');
+      return;
+    }
+
+    const chapterIndex = currentChapter - 1;
+    const storyData = microStoriesInOrder?.[chapterIndex];
+    const directionText = rewritePercent > 0 ? '膨胀' : '压缩';
+    const confirmed = confirm(
+      `将把第${currentChapter}集按当前内容重新${directionText} ${Math.abs(rewritePercent)}%，目标约 ${rewriteTargetWords} 字。\n\n重写结果会覆盖当前集正文，确定继续吗？`
+    );
+    if (!confirmed) return;
+
+    setIsRewritingChapter(true);
+    try {
+      const response = await blueprintApi.rewriteChapter({
+        content: currentContent,
+        chapterNumber: currentChapter,
+        targetWords: rewriteTargetWords,
+        adjustmentPercent: rewritePercent,
+        context: buildGenerationContext(currentChapter),
+        storyData,
+        writerModelProvider,
+        actionFirstScript,
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error('重写结果为空');
+      }
+
+      const rewrittenContent = cleanWriterContent(response.data);
+      const updatedChapters = { ...generatedChapters, [currentChapter]: rewrittenContent };
+      setGeneratedChapters(updatedChapters);
+      setGeneratedContent(rewrittenContent);
+      updateProject(currentProject.id, {
+        generatedChapters: updatedChapters,
+      });
+      alert(`第${currentChapter}集已重写完成，当前约 ${getWordCount(rewrittenContent)} 字。`);
+    } catch (error) {
+      console.error('重写当前集失败:', error);
+      alert('重写失败，请稍后重试');
+    } finally {
+      setIsRewritingChapter(false);
+    }
   };
 
   const exportChapter = () => {
@@ -1706,7 +1765,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                      key={provider}
 	                      type="button"
 	                      onClick={() => setWriterModelProvider(provider)}
-	                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+	                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
 	                      className={`px-2 py-1 rounded-md text-xs font-medium transition-colors disabled:cursor-not-allowed ${
 	                        writerModelProvider === provider
 	                          ? 'bg-primary-600 text-white'
@@ -1722,7 +1781,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                  <button
 	                    type="button"
 	                    onClick={() => setActionFirstScript(prev => !prev)}
-	                    disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+	                    disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
 	                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:cursor-not-allowed ${
 	                      actionFirstScript
 	                        ? 'bg-emerald-600 border-emerald-600 text-white'
@@ -1961,7 +2020,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	                  <button
 	                    onClick={() => generateBatchContent()}
-	                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || (() => {
+	                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || isRewritingChapter || (() => {
 	                      const generatedCount = Object.keys(generatedChapters).length;
 	                      const batchIndex = Math.floor(generatedCount / unitsPerBatch); // 当前是第几批
 	                      const requiredStories = (batchIndex + 1) * storiesPerBatch;
@@ -1993,7 +2052,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                   <button
                     onClick={generateFullCycleContent}
-                    disabled={isGenerating || isBatchGenerating || isFullCycleGenerating || !currentProject?.savedMicroStories?.length}
+                    disabled={isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter || !currentProject?.savedMicroStories?.length}
                     className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-lg font-semibold transition-all duration-200 disabled:cursor-not-allowed"
                   >
                     {isFullCycleGenerating ? (
@@ -2064,9 +2123,76 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                 </div>
 
+                {isMicrodrama && visibleChapterContent && !isEditingChapter && (
+                  <div className="p-4 bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200 rounded-lg">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-sky-900">当前集字数重写</h4>
+                        <p className="text-xs text-sky-700 mt-1">
+                          当前约 {visibleChapterWords} 字，目标约 {rewriteTargetWords} 字
+                        </p>
+                      </div>
+                      <div className={`px-2 py-1 rounded-md text-xs font-bold ${
+                        rewritePercent > 0
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : rewritePercent < 0
+                            ? 'bg-orange-100 text-orange-700'
+                            : 'bg-secondary-100 text-secondary-600'
+                      }`}>
+                        {rewritePercent > 0 ? '+' : ''}{rewritePercent}%
+                      </div>
+                    </div>
+
+                    <input
+                      type="range"
+                      min="-50"
+                      max="50"
+                      step="1"
+                      value={rewritePercent}
+                      onChange={(e) => setRewritePercent(Number(e.target.value))}
+                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
+                      className="w-full accent-sky-600"
+                    />
+                    <div className="flex justify-between text-[11px] text-sky-700 mt-1">
+                      <span>压缩50%</span>
+                      <span>不变</span>
+                      <span>膨胀50%</span>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2 mt-3">
+                      {[-50, -20, 20, 50].map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setRewritePercent(value)}
+                          disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
+                          className="px-2 py-1 bg-white hover:bg-sky-100 disabled:bg-gray-100 disabled:text-gray-400 border border-sky-200 text-sky-800 rounded text-xs font-medium"
+                        >
+                          {value > 0 ? '+' : ''}{value}%
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={rewriteCurrentEpisodeLength}
+                      disabled={
+                        generationState.isGenerating ||
+                        isBatchGenerating ||
+                        isFullCycleGenerating ||
+                        isRewritingChapter ||
+                        rewritePercent === 0
+                      }
+                      className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRewritingChapter ? 'animate-spin' : ''}`} />
+                      <span>{isRewritingChapter ? '重写中...' : '按比例重写当前集'}</span>
+                    </button>
+                  </div>
+                )}
+
 		                <button
 		                  onClick={exportChapter}
-		                  disabled={!visibleChapterContent}
+		                  disabled={!visibleChapterContent || isRewritingChapter}
 	                  className="w-full flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm rounded font-medium disabled:cursor-not-allowed"
 	                >
 	                  <Download className="w-4 h-4" />
@@ -2101,6 +2227,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                          generationState.isGenerating ||
 	                          isBatchGenerating ||
 	                          isFullCycleGenerating ||
+	                          isRewritingChapter ||
 		                          !visibleChapterContent
 	                        }
 	                        className="inline-flex items-center gap-1 px-3 py-2 bg-red-50 hover:bg-red-100 disabled:bg-gray-100 disabled:text-gray-400 text-red-700 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
@@ -2304,6 +2431,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         generationState.isGenerating ||
                         isBatchGenerating ||
                         isFullCycleGenerating ||
+                        isRewritingChapter ||
 	                        !visibleChapterContent
                       }
                       className="inline-flex items-center gap-2 px-4 py-2 bg-secondary-900 hover:bg-secondary-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"

@@ -19,6 +19,7 @@ const AI_ENDPOINTS = new Set([
   '/blueprint/generate-micro-stories',
   '/blueprint/generate-micro-story-variants',
   '/blueprint/generate-chapter',
+  '/blueprint/rewrite-chapter',
   '/blueprint/prepare-stream',
 ]);
 
@@ -262,6 +263,17 @@ export interface GenerateChapterDto {
   targetEpisodeWords?: number;
 }
 
+export interface RewriteChapterDto {
+  content: string;
+  chapterNumber: number;
+  targetWords: number;
+  adjustmentPercent: number;
+  context?: string;
+  storyData?: any;
+  writerModelProvider?: 'deepseek' | 'gemini';
+  actionFirstScript?: boolean;
+}
+
 export const blueprintApi = {
   generateOutline: async (data: GenerateOutlineDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate', data);
@@ -295,6 +307,11 @@ export const blueprintApi = {
 
   generateChapter: async (data: GenerateChapterDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate-chapter', data);
+    return response.data;
+  },
+
+  rewriteChapter: async (data: RewriteChapterDto): Promise<GenerateOutlineResponse> => {
+    const response = await api.post('/blueprint/rewrite-chapter', data);
     return response.data;
   },
 

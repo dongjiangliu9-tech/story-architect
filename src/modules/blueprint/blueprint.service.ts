@@ -6,7 +6,7 @@ import { GenerateCharactersDto } from './dto/generate-characters.dto';
 import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto';
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
-import { GenerateChapterDto } from './dto/generate-chapter.dto';
+import { GenerateChapterDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 
 @Injectable()
@@ -1676,6 +1676,55 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
         }
       })();
     });
+  }
+
+  async rewriteChapter(dto: RewriteChapterDto) {
+    const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+    const currentWords = this.getWordCount(dto.content);
+    const targetWords = Math.min(8000, Math.max(300, Math.round(dto.targetWords || currentWords || 1500)));
+    const minTargetWords = Math.max(250, Math.round(targetWords * 0.95));
+    const maxTargetWords = Math.round(targetWords * 1.05);
+    const direction = dto.adjustmentPercent > 0 ? '膨胀' : dto.adjustmentPercent < 0 ? '压缩' : '微调';
+    const storyData = dto.storyData
+      ? `\n【当前分集核心细纲】\n标题：${dto.storyData.title || '无'}\n内容：${dto.storyData.content || '无'}\n所属中故事：${dto.storyData.macroStoryTitle || '无'}\n中故事内容：${dto.storyData.macroStoryContent || '无'}\n`
+      : '';
+    const actionFirstRequirement = dto.actionFirstScript
+      ? `\n动作主导模式仍然生效：重写后必须以动作、镜头、人物行为、走位、表情反应和场面变化为主，台词为辅；连续台词不要超过2行。\n`
+      : '';
+
+    const prompt = `请基于已经写好的微短剧单集剧本，按用户指定的字数目标重新写一遍。
+
+【背景参考】
+${dto.context || '无'}
+${storyData}
+【当前已写好的第${dto.chapterNumber}集剧本】
+${dto.content}
+
+重写任务：
+1. 当前约 ${currentWords} 字，用户要求${direction} ${Math.abs(dto.adjustmentPercent)}%，重写后的目标字数约 ${targetWords} 字，允许 ${minTargetWords}-${maxTargetWords} 字之间浮动。
+2. 必须输出完整的第${dto.chapterNumber}集剧本，而不是修改建议、摘要、差异说明或补丁。
+3. 保留原有核心剧情、人物动机、冲突走向、反转、打脸点、爱情线状态、结尾黑场钩子和剧本格式。
+4. 如果是膨胀：不要灌水，不要增加无关支线；主要通过补足可拍摄动作、镜头调度、人物反应、压迫过程、暧昧拉扯、爽点释放和场景细节来扩写。
+5. 如果是压缩：不要删掉关键剧情和钩子；压掉重复台词、解释性对白、冗余动作和可合并的场景，让节奏更紧。
+6. 仍然必须是标准微短剧拍摄剧本格式：场号、人物、△动作/镜头说明、角色对白都要保留。
+7. 不要提前写下一集内容，不要改变后续承接边界。
+${actionFirstRequirement}
+请直接输出重写后的第${dto.chapterNumber}集剧本正文。`;
+
+    try {
+      const result = await this.llmService.chatWithWriterModel([
+        { role: 'system', content: this.getStoryWritingSystemPrompt() },
+        { role: 'user', content: prompt }
+      ], writerModelProvider);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      console.error('重写章节内容失败:', error);
+      throw new Error('AI重写章节内容失败，请稍后重试');
+    }
   }
 
   // 从AI生成的内容中提取章节（不进行重新分割）

@@ -41,3 +41,34 @@ export class GenerateChapterDto {
   @IsOptional()
   targetEpisodeWords?: number;
 }
+
+export class RewriteChapterDto {
+  @IsString()
+  content: string;
+
+  @IsNumber()
+  chapterNumber: number;
+
+  @IsNumber()
+  targetWords: number;
+
+  @IsNumber()
+  adjustmentPercent: number;
+
+  @IsString()
+  @IsOptional()
+  context?: string;
+
+  @IsObject()
+  @IsOptional()
+  storyData?: any;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['deepseek', 'gemini'])
+  writerModelProvider?: 'deepseek' | 'gemini';
+
+  @IsBoolean()
+  @IsOptional()
+  actionFirstScript?: boolean;
+}

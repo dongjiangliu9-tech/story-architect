@@ -6,7 +6,7 @@ import { GenerateCharactersDto } from './dto/generate-characters.dto';
 import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto';
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
-import { GenerateChapterDto } from './dto/generate-chapter.dto';
+import { GenerateChapterDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
 
@@ -35,6 +35,10 @@ export class BlueprintController {
   }
 
   private getWriterQuotaModel(dto: GenerateChapterDto): ActivationModelKind {
+    return dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+  }
+
+  private getRewriteQuotaModel(dto: RewriteChapterDto): ActivationModelKind {
     return dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
   }
 
@@ -71,6 +75,11 @@ export class BlueprintController {
   @Post('generate-chapter')
   async generateChapter(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(activationCode, this.getWriterQuotaModel(dto), () => this.blueprintService.generateChapter(dto));
+  }
+
+  @Post('rewrite-chapter')
+  async rewriteChapter(@Body() dto: RewriteChapterDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, this.getRewriteQuotaModel(dto), () => this.blueprintService.rewriteChapter(dto));
   }
 
   @Post('prepare-stream')
