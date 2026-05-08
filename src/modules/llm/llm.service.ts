@@ -333,7 +333,16 @@ export class LlmService {
   async chatWithWriterModelStream(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     onChunk: (chunk: string) => void,
+    provider: 'deepseek' | 'gemini' = 'deepseek',
   ) {
+    if (provider === 'gemini') {
+      const content = await this.chat(messages);
+      if (content) {
+        onChunk(content);
+      }
+      return;
+    }
+
     try {
       const model = this.getWriterModel();
       const stream = await this.deepseekClient.chat.completions.create({
@@ -358,7 +367,12 @@ export class LlmService {
 
   async chatWithWriterModel(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    provider: 'deepseek' | 'gemini' = 'deepseek',
   ) {
+    if (provider === 'gemini') {
+      return this.chat(messages);
+    }
+
     try {
       const model = this.getWriterModel();
       const completion = await this.deepseekClient.chat.completions.create({

@@ -79,6 +79,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const unitsPerMicroStory = isMicrodrama ? 1 : 2;
   const storiesPerBatch = isMicrodrama ? 1 : 4;
   const unitsPerBatch = isMicrodrama ? 1 : 8;
+  const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -670,10 +671,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         chapterNumber: startChapter,
         unitCount: batchUnitCount,
         previousEnding: effectivePreviousEnding || undefined,
-        savedMicroStories: microStoriesToUse,
-        mode: writerMode,
-        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
-        generatedChapters: startChapter > 1 ? generatedChapters : undefined
+	        savedMicroStories: microStoriesToUse,
+	        mode: writerMode,
+	        writerModelProvider,
+	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
+	        generatedChapters: startChapter > 1 ? generatedChapters : undefined
       });
 
       const requestId = prepareResponse.requestId;
@@ -1115,11 +1117,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             context: generationContext,
             chapterNumber: startChapter,
             unitCount: chapterCount,
-            previousEnding: effectivePreviousEnding || undefined,
-            savedMicroStories: microStoriesToUse,
-            mode: writerMode,
-            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
-          });
+	            previousEnding: effectivePreviousEnding || undefined,
+	            savedMicroStories: microStoriesToUse,
+	            mode: writerMode,
+	            writerModelProvider,
+	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
+	          });
 
           const requestId = prepareResponse.requestId;
           setCurrentRequestId(requestId);
@@ -1671,13 +1674,32 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 </div>
 
                 {/* 已生成统计 */}
-                <div className="flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span className="text-xs font-medium text-blue-700">
-                    {Object.keys(generatedChapters).length} {unitLabel}已生成
-                  </span>
-                </div>
-              </div>
+	                <div className="flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+	                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+	                  <span className="text-xs font-medium text-blue-700">
+	                    {Object.keys(generatedChapters).length} {unitLabel}已生成
+	                  </span>
+	                </div>
+
+	                <div className="flex items-center gap-1 px-2 py-1.5 bg-white/80 rounded-lg border border-secondary-200">
+	                  <span className="text-xs font-medium text-secondary-600">模型</span>
+	                  {(['deepseek', 'gemini'] as const).map((provider) => (
+	                    <button
+	                      key={provider}
+	                      type="button"
+	                      onClick={() => setWriterModelProvider(provider)}
+	                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+	                      className={`px-2 py-1 rounded-md text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+	                        writerModelProvider === provider
+	                          ? 'bg-primary-600 text-white'
+	                          : 'bg-secondary-50 text-secondary-700 hover:bg-secondary-100 disabled:text-secondary-400'
+	                      }`}
+	                    >
+	                      {provider === 'deepseek' ? 'DeepSeek' : 'Gemini'}
+	                    </button>
+	                  ))}
+	                </div>
+	              </div>
 
               {/* 章节导航 - 美化版 */}
               <div className="flex items-center space-x-2 bg-white/80 rounded-xl px-4 py-2 border border-secondary-200 shadow-sm">

@@ -140,20 +140,48 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const hasSavedMicroStoriesFor = (storyKey: string) =>
     (currentProject?.savedMicroStories || []).some(s => s.macroStoryId === storyKey);
 
-  // 解析中故事内容，正确提取【中故事X】标记之间的内容
+  const chineseNumberToInt = (value: string): number => {
+    const normalized = value.trim();
+    if (/^\d+$/.test(normalized)) return Number(normalized);
+    const digitMap: Record<string, number> = {
+      一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+    };
+    if (normalized === '十') return 10;
+    if (normalized.startsWith('十')) return 10 + (digitMap[normalized.slice(1)] || 0);
+    if (normalized.includes('十')) {
+      const [tens, ones] = normalized.split('十');
+      return (digitMap[tens] || 1) * 10 + (digitMap[ones] || 0);
+    }
+    return digitMap[normalized] || 0;
+  };
+
+  const getOrderedMacroStoryBoundaries = (content: string) => {
+    const storyRegex = /【中故事([一二三四五六七八九十\d]+)】/g;
+    const matches = [...content.matchAll(storyRegex)];
+    const boundaries: Array<RegExpMatchArray & { storyNumber: number }> = [];
+    let lastStoryNumber = 0;
+
+    matches.forEach(match => {
+      const storyNumber = chineseNumberToInt(match[1] || '');
+      if (storyNumber > lastStoryNumber) {
+        boundaries.push(Object.assign(match, { storyNumber }));
+        lastStoryNumber = storyNumber;
+      }
+    });
+
+    return boundaries;
+  };
+
+  // 解析中故事内容：只在“下一个中故事序号首次出现”时截断，避免正文里重复提到【中故事一】时被误切
   const parseMacroStories = (content: string): string[] => {
     const stories: string[] = [];
-
-    // 匹配所有【中故事X】标记
-    const storyRegex = /【中故事[一二三四五六七八九十\d]+】/g;
-    const matches = [...content.matchAll(storyRegex)];
+    const matches = getOrderedMacroStoryBoundaries(content);
 
     if (matches.length === 0) {
       console.warn('未找到任何中故事标记');
       return [];
     }
 
-    // 提取每个标记之后到下一个标记之前的内容
     for (let i = 0; i < matches.length; i++) {
       const currentMatch = matches[i];
       const nextMatch = matches[i + 1];
@@ -351,8 +379,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
   // 在 detailedOutline 中，替换某个【中故事X】段落的内容（尽量保留其它文本不变）
   const replaceMacroStoryInDetailedOutline = (detailedOutline: string, macroIndex: number, newContent: string): string => {
-    const storyRegex = /【中故事[一二三四五六七八九十\d]+】/g;
-    const matches = [...detailedOutline.matchAll(storyRegex)];
+    const matches = getOrderedMacroStoryBoundaries(detailedOutline);
     if (matches.length === 0 || macroIndex < 0 || macroIndex >= matches.length) {
       // 回退：用当前 macroStories 重建（可能丢失标记外文本，但保证可用）
       const rebuilt = macroStories

@@ -27,4 +27,9 @@ export class GenerateChapterDto {
   @IsOptional()
   @IsIn(['novel', 'microdrama'])
   mode?: 'novel' | 'microdrama';
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['deepseek', 'gemini'])
+  writerModelProvider?: 'deepseek' | 'gemini';
 }

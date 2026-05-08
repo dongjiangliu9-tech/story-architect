@@ -34,6 +34,10 @@ export class BlueprintController {
     }
   }
 
+  private getWriterQuotaModel(dto: GenerateChapterDto): ActivationModelKind {
+    return dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+  }
+
   @Post('generate')
   async generate(@Body() dto: GenerateOutlineDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateInspiration(dto));
@@ -66,14 +70,14 @@ export class BlueprintController {
 
   @Post('generate-chapter')
   async generateChapter(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
-    return this.runWithQuota(activationCode, 'deepseek', () => this.blueprintService.generateChapter(dto));
+    return this.runWithQuota(activationCode, this.getWriterQuotaModel(dto), () => this.blueprintService.generateChapter(dto));
   }
 
   @Post('prepare-stream')
   async prepareStream(@Body() dto: GenerateChapterDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(
       activationCode,
-      'deepseek',
+      this.getWriterQuotaModel(dto),
       async () => {
         console.log('收到准备流式请求，章节:', dto.chapterNumber);
         const requestId = this.blueprintService.storeGenerationRequest(dto);

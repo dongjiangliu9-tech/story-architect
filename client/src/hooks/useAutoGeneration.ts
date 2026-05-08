@@ -385,12 +385,39 @@ function parseMacroStories(outlineContent: string): Array<{title: string, conten
   const lines = outlineContent.split('\n');
 
   let currentStory: {title: string, content: string[]} | null = null;
+  let lastStoryNumber = 0;
+
+  const chineseNumberToInt = (value: string): number => {
+    const normalized = value.trim();
+    if (/^\d+$/.test(normalized)) return Number(normalized);
+    const digitMap: Record<string, number> = {
+      一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+    };
+    if (normalized === '十') return 10;
+    if (normalized.startsWith('十')) return 10 + (digitMap[normalized.slice(1)] || 0);
+    if (normalized.includes('十')) {
+      const [tens, ones] = normalized.split('十');
+      return (digitMap[tens] || 1) * 10 + (digitMap[ones] || 0);
+    }
+    return digitMap[normalized] || 0;
+  };
 
   for (const line of lines) {
     // 匹配中故事标题 - 支持多种格式
     const titleMatch = line.match(/(?:【中故事([一二三四五六七八九十\d]+)】|\[中故事([一二三四五六七八九十\d]+)\]|中故事([一二三四五六七八九十\d]+)[:：]|(\d+)\.\s*([^【\[]+)|([一二三四五六七八九十\d]+)[\.\s]+([^【\[]+))/);
 
     if (titleMatch) {
+      const matchedNumberText = titleMatch[1] || titleMatch[2] || titleMatch[3] || titleMatch[4] || titleMatch[6] || '';
+      const matchedNumber = chineseNumberToInt(matchedNumberText);
+      const shouldStartNewStory = matchedNumber > lastStoryNumber;
+
+      if (!shouldStartNewStory) {
+        if (currentStory && line.trim()) {
+          currentStory.content.push(line);
+        }
+        continue;
+      }
+
       if (currentStory) {
         stories.push({
           title: currentStory.title,
@@ -429,6 +456,7 @@ function parseMacroStories(outlineContent: string): Array<{title: string, conten
         title: title,
         content: []
       };
+      lastStoryNumber = matchedNumber;
 
       console.log(`找到中故事标题: ${title} (原始行: ${line.trim()})`);
     } else if (currentStory && line.trim() &&
