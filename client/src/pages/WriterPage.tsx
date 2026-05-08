@@ -42,6 +42,12 @@ function getWordCount(content: string): number {
   return chineseChars.length;
 }
 
+function normalizeTargetEpisodeWords(value: unknown): number {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue)) return 1500;
+  return Math.min(5000, Math.max(500, Math.round(numericValue)));
+}
+
 function extractChapterEnding(content: string, linesCount: number = 10): string {
   if (!content) return '';
   const lines = content.split('\n').filter(l => l !== undefined);
@@ -81,6 +87,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const unitsPerBatch = isMicrodrama ? 1 : 8;
   const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
   const [actionFirstScript, setActionFirstScript] = useState(false);
+  const [targetEpisodeWords, setTargetEpisodeWords] = useState(1500);
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -248,6 +255,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setJumpToChapter(restoredChapter.toString());
           setPreviousChapterEnding(state.previousChapterEnding || '');
           setActionFirstScript(Boolean(state.actionFirstScript));
+          setTargetEpisodeWords(normalizeTargetEpisodeWords(state.targetEpisodeWords));
           // 合并项目中的章节和localStorage中的章节
           const mergedChapters = { ...currentProject?.generatedChapters, ...state.generatedChapters };
           setGeneratedChapters(mergedChapters);
@@ -284,6 +292,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setCurrentChapter(state.currentChapter || 1);
           setPreviousChapterEnding(state.previousChapterEnding || '');
           setActionFirstScript(Boolean(state.actionFirstScript));
+          setTargetEpisodeWords(normalizeTargetEpisodeWords(state.targetEpisodeWords));
           setGeneratedChapters(state.generatedChapters || {});
           setGenerationState(state.generationState || {
             isGenerating: false,
@@ -307,6 +316,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         currentChapter,
         previousChapterEnding,
         actionFirstScript,
+        targetEpisodeWords,
         generatedChapters,
         generationState,
         timestamp: Date.now()
@@ -329,7 +339,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     const interval = setInterval(saveWriterState, 30000);
     return () => clearInterval(interval);
-  }, [generatedContent, currentChapter, previousChapterEnding, actionFirstScript, generatedChapters, generationState]);
+  }, [generatedContent, currentChapter, previousChapterEnding, actionFirstScript, targetEpisodeWords, generatedChapters, generationState]);
 
   // 离开页面时保存状态
   useEffect(() => {
@@ -679,6 +689,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	        mode: writerMode,
 	        writerModelProvider,
 	        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+	        targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
 	        generatedChapters: startChapter > 1 ? generatedChapters : undefined
       });
@@ -1127,6 +1138,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            mode: writerMode,
 	            writerModelProvider,
 	            actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+	            targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
 	          });
 
@@ -1880,6 +1892,30 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   </div>
                 </div>
 
+                {isMicrodrama && (
+                  <div className="p-3 bg-white/80 border border-secondary-200 rounded-lg">
+                    <label className="block text-sm font-medium text-secondary-700 mb-2">
+                      每集目标字数
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="500"
+                        max="5000"
+                        step="100"
+                        value={targetEpisodeWords}
+                        onChange={(e) => setTargetEpisodeWords(normalizeTargetEpisodeWords(e.target.value))}
+                        disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+                        className="w-28 px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
+                      />
+                      <span className="text-sm text-secondary-600">字/集</span>
+                    </div>
+                    <p className="mt-2 text-xs text-secondary-500">
+                      生成时按约 {normalizeTargetEpisodeWords(targetEpisodeWords)} 字控制，允许少量浮动。
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   {/* 检查是否有已生成的章节，如果有则显示手动选择模式 */}
                   {Object.keys(generatedChapters).length > 0 ? (
@@ -2238,8 +2274,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <div className="text-sm text-secondary-600 space-y-2">
                   {isMicrodrama ? (
                     <>
-                      <p>• 每集控制在1200-1500字，成稿完整但不拖长</p>
-                      <p>• 对话为主，动作为辅，强推进、强情绪、强钩子</p>
+                      <p>• 每集按你设置的目标字数生成，成稿完整但不拖长</p>
+                      <p>• {actionFirstScript ? '动作和镜头为主，台词为辅' : '对话与可见动作并重'}，强推进、强情绪、强钩子</p>
                       <p>• 结尾必须切黑场或留致命悬念</p>
                       <p>• 延续上一集的动作与情绪，不要断档</p>
                     </>

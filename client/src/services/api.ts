@@ -259,6 +259,7 @@ export interface GenerateChapterDto {
   mode?: 'novel' | 'microdrama';
   writerModelProvider?: 'deepseek' | 'gemini';
   actionFirstScript?: boolean;
+  targetEpisodeWords?: number;
 }
 
 export const blueprintApi = {

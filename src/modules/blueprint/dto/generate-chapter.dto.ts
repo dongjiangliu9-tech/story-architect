@@ -36,4 +36,8 @@ export class GenerateChapterDto {
   @IsBoolean()
   @IsOptional()
   actionFirstScript?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  targetEpisodeWords?: number;
 }
