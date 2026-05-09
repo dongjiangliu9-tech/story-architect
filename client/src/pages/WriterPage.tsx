@@ -755,6 +755,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	      let generatedChaptersData: {[key: number]: string} = {};
 	      let activeStreamingChapter = startChapter;
+	      const completedStreamingChapters = new Set<number>();
 	      let lastSseEventAt = Date.now();
 	      let sseErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -804,6 +805,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	              if (data.content) {
 	                const cleanContent = cleanWriterContent(data.content);
 	                const streamingChapter = data.chapter || activeStreamingChapter;
+	                if (completedStreamingChapters.has(streamingChapter)) {
+	                  break;
+	                }
 	                activeStreamingChapter = streamingChapter;
 
 	                // 实时显示小故事生成过程
@@ -821,6 +825,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             case 'chapter_complete':
               if (data.content) {
                 const cleanContent = cleanWriterContent(data.content);
+                completedStreamingChapters.add(data.chapter);
                 generatedChaptersData[data.chapter] = cleanContent;
 
                 // 每章完成立即落库，避免中断或刷新后丢章节
@@ -1240,6 +1245,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	          let generatedChaptersData: {[key: number]: string} = {};
 	          let activeStreamingChapter = startChapter;
+	          const completedStreamingChapters = new Set<number>();
 	          let lastSseEventAt = Date.now();
 	          let sseErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1289,6 +1295,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                  if (data.content) {
 	                    const cleanContent = cleanWriterContent(data.content);
 	                    const streamingChapter = data.chapter || activeStreamingChapter;
+	                    if (completedStreamingChapters.has(streamingChapter)) {
+	                      break;
+	                    }
 	                    activeStreamingChapter = streamingChapter;
 	                    setCurrentChapter(streamingChapter);
 	                    setJumpToChapter(streamingChapter.toString());
@@ -1304,6 +1313,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 case 'chapter_complete':
                   if (data.content) {
                     const cleanContent = cleanWriterContent(data.content);
+                    completedStreamingChapters.add(data.chapter);
                     generatedChaptersData[data.chapter] = cleanContent;
 
                     // 每章完成立即落库，避免中断或刷新后丢章节
