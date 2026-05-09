@@ -1,4 +1,5 @@
 import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
+import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
 export interface MicroStoryVariantTarget {
   index: number;
@@ -6,7 +7,7 @@ export interface MicroStoryVariantTarget {
   content: string;
 }
 
-export class GenerateMicroStoryVariantsDto {
+export class GenerateMicroStoryVariantsDto extends LogicModelSelectionDto {
   @IsString()
   macroStory: string;
 

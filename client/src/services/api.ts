@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { GenerateOutlineDto, GenerateOutlineResponse } from '../types';
+import { GenerateOutlineDto, GenerateOutlineResponse, LlmModelSelection } from '../types';
 
 const api = axios.create({
   baseURL: (import.meta as any).env.VITE_API_BASE_URL || '/api',
@@ -198,14 +198,14 @@ if (typeof window !== 'undefined') {
   }, 500);
 }
 
-export interface GenerateWorldSettingDto {
+export interface GenerateWorldSettingDto extends LlmModelSelection {
   outline: string;
   needsUpgradeSystem?: boolean;
   existingWorldSetting?: string;
   note?: string;
 }
 
-export interface GenerateCharactersDto {
+export interface GenerateCharactersDto extends LlmModelSelection {
   outline: string;
   worldSetting: string;
   useEnglishNames?: boolean;
@@ -213,7 +213,7 @@ export interface GenerateCharactersDto {
   note?: string;
 }
 
-export interface GenerateDetailedOutlineDto {
+export interface GenerateDetailedOutlineDto extends LlmModelSelection {
   outline: string;
   worldSetting: string;
   characters: string;
@@ -226,14 +226,14 @@ export interface GenerateDetailedOutlineDto {
   reduceSensitiveContent?: boolean;
 }
 
-export interface GenerateMicroStoriesDto {
+export interface GenerateMicroStoriesDto extends LlmModelSelection {
   macroStory: string;
   storyIndex: string;
   chapterRange?: string;
   mode?: 'novel' | 'microdrama';
 }
 
-export interface GenerateMicroStoryVariantsDto {
+export interface GenerateMicroStoryVariantsDto extends LlmModelSelection {
   macroStory: string;
   currentTitle: string;
   currentContent: string;

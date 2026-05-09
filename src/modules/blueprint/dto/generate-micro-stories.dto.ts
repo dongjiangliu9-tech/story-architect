@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, IsIn } from 'class-validator';
+import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
-export class GenerateMicroStoriesDto {
+export class GenerateMicroStoriesDto extends LogicModelSelectionDto {
   @IsString()
   @IsNotEmpty()
   macroStory: string; // 中故事内容

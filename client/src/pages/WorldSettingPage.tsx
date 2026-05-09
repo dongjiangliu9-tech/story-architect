@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw, SlidersHorizontal, FilePlus2 } from 'lucide-react';
 import { blueprintApi } from '../services/api';
 import { DensityTuningKey, DensityTuningLevels, OutlineData } from '../types';
 import { sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
@@ -13,6 +13,10 @@ import {
   extractRedFruitReview,
   normalizeDensityLevels,
 } from '../utils/densityTuning';
+import {
+  getLogicModelRequestFromSources,
+  toPreferredLogicModelFields,
+} from '../utils/llmModelSelection';
 
 /**
  * 将OutlineData格式化为大纲字符串
@@ -100,7 +104,11 @@ interface WorldSettingPageProps {
 }
 
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
-  const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
+  const { currentProject, createProject, updateProject, deleteProject, loadProject, clearCurrentProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
+  const getLogicModelRequest = () =>
+    getLogicModelRequestFromSources(currentProject, selectedOutline);
+  const getPreferredLogicModelFields = () =>
+    toPreferredLogicModelFields(getLogicModelRequest().llmModel);
   const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
   const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<15 | 30 | 60 | 100>(30);
   const [reduceSensitiveContent, setReduceSensitiveContent] = useState(false);
@@ -207,7 +215,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setCharactersGenerated(!!currentProject.characters);
       setOutlineMode(currentProject.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel');
       setMicrodramaEpisodeCount(
-        currentProject.microdramaEpisodeCount === 15 || currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
+        currentProject.microdramaEpisodeCount === 15 || currentProject.microdramaEpisodeCount === 30 || currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
           ? currentProject.microdramaEpisodeCount
           : 30
       );
@@ -292,6 +300,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const outlineData = formatOutlineData(selectedOutline);
 
       const response = await blueprintApi.generateWorldSetting({
+        ...getLogicModelRequest(),
         outline: outlineData,
         needsUpgradeSystem,
       });
@@ -322,6 +331,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const outlineData = formatOutlineData(selectedOutline);
 
       const response = await blueprintApi.generateCharacters({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting: worldSetting,
         useEnglishNames,
@@ -358,6 +368,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     try {
       const outlineData = formatOutlineData(selectedOutline);
       const response = await blueprintApi.generateWorldSetting({
+        ...getLogicModelRequest(),
         outline: outlineData,
         needsUpgradeSystem,
         existingWorldSetting: worldSetting,
@@ -409,6 +420,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     try {
       const outlineData = formatOutlineData(selectedOutline);
       const response = await blueprintApi.generateCharacters({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting,
         useEnglishNames,
@@ -451,6 +463,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const outlineData = formatOutlineData(selectedOutline);
 
       const response = await blueprintApi.generateDetailedOutline({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting: worldSetting,
         characters: characters,
@@ -507,6 +520,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     try {
       const outlineData = formatOutlineData(selectedOutline || currentProject!.outline);
       const response = await blueprintApi.generateDetailedOutline({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting,
         characters,
@@ -585,6 +599,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       const outlineData = formatOutlineData(selectedOutline || currentProject!.outline);
       const response = await blueprintApi.generateDetailedOutline({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting,
         characters,
@@ -646,26 +661,46 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     }
   };
 
-  // 保存项目
-  const handleSaveProject = () => {
-    if (!selectedOutline) {
-      alert('未找到选中的故事大纲，请返回第一步重新选择');
-      return;
+  const getActiveOutline = (): OutlineData | null => selectedOutline || currentProject?.outline || null;
+
+  const hasAnyDraftContent = () =>
+    Boolean(bookName.trim() || worldSetting.trim() || characters.trim() || outline.trim());
+
+  const hasUnsavedProjectContent = () => {
+    if (!hasAnyDraftContent()) return false;
+    if (!currentProject) return true;
+
+    return (
+      currentProject.bookName !== bookName.trim() ||
+      (currentProject.worldSetting || '') !== worldSetting ||
+      (currentProject.characters || '') !== characters ||
+      (currentProject.detailedOutline || '') !== outline ||
+      (currentProject.detailedOutlineMode || 'novel') !== outlineMode ||
+      currentProject.microdramaEpisodeCount !== (outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined) ||
+      Boolean(currentProject.reduceSensitiveContent) !== reduceSensitiveContent ||
+      (currentProject.worldSettingNeedsUpgradeSystem !== false) !== needsUpgradeSystem
+    );
+  };
+
+  const saveCurrentProject = (options: { requireComplete?: boolean; quiet?: boolean } = {}) => {
+    const activeOutline = getActiveOutline();
+    const resolvedBookName = bookName.trim() || activeOutline?.title || currentProject?.bookName || '未命名项目';
+
+    if (!activeOutline) {
+      if (!options.quiet) {
+        alert('未找到选中的故事大纲，请返回第一步重新选择');
+      }
+      return false;
     }
 
-    if (!bookName.trim()) {
-      alert('请输入书名');
-      return;
-    }
-
-    if (!worldSetting || !characters || !outline) {
+    if (options.requireComplete && (!worldSetting.trim() || !characters.trim() || !outline.trim())) {
       alert('请先生成完整的世界观基础设定、人物设定和情节细纲后再保存');
-      return;
+      return false;
     }
 
     try {
       console.log('开始保存项目，当前项目状态:', currentProject ? '存在' : '不存在');
-      console.log('书名:', bookName.trim());
+      console.log('书名:', resolvedBookName);
       console.log('世界观基础设定长度:', worldSetting.length);
       console.log('人物设定长度:', characters.length);
       console.log('情节细纲长度:', outline.length);
@@ -674,7 +709,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         console.log('更新现有项目，项目ID:', currentProject.id);
         // 更新现有项目
         updateProject(currentProject.id, {
-          bookName: bookName.trim(),
+          bookName: resolvedBookName,
           worldSetting,
           characters,
           detailedOutline: outline,
@@ -683,11 +718,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          ...getPreferredLogicModelFields(),
         });
       } else {
         console.log('创建新项目');
         // 创建新项目，包含所有生成的内容
-        const newProject = createProject(bookName.trim(), selectedOutline, {
+        const newProject = createProject(resolvedBookName, activeOutline, {
           worldSetting,
           characters,
           detailedOutline: outline,
@@ -696,16 +732,59 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          ...getPreferredLogicModelFields(),
         });
         console.log('新项目创建完成，项目ID:', newProject.id);
       }
 
-      setShowSaveConfirm(true);
-      setTimeout(() => setShowSaveConfirm(false), 2000);
+      if (!options.quiet) {
+        setShowSaveConfirm(true);
+        setTimeout(() => setShowSaveConfirm(false), 2000);
+      }
+      return true;
     } catch (error) {
       console.error('保存项目失败:', error);
-      alert('保存项目失败，请稍后重试');
+      if (!options.quiet) {
+        alert('保存项目失败，请稍后重试');
+      }
+      return false;
     }
+  };
+
+  // 保存项目
+  const handleSaveProject = () => {
+    saveCurrentProject({ requireComplete: true });
+  };
+
+  const handleCreateNewProject = () => {
+    if (hasAnyDraftContent()) {
+      const saved = saveCurrentProject({ requireComplete: false, quiet: true });
+      if (!saved) {
+        alert('当前内容保存失败，已取消新建项目，避免丢失草稿。');
+        return;
+      }
+    }
+
+    clearCurrentProject();
+    localStorage.removeItem('story-architect-current-outline');
+    onBack();
+  };
+
+  const handleNavigateToStructure = () => {
+    if (hasUnsavedProjectContent()) {
+      const confirmed = confirm('检测到当前世界观、人设或情节细纲还没有保存。点击“确定”会先保存项目再进入情节结构细化；点击“取消”将留在本页。');
+      if (!confirmed) return;
+
+      const saved = saveCurrentProject({ requireComplete: true });
+      if (!saved) return;
+    }
+
+    if (!currentProject && !hasUnsavedProjectContent()) {
+      const saved = saveCurrentProject({ requireComplete: true });
+      if (!saved) return;
+    }
+
+    onNavigateToStructure();
   };
 
   // 加载项目
@@ -757,7 +836,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   };
 
   // 检查是否可以保存
-  const canSave = selectedOutline && bookName.trim() && worldSetting && characters && outline;
+  const canSave = Boolean(getActiveOutline() && bookName.trim() && worldSetting && characters && outline);
   const redFruitReview = extractRedFruitReview(outline);
 
   const startEditSection = (section: 'world' | 'characters' | 'outline') => {
@@ -826,6 +905,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       // 第一步：生成世界观基础设定
       const outlineData = formatOutlineData(selectedOutline);
       const worldResponse = await blueprintApi.generateWorldSetting({
+        ...getLogicModelRequest(),
         outline: outlineData,
         needsUpgradeSystem,
       });
@@ -841,6 +921,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       // 第二步：生成人物设定
       const charactersResponse = await blueprintApi.generateCharacters({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting: worldResponse.data,
         useEnglishNames,
@@ -857,6 +938,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       // 第三步：生成情节细纲
       const outlineResponse = await blueprintApi.generateDetailedOutline({
+        ...getLogicModelRequest(),
         outline: outlineData,
         worldSetting: worldResponse.data,
         characters: charactersResponse.data,
@@ -887,6 +969,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels: resetDensityLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          ...getPreferredLogicModelFields(),
         });
       } else {
         const newProject = createProject(bookName.trim(), selectedOutline, {
@@ -898,6 +981,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels: resetDensityLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          ...getPreferredLogicModelFields(),
         });
         console.log('批量生成：新项目创建完成，项目ID:', newProject.id);
       }
@@ -1077,6 +1161,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <span>保存项目</span>
                     </>
                   )}
+                </button>
+
+                <button
+                  onClick={handleCreateNewProject}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-md text-sm font-medium hover:bg-emerald-200 transition-colors"
+                  title="先保存当前内容，再回到灵感架构页新建项目"
+                >
+                  <FilePlus2 className="w-4 h-4" />
+                  <span>新建项目</span>
                 </button>
 
                 {/* 项目列表按钮 */}
@@ -1358,7 +1451,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
             {/* 前往界面三的按钮 */}
             {outline && (
               <button
-                onClick={onNavigateToStructure}
+                onClick={handleNavigateToStructure}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white py-4 px-6 rounded-xl flex items-center justify-center space-x-3 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 font-semibold text-lg"
               >
                 <div className="p-2 bg-white/20 rounded-lg">

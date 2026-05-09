@@ -72,3 +72,24 @@ export class RewriteChapterDto {
   @IsOptional()
   actionFirstScript?: boolean;
 }
+
+export class ValidateChapterScopeDto {
+  @IsString()
+  content: string;
+
+  @IsNumber()
+  chapterNumber: number;
+
+  @IsObject()
+  @IsOptional()
+  storyData?: any;
+
+  @IsObject()
+  @IsOptional()
+  nextStoryData?: any;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['novel', 'microdrama'])
+  mode?: 'novel' | 'microdrama';
+}

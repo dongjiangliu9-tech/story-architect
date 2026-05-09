@@ -44,7 +44,7 @@ function getWordCount(content: string): number {
 
 function normalizeTargetEpisodeWords(value: unknown): number {
   const numericValue = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numericValue)) return 1500;
+  if (!Number.isFinite(numericValue)) return 1000;
   return Math.min(5000, Math.max(500, Math.round(numericValue)));
 }
 
@@ -79,7 +79,7 @@ function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentPr
 }
 
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
-  const { currentProject, updateProject, clearNovelCacheForProject } = useWorldSettings();
+  const { currentProject, updateProject, exportProject, clearNovelCacheForProject } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
   const isMicrodrama = writerMode === 'microdrama';
   const unitLabel = isMicrodrama ? '集' : '章';
@@ -88,7 +88,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const unitsPerBatch = isMicrodrama ? 1 : 8;
   const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
   const [actionFirstScript, setActionFirstScript] = useState(false);
-  const [targetEpisodeWords, setTargetEpisodeWords] = useState(1500);
+  const [targetEpisodeWords, setTargetEpisodeWords] = useState(1000);
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -1062,6 +1062,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       }
 
       // 全部完成
+      await simulateSaveContent(accumulatedChapters);
+      await simulateDownloadTXT(accumulatedChapters);
+      if (localStorage.getItem('story-architect-auto-export-json') === 'true') {
+        simulateDownloadProjectJson(accumulatedChapters);
+        localStorage.removeItem('story-architect-auto-export-json');
+      }
+
       setFullCycleProgress({
         current: totalChapters,
         total: totalChapters,
@@ -1272,14 +1279,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                     console.log(`模拟用户：批量生成完成！共生成了${totalGenerated}个章节的内容`);
 
-                    // 自动执行保存和下载（完全自动化，无需用户确认）
+                    // 每批完成后先自动保存，最终整轮结束时再统一导出文件。
                     console.log('模拟用户：自动保存内容，包含所有历史章节');
                     simulateSaveContent(updatedChapters);
 
-                    console.log('模拟用户：自动下载TXT文件');
-                    simulateDownloadTXT(updatedChapters);
-
-                    console.log('模拟用户：完成本批次的保存和下载，准备继续下一批');
+                    console.log('模拟用户：完成本批次保存，准备继续下一批');
 
                     eventSource.close();
                     setCurrentEventSource(null);
@@ -1407,6 +1411,27 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     });
   };
 
+  const simulateDownloadProjectJson = (chaptersToExport?: {[key: number]: string}) => {
+    try {
+      if (!currentProject) {
+        console.log('模拟用户：没有项目可导出JSON');
+        return;
+      }
+
+      const chapters = chaptersToExport || generatedChapters;
+      const updatedProject = {
+        ...currentProject,
+        generatedChapters: { ...chapters },
+        updatedAt: new Date().toISOString(),
+      };
+
+      exportProject(updatedProject);
+      console.log('模拟用户：项目JSON总文件已自动导出');
+    } catch (error) {
+      console.error('模拟用户：自动导出项目JSON失败:', error);
+    }
+  };
+
   const buildGenerationContext = (currentBatchStartChapter?: number): string => {
     if (!currentProject) return '';
 
@@ -1469,20 +1494,20 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       }
     }
 
-    // 特别强调当前章节/当前集对应的核心卡
+    // 特别强调当前章节/当前集对应的剧情边界
     if (microStoriesInOrder && microStoriesInOrder.length > 0) {
       const currentStoryIndex = isMicrodrama ? currentChapter - 1 : Math.floor((currentChapter - 1) / 2);
       const currentStory = microStoriesInOrder[currentStoryIndex];
 
       if (currentStory) {
-        context += `【当前${unitLabel === '集' ? '单集' : '章节'}核心卡】\n`;
+        context += `【当前${unitLabel === '集' ? '单集' : '章节'}剧情边界参考】\n`;
         context += isMicrodrama
           ? `当前集：第${currentChapter}集\n`
           : `章节：第${currentChapter}～${currentChapter + 1}章\n`;
         context += `对应${isMicrodrama ? '分集' : '小故事'}：${currentStory.title}\n`;
         context += `${isMicrodrama ? '分集' : '小故事'}详细内容：${currentStory.content}\n`;
         context += `所属中故事：${currentStory.macroStoryTitle}\n\n`;
-        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : '小故事'}内容进行创作，确保正文与卡片情节完全吻合。\n\n`;
+        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : '小故事'}内容进行创作，确保正文与剧情边界吻合；正文中不得出现“小故事卡”“技法卡”“一级结构”“阶段状态小结”等创作后台信息。\n\n`;
       }
     }
 

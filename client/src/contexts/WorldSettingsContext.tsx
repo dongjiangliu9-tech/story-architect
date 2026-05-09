@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { DensityTuningLevels, OutlineData } from '../types';
+import { DensityTuningLevels, LlmModelProvider, OutlineData } from '../types';
 
 const WORLD_SETTINGS_KEY = 'story-architect-world-settings';
 const EXPORT_SCHEMA_VERSION = 1;
@@ -85,6 +85,8 @@ export interface WorldSettingsProject {
   densityTuningLevels?: Partial<DensityTuningLevels>;
   reduceSensitiveContent?: boolean;
   worldSettingNeedsUpgradeSystem?: boolean;
+  preferredLlmModelProvider?: LlmModelProvider;
+  preferredLlmModel?: string;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
   microStoryOutlines?: {[key: string]: string}; // 中故事ID -> 小故事细纲内容
   savedMicroStories?: SavedMicroStory[]; // 保存的小故事列表
@@ -141,6 +143,7 @@ interface WorldSettingsContextType {
   updateProject: (projectId: number, updates: Partial<WorldSettingsProject>) => void;
   deleteProject: (projectId: number) => void;
   loadProject: (project: WorldSettingsProject) => void;
+  clearCurrentProject: () => void;
   exportProject: (project: WorldSettingsProject) => void;
   exportAllProjects: () => void;
   importFromJsonText: (jsonText: string) => { imported: number; skipped: number; currentProjectId?: number };
@@ -225,7 +228,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       bookName: bookName.trim(),
       outline,
       detailedOutlineMode: base.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel',
-      microdramaEpisodeCount: base.microdramaEpisodeCount === 15 || base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
+      microdramaEpisodeCount: base.microdramaEpisodeCount === 15 || base.microdramaEpisodeCount === 30 || base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
         ? base.microdramaEpisodeCount
         : 30,
       worldSettingNeedsUpgradeSystem: typeof base.worldSettingNeedsUpgradeSystem === 'boolean'
@@ -282,22 +285,24 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
 
   // 更新项目
   const updateProject = (projectId: number, updates: Partial<WorldSettingsProject>) => {
-    const updatedProjects = projects.map(project =>
-      project.id === projectId
-        ? { ...project, ...updates, updatedAt: new Date().toISOString() }
-        : project
+    const updatedAt = new Date().toISOString();
+
+    setProjects(prevProjects => {
+      const updatedProjects = prevProjects.map(project =>
+        project.id === projectId
+          ? { ...project, ...updates, updatedAt }
+          : project
+      );
+
+      saveToStorage(updatedProjects);
+      return updatedProjects;
+    });
+
+    setCurrentProject(prevProject =>
+      prevProject?.id === projectId
+        ? { ...prevProject, ...updates, updatedAt }
+        : prevProject
     );
-
-    setProjects(updatedProjects);
-    saveToStorage(updatedProjects);
-
-    // 如果更新的是当前项目，也更新currentProject
-    if (currentProject?.id === projectId) {
-      const updatedCurrent = updatedProjects.find(p => p.id === projectId);
-      if (updatedCurrent) {
-        setCurrentProject(updatedCurrent);
-      }
-    }
 
     console.log('更新项目:', projectId, updates);
   };
@@ -387,6 +392,11 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
   const loadProject = (project: WorldSettingsProject) => {
     setCurrentProject(project);
     console.log('加载项目:', project.bookName);
+  };
+
+  const clearCurrentProject = () => {
+    setCurrentProject(null);
+    console.log('已清空当前项目');
   };
 
   // 导出单个项目
@@ -521,6 +531,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       updateProject,
       deleteProject,
       loadProject,
+      clearCurrentProject,
       exportProject,
       exportAllProjects,
       importFromJsonText,

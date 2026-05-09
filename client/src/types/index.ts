@@ -3,6 +3,8 @@ export interface GenerateOutlineDto {
   channel: string;
   style: string;
   theme: string;
+  llmModelProvider?: LlmModelProvider;
+  llmModel?: string;
 }
 
 export interface GenerateOutlineResponse {
@@ -21,6 +23,15 @@ export interface OutlineData {
   themes: string;
   rawContent: string;
   savedAt?: string; // 保存时间戳（可选）
+  preferredLlmModelProvider?: LlmModelProvider;
+  preferredLlmModel?: string;
+}
+
+export type LlmModelProvider = 'default' | 'gateway';
+
+export interface LlmModelSelection {
+  llmModelProvider?: LlmModelProvider;
+  llmModel?: string;
 }
 
 export type DensityTuningKey = 'emotion' | 'plot' | 'element';

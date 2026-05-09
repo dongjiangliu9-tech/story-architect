@@ -1,31 +1,9 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, BookOpen, Sparkles, FileText, Layers, ChevronRight, CheckCircle, Plus, RefreshCw, Eye, EyeOff, RotateCcw, PenTool, Save, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Sparkles, FileText, Layers, ChevronRight, CheckCircle, Plus, RefreshCw, Eye, EyeOff, PenTool, Save, X } from 'lucide-react';
 import { useWorldSettings, SavedMicroStory, sortSavedMicroStoriesForChapters } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
-import { OutlineData } from '../types';
-
-/**
- * 将OutlineData格式化为大纲字符串
- */
-function formatOutlineData(outline: OutlineData): string {
-  return `### ${outline.title}
-
-核心概念：
-${outline.logline}
-
-人物关系：
-${outline.characters}
-
-世界观设定：
-${outline.world}
-
-主要冲突：
-${outline.hook}
-
-金手指设定：
-${outline.themes}`;
-}
+import { getLogicModelRequestFromSources } from '../utils/llmModelSelection';
 
 /**
  * 过滤AI风格的内容，去掉markdown符号等
@@ -74,10 +52,11 @@ interface StoryStructurePageProps {
 
 export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep, setAutoFlowProgress }: StoryStructurePageProps) {
   const { currentProject, updateProject } = useWorldSettings();
+  const getLogicModelRequest = () => getLogicModelRequestFromSources(currentProject);
   const detailedOutlineMode = currentProject?.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
   const isMicrodrama = detailedOutlineMode === 'microdrama';
   const microdramaEpisodeCount: 15 | 30 | 60 | 100 =
-    currentProject?.microdramaEpisodeCount === 15 || currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
+    currentProject?.microdramaEpisodeCount === 15 || currentProject?.microdramaEpisodeCount === 30 || currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
       ? currentProject.microdramaEpisodeCount
       : 30;
   const structureLabels = isMicrodrama
@@ -102,8 +81,6 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [generatingStories, setGeneratingStories] = useState<{[key: string]: boolean}>({});
   const [expandedStories, setExpandedStories] = useState<{[key: string]: boolean}>({});
   const [batchGenerating, setBatchGenerating] = useState(false);
-  const [continuingMacroBatch, setContinuingMacroBatch] = useState(false);
-  const [reduceSensitiveContent, setReduceSensitiveContent] = useState(Boolean(currentProject?.reduceSensitiveContent));
   const [batchGenerationProgress, setBatchGenerationProgress] = useState<{current: number, total: number, currentStory: string} | null>(null);
   const [isEditingMacroStory, setIsEditingMacroStory] = useState(false);
   const [macroStoryDraft, setMacroStoryDraft] = useState('');
@@ -448,113 +425,6 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     microStoryOutlines
   ]);
 
-  // 重新生成中故事
-  const regenerateMacroStories = async () => {
-    if (!currentProject) {
-      alert('未找到当前项目');
-      return;
-    }
-
-    try {
-      const response = await blueprintApi.generateDetailedOutline({
-        outline: formatOutlineData(currentProject.outline),
-        worldSetting: currentProject.worldSetting || '',
-        characters: currentProject.characters || '',
-        mode: detailedOutlineMode,
-        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
-        reduceSensitiveContent,
-        outlineBatchIndex: 1,
-        existingDetailedOutline: '',
-      });
-
-      console.log('重新生成的中故事内容:', response.data);
-
-      // 重新解析并设置中故事
-      const newStories = parseMacroStories(response.data);
-      setMacroStories(newStories);
-      setSelectedMacroStoryIndex(null);
-
-      // 清除旧的小故事数据
-      setMicroStoryOutlines({});
-      updateProject(currentProject.id, {
-        detailedOutline: response.data,
-        microStoryOutlines: {},
-        densityTuningLevels: { emotion: 0, plot: 0, element: 0 },
-        reduceSensitiveContent,
-      });
-
-      alert('中故事已重新生成！');
-    } catch (error) {
-      console.error('重新生成中故事失败:', error);
-      alert('重新生成中故事失败，请稍后重试');
-    }
-  };
-
-  const toggleReduceSensitiveContent = () => {
-    const nextValue = !reduceSensitiveContent;
-    setReduceSensitiveContent(nextValue);
-    if (currentProject) {
-      updateProject(currentProject.id, { reduceSensitiveContent: nextValue });
-    }
-  };
-
-  // 继续生成下一批网文中故事（每批10个，最多4批40个）
-  const continueNextMacroStoryBatch = async () => {
-    if (!currentProject) {
-      alert('未找到当前项目');
-      return;
-    }
-    if (isMicrodrama) {
-      alert(`微短剧模式固定为${microdramaEpisodeCount}集大纲，不需要继续追加中故事批次`);
-      return;
-    }
-
-    const existingDetailedOutline = currentProject.detailedOutline || '';
-    const existingCount = parseMacroStories(existingDetailedOutline).length || macroStories.length;
-    if (existingCount >= 40) {
-      alert('已经生成到40个中故事，可以进入完整细化和写作了');
-      return;
-    }
-    if (existingCount > 0 && existingCount % 10 !== 0) {
-      alert('当前中故事数量不是10的整数倍，请先补齐或手动整理后再继续生成下一批');
-      return;
-    }
-
-    const nextBatchIndex = Math.min(4, Math.floor(existingCount / 10) + 1);
-    setContinuingMacroBatch(true);
-    try {
-      const response = await blueprintApi.generateDetailedOutline({
-        outline: formatOutlineData(currentProject.outline),
-        worldSetting: currentProject.worldSetting || '',
-        characters: currentProject.characters || '',
-        mode: 'novel',
-        reduceSensitiveContent,
-        outlineBatchIndex: nextBatchIndex,
-        existingDetailedOutline,
-        isFinalBatch: nextBatchIndex === 4,
-      });
-
-      const combinedDetailedOutline = [existingDetailedOutline.trim(), response.data.trim()]
-        .filter(Boolean)
-        .join('\n\n');
-      const newStories = parseMacroStories(combinedDetailedOutline);
-
-      updateProject(currentProject.id, {
-        detailedOutline: combinedDetailedOutline,
-        reduceSensitiveContent,
-      });
-      setMacroStories(newStories);
-      setSelectedMacroStoryIndex(existingCount);
-
-      alert(`已生成第${nextBatchIndex}批中故事（第${existingCount + 1}-${Math.min(existingCount + 10, 40)}个）！`);
-    } catch (error) {
-      console.error('继续生成下一批中故事失败:', error);
-      alert('继续生成下一批中故事失败，请稍后重试');
-    } finally {
-      setContinuingMacroBatch(false);
-    }
-  };
-
   // 解析中故事内容和加载已保存的微故事卡
   useEffect(() => {
     console.log('StoryStructurePage useEffect triggered, currentProject:', {
@@ -586,8 +456,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     } else {
       console.log('没有savedMicroStories数据');
     }
-    setReduceSensitiveContent(Boolean(currentProject?.reduceSensitiveContent));
-  }, [currentProject?.id, currentProject?.detailedOutline, currentProject?.microStoryOutlines, currentProject?.savedMicroStories, currentProject?.reduceSensitiveContent]);
+  }, [currentProject?.id, currentProject?.detailedOutline, currentProject?.microStoryOutlines, currentProject?.savedMicroStories]);
 
   // 检查自动化流程
   useEffect(() => {
@@ -711,6 +580,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       const chapterRange = getChapterRange(storyIndex);
 
       const response = await blueprintApi.generateMicroStories({
+        ...getLogicModelRequest(),
         macroStory,
         storyIndex: chineseIndex,
         chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
@@ -731,8 +601,26 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
       // 保存到项目
       if (currentProject) {
+        const microStoriesParsed = parseMicroStoriesFromOutline(response.data);
+        const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
+          id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
+          title: isMicrodrama
+            ? `第${chapterRange.startChapter + index}集`
+            : getMicroStoryDefaultTitle(index + 1),
+          content: cleanMicroStoryContent(content),
+          macroStoryId: storyKey,
+          macroStoryTitle: `中故事 ${storyIndex + 1}`,
+          macroStoryContent: macroStory,
+          order: index,
+          createdAt: new Date().toISOString()
+        }));
+        const filteredSaved = (currentProject.savedMicroStories || []).filter(existing =>
+          existing.macroStoryId !== storyKey
+        );
+
         updateProject(currentProject.id, {
-          microStoryOutlines: newOutlines
+          microStoryOutlines: newOutlines,
+          savedMicroStories: sortSavedMicroStoriesForChapters([...filteredSaved, ...savedMicroStories])
         });
       }
 
@@ -800,6 +688,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           const chapterRange = getChapterRange(storyIndex);
 
           const response = await blueprintApi.generateMicroStories({
+        ...getLogicModelRequest(),
             macroStory,
             storyIndex: chineseIndex,
             chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
@@ -1059,6 +948,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     try {
       const response = await blueprintApi.generateMicroStoryVariants({
+        ...getLogicModelRequest(),
         targetType: 'macro',
         macroStory: macroStories[macroIndex] || '',
         currentTitle: `${structureLabels.macro} ${macroIndex + 1}`,
@@ -1204,6 +1094,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     try {
       const response = await blueprintApi.generateMicroStoryVariants({
+        ...getLogicModelRequest(),
         macroStory: macroStories[macroIndex] || '',
         currentTitle: currentDraft.title || getMicroStoryDefaultTitle(microIndex + 1),
         currentContent: currentDraft.content || '',
@@ -1379,6 +1270,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     try {
       const response = await blueprintApi.generateMicroStoryVariants({
+        ...getLogicModelRequest(),
         macroStory: macroStories[macroIndex] || '',
         currentTitle: selectedIndexes.map(i => allDrafts[i]?.title || getMicroStoryDefaultTitle(i + 1)).join(' / '),
         currentContent: selectedIndexes.map(i => allDrafts[i]?.content || '').join('\n\n'),
@@ -1536,51 +1428,6 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     );
   };
 
-  // 清空当前项目的全部小故事相关数据，便于在人设/设定更新后重新生成
-  const clearAllMicroStoryOutlines = async () => {
-    if (!currentProject) {
-      alert('未找到当前项目');
-      return;
-    }
-
-    const hasAnyMicroData =
-      Object.keys(currentProject.microStoryOutlines || {}).length > 0 ||
-      (currentProject.savedMicroStories?.length || 0) > 0;
-
-    if (!hasAnyMicroData) {
-      alert('当前没有可清空的小故事细纲数据');
-      return;
-    }
-
-    const confirmed = confirm(
-      '确定要清空当前项目的全部小故事细纲吗？\n\n这会删除：\n1) 所有中故事的小故事细纲\n2) 已保存的小故事列表\n3) 已选中的小故事\n\n清空后可按新人物设定重新生成。'
-    );
-    if (!confirmed) return;
-
-    try {
-      // 页面内状态先同步清空，避免视觉残留
-      setMicroStoryOutlines({});
-      setMicroStoryDraftsByMacro({});
-      setExpandedStories({});
-      setEditingMicroStory(null);
-      setSelectedMacroStoryIndex(null);
-
-      // 项目持久化数据清空，确保“已生成状态”和批量起点一起重置
-      await updateProject(currentProject.id, {
-        microStoryOutlines: {},
-        savedMicroStories: [],
-        selectedMicroStories: []
-      });
-
-      alert('已清空全部小故事细纲数据，现在可以按最新设定重新生成。');
-    } catch (error) {
-      console.error('清空小故事细纲失败:', error);
-      alert('清空失败，请稍后重试');
-    }
-  };
-
-
-
   if (!currentProject) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100 flex items-center justify-center">
@@ -1622,54 +1469,6 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             </div>
             <div className="flex items-center space-x-4">
               <button
-                onClick={toggleReduceSensitiveContent}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  reduceSensitiveContent
-                    ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'
-                    : 'bg-secondary-100 hover:bg-secondary-200 text-secondary-700'
-                }`}
-                title="生成或刷新中故事时，降低血腥、敏感、露骨暴力等容易卡审核的桥段"
-              >
-                <CheckCircle className="w-4 h-4" />
-                <span>{reduceSensitiveContent ? '已降低审核风险' : '降低审核风险'}</span>
-              </button>
-              <button
-                onClick={clearAllMicroStoryOutlines}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded-lg text-red-700 text-sm font-medium transition-colors"
-                title="清空当前项目的全部小故事细纲与已保存小故事"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>清空小故事细纲</span>
-              </button>
-              <button
-                onClick={regenerateMacroStories}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-orange-100 hover:bg-orange-200 rounded-lg text-orange-700 text-sm font-medium transition-colors"
-                title="重新生成中故事"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>刷新中故事</span>
-              </button>
-              {!isMicrodrama && macroStories.length > 0 && macroStories.length < 40 && (
-                <button
-                  onClick={continueNextMacroStoryBatch}
-                  disabled={continuingMacroBatch || macroStories.length % 10 !== 0}
-                  className="flex items-center space-x-2 px-3 py-1.5 bg-primary-100 hover:bg-primary-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-primary-700 text-sm font-medium transition-colors"
-                  title="承接已有中故事，继续生成下一批10个中故事"
-                >
-                  {continuingMacroBatch ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>续写中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4" />
-                      <span>继续第{Math.floor(macroStories.length / 10) + 1}批</span>
-                    </>
-                  )}
-                </button>
-              )}
-              <button
                 onClick={batchGenerateAndSaveMicroStories}
                 disabled={batchGenerating || macroStories.length < 3}
                 className="flex items-center space-x-2 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-purple-700 text-sm font-medium transition-colors"
@@ -1692,14 +1491,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                       return (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          <span>全部生成完毕</span>
+                          <span>全部细化完毕</span>
                         </>
                       );
                     } else {
                       return (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          <span>生成第{nextStart}-{nextEnd}个</span>
+                          <span>细化第{nextStart}-{nextEnd}个</span>
                         </>
                       );
                     }

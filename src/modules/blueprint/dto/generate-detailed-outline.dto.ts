@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, IsIn, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
-export class GenerateDetailedOutlineDto {
+export class GenerateDetailedOutlineDto extends LogicModelSelectionDto {
   @IsString()
   @IsNotEmpty()
   outline: string; // 故事大纲内容

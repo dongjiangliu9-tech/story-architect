@@ -19,16 +19,31 @@ import { StoryStructurePage } from './pages/StoryStructurePage';
 import { blueprintApi } from './services/api';
 import { parseOutlineContent } from './utils/outlineParser';
 import { useAutoGeneration } from './hooks/useAutoGeneration';
+import {
+  DEFAULT_LOGIC_MODEL_VALUE,
+  LOGIC_MODEL_OPTIONS,
+  getPreferredLogicModelValue,
+  toLogicModelRequest,
+  toPreferredLogicModelFields,
+} from './utils/llmModelSelection';
 
 function BlueprintPage({
   onNavigate
 }: {
-  onNavigate: (page: string, outline?: OutlineData) => void;
+  onNavigate: (page: string, outline?: OutlineData, shouldNavigateToStructure?: boolean) => void;
 }) {
   const [selectedCategory, setSelectedCategory] = useState<NovelCategory | null>(null);
   const [selectedStyles, setSelectedStyles] = useState<NovelStyle[]>([]);
   const [theme, setTheme] = useState('');
   const [bookName, setBookName] = useState('');
+  const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-30' | 'novel-80'>('microdrama-30');
+  const [logicModelValue, setLogicModelValue] = useState(() => {
+    try {
+      return localStorage.getItem('story-architect-logic-model') || DEFAULT_LOGIC_MODEL_VALUE;
+    } catch {
+      return DEFAULT_LOGIC_MODEL_VALUE;
+    }
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [outlines, setOutlines] = useState<OutlineData[]>([]);
   const [currentOutlineIndex, setCurrentOutlineIndex] = useState(0);
@@ -53,6 +68,8 @@ function BlueprintPage({
     world: (outline.world || '').slice(0, 2000),
     themes: (outline.themes || '').slice(0, 2000),
     rawContent: '',
+    preferredLlmModelProvider: outline.preferredLlmModelProvider,
+    preferredLlmModel: outline.preferredLlmModel,
   });
 
   const createBlankOutline = (): OutlineData => ({
@@ -63,8 +80,17 @@ function BlueprintPage({
     characters: '',
     world: '',
     themes: '',
-    rawContent: ''
+    rawContent: '',
+    ...toPreferredLogicModelFields(logicModelValue),
   });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('story-architect-logic-model', logicModelValue);
+    } catch {
+      // Ignore localStorage failures so model selection never blocks generation.
+    }
+  }, [logicModelValue]);
 
   const confirmDiscardOutlineEdits = () => {
     if (!isEditingOutline) return true;
@@ -76,6 +102,7 @@ function BlueprintPage({
     isAutoGenerating,
     steps,
     currentStepMessage,
+    startAutoGeneration,
     cancelAutoGeneration
   } = useAutoGeneration();
 
@@ -96,10 +123,14 @@ function BlueprintPage({
         channel: `${selectedCategory.name}`,
         style: selectedStyles.map(s => s.name).join('、'),
         theme: theme.trim(),
+        ...toLogicModelRequest(logicModelValue),
       });
 
       // 解析AI返回的Markdown内容
-      const parsedOutlines = parseOutlineContent(response.data);
+      const parsedOutlines = parseOutlineContent(response.data).map(outline => ({
+        ...outline,
+        ...toPreferredLogicModelFields(logicModelValue),
+      }));
 
       if (parsedOutlines.length === 0) {
         throw new Error('未能解析到有效的大纲内容');
@@ -135,6 +166,7 @@ function BlueprintPage({
     setOutlines([outline]);
     setCurrentOutlineIndex(0);
     setLastCommittedOutline(outline);
+    setLogicModelValue(getPreferredLogicModelValue(outline));
     setOutlineDraft(null);
     setEditingOutlineIndex(null);
   };
@@ -169,6 +201,7 @@ function BlueprintPage({
       ...outlineDraft,
       id: outlineDraft.id || Date.now(),
       title: outlineDraft.title.trim(),
+      ...toPreferredLogicModelFields(logicModelValue),
     };
 
     if (editingOutlineIndex === null) {
@@ -223,6 +256,7 @@ function BlueprintPage({
         ...outlineDraft,
         id: outlineDraft.id || Date.now(),
         title: outlineDraft.title.trim() || '未命名灵感架构',
+        ...toPreferredLogicModelFields(logicModelValue),
       };
       onNavigate('world-setting', draftOutline);
       return;
@@ -249,8 +283,82 @@ function BlueprintPage({
     };
 
     setError(null);
-    onNavigate('world-setting', finalOutline);
+    onNavigate('world-setting', {
+      ...finalOutline,
+      ...toPreferredLogicModelFields(logicModelValue),
+    });
   };
+
+  const readCachedOutline = (): OutlineData | null => {
+    try {
+      const raw = localStorage.getItem('story-architect-current-outline');
+      return raw ? JSON.parse(raw) as OutlineData : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const resolveOutlineForAutoGeneration = (): OutlineData | null => {
+    const source =
+      outlineDraft ||
+      currentOutline ||
+      outlines[resolvedOutlineIndex] ||
+      lastCommittedOutline ||
+      readCachedOutline();
+
+    if (!source) return null;
+
+    const resolvedTitle = source.title?.trim() || bookName.trim() || '未命名灵感架构';
+    return {
+      ...source,
+      id: source.id || Date.now(),
+      title: resolvedTitle,
+      ...toPreferredLogicModelFields(logicModelValue),
+    };
+  };
+
+  const handleStartAutoLiteraryIteration = () => {
+    const outline = resolveOutlineForAutoGeneration();
+    const hasOutlineContent = outline && [
+      outline.title,
+      outline.logline,
+      outline.characters,
+      outline.world,
+      outline.hook,
+      outline.themes,
+    ].some(value => String(value || '').trim().length > 0);
+
+    if (!outline || !hasOutlineContent) {
+      setError('请先选择、生成或填写一个灵感架构');
+      return;
+    }
+
+    const resolvedBookName = bookName.trim() || outline.title.trim() || '未命名作品';
+    setError(null);
+
+    try {
+      localStorage.setItem('story-architect-current-outline', JSON.stringify(createCachedOutline(outline)));
+    } catch (error) {
+      console.warn('缓存当前灵感架构失败，继续启动自动流程:', error);
+    }
+
+    startAutoGeneration(
+      outline,
+      resolvedBookName,
+      (_projectId, shouldNavigateToStructure) => {
+        onNavigate(shouldNavigateToStructure ? 'story-structure' : 'writer', outline, shouldNavigateToStructure);
+      },
+      (message) => setError(message),
+      { target: autoGenerationTarget }
+    );
+  };
+
+  const hasOutlineForAutoGeneration = Boolean(
+    outlineDraft ||
+    currentOutline ||
+    lastCommittedOutline ||
+    readCachedOutline()
+  );
 
 
   return (
@@ -311,10 +419,30 @@ function BlueprintPage({
                   onChange={setTheme}
                 />
 
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-secondary-700">
+                    生成模型
+                  </label>
+                  <select
+                    value={logicModelValue}
+                    onChange={(e) => setLogicModelValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                  >
+                    {LOGIC_MODEL_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} - {option.description}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-secondary-500">
+                    选择网关模型后，灵感架构到情节细化阶段会沿用该模型，额度仍计入 Gemini。
+                  </p>
+                </div>
+
                 {/* 书名输入 - 用于一键生成 */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-secondary-700">
-                    书名 <span className="text-red-500">*</span>
+                    书名
                   </label>
                   <input
                     type="text"
@@ -347,6 +475,45 @@ function BlueprintPage({
                 >
                   <BookOpen className="w-6 h-6" />
                   <span>进入人设与世界观</span>
+                </button>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-secondary-700">
+                    自动迭代目标
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'microdrama-30' as const, label: '30集微短剧' },
+                      { value: 'novel-80' as const, label: '80章网文' },
+                    ]).map(option => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setAutoGenerationTarget(option.value)}
+                        disabled={isAutoGenerating}
+                        className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                          autoGenerationTarget === option.value
+                            ? 'bg-primary-600 border-primary-600 text-white'
+                            : 'bg-white border-secondary-200 text-secondary-700 hover:bg-secondary-50'
+                        } disabled:opacity-60 disabled:cursor-not-allowed`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleStartAutoLiteraryIteration}
+                  disabled={!hasOutlineForAutoGeneration || isGenerating || isAutoGenerating}
+                  className={`w-full py-4 px-6 rounded-xl font-semibold text-lg transition-all duration-300 shadow-lg flex items-center justify-center space-x-3 ${
+                    !hasOutlineForAutoGeneration || isGenerating || isAutoGenerating
+                      ? 'bg-secondary-200 text-secondary-500 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white hover:shadow-xl transform hover:scale-105'
+                  }`}
+                >
+                  <Sparkles className="w-6 h-6" />
+                  <span>{isAutoGenerating ? 'AI自动迭代中...' : `AI自动迭代文学作品（${autoGenerationTarget === 'microdrama-30' ? '30集' : '80章'}）`}</span>
                 </button>
               </div>
             </div>
@@ -577,6 +744,8 @@ function App() {
       world: (outline.world || '').slice(0, 2000),
       themes: (outline.themes || '').slice(0, 2000),
       rawContent: '',
+      preferredLlmModelProvider: outline.preferredLlmModelProvider,
+      preferredLlmModel: outline.preferredLlmModel,
     };
 
     try {

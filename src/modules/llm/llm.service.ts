@@ -11,10 +11,12 @@ export class LlmService {
   private logicHttpAgent?: HttpsProxyAgent<string>;
   private logicClient: OpenAI; // Gemini 官方 OpenAI 兼容客户端
   private deepseekClient: OpenAI; // Deepseek 官网 API 客户端
+  private gatewayClient: OpenAI; // 智灵网关 OpenAI 兼容客户端
 
   constructor(private configService: ConfigService) {
     this.logicHttpAgent = this.getLogicProxyAgent();
     const deepseekHttpAgent = this.getDeepseekProxyAgent();
+    const gatewayHttpAgent = this.getGatewayProxyAgent();
     this.logicApiKey =
       this.configService.get<string>('LYRICS_API_KEY') ||
       this.configService.get<string>('GEMINI_API_KEY') ||
@@ -51,6 +53,26 @@ export class LlmService {
       },
       dangerouslyAllowBrowser: false,
     });
+
+    this.gatewayClient = new OpenAI({
+      apiKey:
+        this.configService.get<string>('GATEWAY_API_KEY') ||
+        this.configService.get<string>('ZHILING_GATEWAY_API_KEY') ||
+        '',
+      baseURL:
+        this.normalizeOpenAiBaseUrl(
+          this.configService.get<string>('GATEWAY_BASE_URL') ||
+            this.configService.get<string>('ZHILING_GATEWAY_BASE_URL') ||
+            'https://getways-jumu.zeelin.cn/v1',
+        ) || 'https://getways-jumu.zeelin.cn/v1',
+      ...(gatewayHttpAgent ? { httpAgent: gatewayHttpAgent } : {}),
+      timeout: 300000,
+      maxRetries: 1,
+      defaultHeaders: {
+        Connection: 'keep-alive',
+      },
+      dangerouslyAllowBrowser: false,
+    });
   }
 
   private getLogicProxyAgent() {
@@ -78,6 +100,30 @@ export class LlmService {
 
     const proxyUrl =
       this.configService.get<string>('DEEPSEEK_PROXY_URL') ||
+      this.configService.get<string>('HTTPS_PROXY') ||
+      this.configService.get<string>('HTTP_PROXY');
+
+    if (!proxyUrl) {
+      return undefined;
+    }
+
+    return new HttpsProxyAgent(proxyUrl, {
+      keepAlive: true,
+    });
+  }
+
+  private getGatewayProxyAgent() {
+    const useProxy =
+      this.configService.get<string>('GATEWAY_USE_PROXY') === 'true' ||
+      this.configService.get<string>('ZHILING_GATEWAY_USE_PROXY') === 'true';
+
+    if (!useProxy) {
+      return undefined;
+    }
+
+    const proxyUrl =
+      this.configService.get<string>('GATEWAY_PROXY_URL') ||
+      this.configService.get<string>('ZHILING_GATEWAY_PROXY_URL') ||
       this.configService.get<string>('HTTPS_PROXY') ||
       this.configService.get<string>('HTTP_PROXY');
 
@@ -192,6 +238,99 @@ export class LlmService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private extractCompletionContent(completion: OpenAI.Chat.Completions.ChatCompletion) {
+    const content = completion.choices?.[0]?.message?.content;
+    if (typeof content === 'string' && content.trim()) {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      const merged = content
+        .map((item: any) =>
+          typeof item === 'string' ? item : String(item?.text || ''),
+        )
+        .join('')
+        .trim();
+      if (merged) {
+        return merged;
+      }
+    }
+
+    return '';
+  }
+
+  async chatWithGatewayModel(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    model?: string,
+  ) {
+    const targetModel =
+      model ||
+      this.configService.get<string>('GATEWAY_MODEL') ||
+      this.configService.get<string>('ZHILING_GATEWAY_MODEL') ||
+      'gpt-5.5';
+
+    let lastError: unknown;
+    const maxAttempts = this.getConfigNumber('GATEWAY_MAX_ATTEMPTS', 2);
+    const requestTimeoutMs = this.getConfigNumber('GATEWAY_TIMEOUT_MS', 180000);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        console.log(
+          `[LLM] 准备调用 gateway model=${targetModel}, attempt=${attempt}/${maxAttempts}, timeoutMs=${requestTimeoutMs}`,
+        );
+
+        const completion = await this.gatewayClient.chat.completions.create(
+          {
+            messages,
+            model: targetModel,
+            temperature: 0.7,
+          },
+          { timeout: requestTimeoutMs },
+        );
+
+        const content = this.extractCompletionContent(completion);
+        if (content) {
+          return content;
+        }
+
+        throw new Error('AI 网关返回了空内容，请稍后重试');
+      } catch (error) {
+        lastError = error;
+        console.error(
+          `Gateway LLM API Call Failed (model ${targetModel}, attempt ${attempt}/${maxAttempts}):`,
+          error,
+        );
+
+        if (this.isRetryableLogicError(error) && attempt < maxAttempts) {
+          const delay = attempt === 1 ? 3000 : 8000;
+          console.warn(`将在 ${delay / 1000} 秒后重试网关模型 ${targetModel}...`);
+          await this.sleep(delay);
+          continue;
+        }
+
+        if (this.isTimeoutOrGatewayError(error)) {
+          throw new Error('AI 网关响应超时或上游暂时不可用，请稍后重试');
+        }
+
+        const status = (error as { status?: number })?.status;
+        if (status === 401 || status === 403) {
+          throw new Error('AI 网关拒绝访问，请检查网关 Token、模型权限或账户额度');
+        }
+        if (status === 404) {
+          throw new Error(`网关模型 ${targetModel} 当前不可用或接口路径不匹配`);
+        }
+        if (status === 429 || status === 503) {
+          throw new Error(`网关模型 ${targetModel} 当前高负载，请稍后重试`);
+        }
+
+        throw new Error('AI 网关暂时不可用，请稍后重试');
+      }
+    }
+
+    console.error('[LLM] 网关模型不可用:', targetModel, lastError);
+    throw new Error(`AI 网关模型 ${targetModel} 当前不可用，请稍后重试`);
+  }
+
   async chat(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     model?: string,
@@ -237,27 +376,12 @@ export class LlmService {
             requestTimeoutMs ? { timeout: requestTimeoutMs } : undefined,
           );
 
-          const content = completion.choices?.[0]?.message?.content;
-          if (typeof content === 'string' && content.trim()) {
+          const content = this.extractCompletionContent(completion);
+          if (content) {
             if (currentModel !== targetModel) {
               console.warn(`[LLM] 主模型 ${targetModel} 不可用，已降级使用 ${currentModel}`);
             }
             return content;
-          }
-
-          if (Array.isArray(content)) {
-            const merged = content
-              .map((item: any) =>
-                typeof item === 'string' ? item : String(item?.text || ''),
-              )
-              .join('')
-              .trim();
-            if (merged) {
-              if (currentModel !== targetModel) {
-                console.warn(`[LLM] 主模型 ${targetModel} 不可用，已降级使用 ${currentModel}`);
-              }
-              return merged;
-            }
           }
 
           throw new Error('AI 服务返回了空内容，请稍后重试');

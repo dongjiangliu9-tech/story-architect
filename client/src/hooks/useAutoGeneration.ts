@@ -2,6 +2,15 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { OutlineData } from '../types';
 import { blueprintApi } from '../services/api';
 import { useWorldSettings } from '../contexts/WorldSettingsContext';
+import {
+  getLogicModelRequestFromSources,
+  toPreferredLogicModelFields,
+} from '../utils/llmModelSelection';
+import {
+  buildDensityTuningSuggestion,
+  DENSITY_TUNING_KEYS,
+  emptyDensityLevels,
+} from '../utils/densityTuning';
 
 export interface AutoGenerationStep {
   id: string;
@@ -9,6 +18,12 @@ export interface AutoGenerationStep {
   status: 'pending' | 'running' | 'completed' | 'error';
   progress?: number;
   message?: string;
+}
+
+export type AutoGenerationTarget = 'microdrama-30' | 'novel-80';
+
+export interface AutoGenerationOptions {
+  target: AutoGenerationTarget;
 }
 
 export function useAutoGeneration() {
@@ -86,10 +101,10 @@ export function useAutoGeneration() {
       { id: 'import-outline', label: '导入故事灵感', status: 'pending' },
       { id: 'generate-world', label: '生成世界观基础设定', status: 'pending' },
       { id: 'generate-characters', label: '生成人物设定', status: 'pending' },
-      { id: 'generate-outline', label: '生成情节细纲', status: 'pending' },
+      { id: 'generate-outline', label: '生成目标作品情节细纲', status: 'pending' },
+      { id: 'density-iterate', label: '三轮滑块密度迭代', status: 'pending' },
       { id: 'save-project', label: '保存项目', status: 'pending' },
-      { id: 'micro-stories', label: '细化第一个中故事为小故事', status: 'pending' },
-      { id: 'select-stories', label: '自动选择小故事', status: 'pending' },
+      { id: 'micro-stories', label: '细化全部中故事为正文细纲', status: 'pending' },
       { id: 'complete', label: '完成', status: 'pending' }
     ];
     setSteps(initialSteps);
@@ -118,12 +133,21 @@ ${outline.themes}`;
     selectedOutline: OutlineData,
     bookName: string,
     onComplete: (projectId: number, shouldNavigateToStructure?: boolean) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    options: AutoGenerationOptions = { target: 'microdrama-30' }
   ) => {
     setIsAutoGenerating(true);
     initializeSteps();
 
     try {
+      const targetMode = options.target === 'novel-80' ? 'novel' : 'microdrama';
+      const isMicrodrama = targetMode === 'microdrama';
+      const targetUnitCount = isMicrodrama ? 30 : 80;
+      const targetLabel = isMicrodrama ? '30集微短剧' : '80章网文';
+      const outlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline' : 'novel-80-detailed-outline';
+      const finalOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-density-v3' : 'novel-80-detailed-outline-density-v3';
+      const microStoriesCacheKey = isMicrodrama ? 'microdrama-30-all-micro-stories' : 'novel-80-all-micro-stories';
+
       // 清理旧缓存
       clearCache(bookName);
 
@@ -135,6 +159,8 @@ ${outline.themes}`;
       updateStep('import-outline', { status: 'completed', message: '故事灵感导入完成' });
 
       const outlineData = formatOutlineData(selectedOutline);
+      const logicModelRequest = getLogicModelRequestFromSources(selectedOutline);
+      const preferredLogicModelFields = toPreferredLogicModelFields(logicModelRequest.llmModel);
 
       // 2. 生成世界观基础设定
       updateStep('generate-world', { status: 'running', message: '正在生成世界观基础设定...' });
@@ -147,6 +173,7 @@ ${outline.themes}`;
         updateStep('generate-world', { status: 'completed', message: '从缓存加载世界观基础设定' });
       } else {
         worldResponse = await blueprintApi.generateWorldSetting({
+          ...logicModelRequest,
           outline: outlineData
         });
         setCachedData(bookName, 'world-setting', worldResponse.data);
@@ -164,6 +191,7 @@ ${outline.themes}`;
         updateStep('generate-characters', { status: 'completed', message: '从缓存加载人物设定' });
       } else {
         charactersResponse = await blueprintApi.generateCharacters({
+          ...logicModelRequest,
           outline: outlineData,
           worldSetting: worldResponse.data
         });
@@ -176,21 +204,68 @@ ${outline.themes}`;
       setCurrentStepMessage('正在生成情节细纲...');
 
       let outlineResponse;
-      const cachedOutline = getCachedData(bookName, 'detailed-outline');
+      const cachedOutline = getCachedData(bookName, outlineCacheKey);
       if (cachedOutline) {
         outlineResponse = { data: cachedOutline };
-        updateStep('generate-outline', { status: 'completed', message: '从缓存加载情节细纲' });
+        updateStep('generate-outline', { status: 'completed', message: `从缓存加载${targetLabel}情节细纲` });
       } else {
         outlineResponse = await blueprintApi.generateDetailedOutline({
+          ...logicModelRequest,
           outline: outlineData,
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
+          mode: targetMode,
+          microdramaEpisodeCount: isMicrodrama ? 30 : undefined,
+          reduceSensitiveContent: true,
           outlineBatchIndex: 1,
           existingDetailedOutline: ''
         });
-        setCachedData(bookName, 'detailed-outline', outlineResponse.data);
-        updateStep('generate-outline', { status: 'completed', message: '情节细纲生成完成' });
+        setCachedData(bookName, outlineCacheKey, outlineResponse.data);
+        updateStep('generate-outline', { status: 'completed', message: `${targetLabel}情节细纲生成完成` });
       }
+
+      updateStep('density-iterate', { status: 'running', message: '正在进行第1轮三密度滑块迭代...' });
+      setCurrentStepMessage('正在进行第1轮三密度滑块迭代...');
+
+      let detailedOutline = outlineResponse.data;
+      let currentDensityLevels = emptyDensityLevels();
+      const enabledDensity = Object.fromEntries(DENSITY_TUNING_KEYS.map(key => [key, true])) as Record<typeof DENSITY_TUNING_KEYS[number], boolean>;
+
+      for (let iteration = 1; iteration <= 3; iteration++) {
+        const nextDensityLevels = {
+          emotion: iteration,
+          plot: iteration,
+          element: iteration,
+        };
+        const suggestion = buildDensityTuningSuggestion(currentDensityLevels, nextDensityLevels, enabledDensity);
+
+        updateStep('density-iterate', {
+          status: 'running',
+          progress: Math.round(((iteration - 1) / 3) * 100),
+          message: `正在进行第${iteration}/3轮密度迭代...`
+        });
+        setCurrentStepMessage(`正在进行第${iteration}/3轮密度迭代...`);
+
+        const densityResponse = await blueprintApi.generateDetailedOutline({
+          ...logicModelRequest,
+          outline: outlineData,
+          worldSetting: worldResponse.data,
+          characters: charactersResponse.data,
+          mode: targetMode,
+          microdramaEpisodeCount: isMicrodrama ? 30 : undefined,
+          reduceSensitiveContent: true,
+          outlineBatchIndex: 1,
+          existingDetailedOutline: detailedOutline,
+          outlineRevisionSuggestion: suggestion,
+        });
+
+        detailedOutline = densityResponse.data;
+        currentDensityLevels = nextDensityLevels;
+      }
+
+      outlineResponse = { data: detailedOutline };
+      setCachedData(bookName, finalOutlineCacheKey, detailedOutline);
+      updateStep('density-iterate', { status: 'completed', progress: 100, message: '三轮密度迭代完成，采用第3轮结果' });
 
       // 5. 保存项目
       updateStep('save-project', { status: 'running', message: '正在保存项目...' });
@@ -200,23 +275,26 @@ ${outline.themes}`;
         worldSetting: worldResponse.data,
         characters: charactersResponse.data,
         detailedOutline: outlineResponse.data,
-        detailedOutlineMode: 'novel',
+        detailedOutlineMode: targetMode,
+        microdramaEpisodeCount: isMicrodrama ? 30 : undefined,
+        densityTuningLevels: currentDensityLevels,
+        reduceSensitiveContent: true,
+        ...preferredLogicModelFields,
       });
 
       updateStep('save-project', { status: 'completed', message: '项目保存完成' });
 
-      // 6. 细化第一个中故事为小故事
-      updateStep('micro-stories', { status: 'running', message: '正在细化第一个中故事为小故事...' });
-      setCurrentStepMessage('正在细化第一个中故事为小故事...');
+      // 6. 细化全部中故事为小故事/分集细纲
+      updateStep('micro-stories', { status: 'running', message: '正在细化全部中故事为分集细纲...' });
+      setCurrentStepMessage('正在细化全部中故事为分集细纲...');
 
-      // 检查缓存
       let savedMicroStories: any[] = [];
-      const cachedMicroStories = getCachedData(bookName, 'micro-stories');
+      const microStoryOutlines: {[key: string]: string} = {};
+      const cachedMicroStories = getCachedData(bookName, microStoriesCacheKey);
       if (cachedMicroStories) {
         savedMicroStories = cachedMicroStories;
-        updateStep('micro-stories', { status: 'completed', message: `从缓存加载 ${savedMicroStories.length} 个小故事` });
+        updateStep('micro-stories', { status: 'completed', message: `从缓存加载 ${savedMicroStories.length} 个${isMicrodrama ? '分集' : '小故事'}细纲` });
       } else {
-        // 解析情节细纲，提取中故事
         const macroStories = parseMacroStories(outlineResponse.data);
         console.log(`解析到 ${macroStories.length} 个中故事：`, macroStories.map(s => s.title));
 
@@ -243,71 +321,72 @@ ${outline.themes}`;
           throw new Error('未能解析到中故事，请检查AI生成的情节细纲格式。查看浏览器控制台获取详细调试信息。');
         }
 
-        // 只处理第一个中故事
-        const macroStory = macroStories[0];
-        if (!macroStory || !macroStory.content) {
-          console.error('第一个中故事内容为空');
-          updateStep('micro-stories', { status: 'error', message: '第一个中故事内容为空' });
-          throw new Error('第一个中故事内容为空');
-        }
+        for (let macroIndex = 0; macroIndex < macroStories.length; macroIndex++) {
+          const macroStory = macroStories[macroIndex];
+          if (!macroStory?.content) continue;
 
-        setCurrentStepMessage(`正在细化第一个中故事：${macroStory.title}...`);
-        console.log(`正在处理第一个中故事: ${macroStory.title}`);
-        console.log(`中故事内容长度: ${macroStory.content.length}`);
-
-        try {
-          const microResponse = await blueprintApi.generateMicroStories({
-            macroStory: macroStory.content,
-            storyIndex: "一" // 第一个中故事
-          });
-
-          console.log(`第一个中故事API响应长度:`, microResponse.data?.length || 0);
-
-          // 解析生成的微故事
-          const microStories = parseMicroStories(microResponse.data, 0, macroStory.title, macroStory.content);
-          console.log(`第一个中故事解析出 ${microStories.length} 个小故事`);
-
-          if (microStories.length === 0) {
-            console.error('未能从第一个中故事解析出任何小故事');
-            updateStep('micro-stories', { status: 'error', message: '未能解析出小故事，请检查AI生成格式' });
-            throw new Error('未能从第一个中故事解析出任何小故事');
-          }
-
-          savedMicroStories = microStories;
-
+          const chapterRange = parseChapterRangeFromMacroStory(macroStory.content, isMicrodrama ? '集' : '章') || (
+            isMicrodrama
+              ? getMicrodramaChapterRange(macroIndex, macroStories.length, targetUnitCount)
+              : getNovelChapterRange(macroIndex)
+          );
           updateStep('micro-stories', {
-            progress: 100,
-            message: `已完成第一个中故事细化，共生成 ${savedMicroStories.length} 个小故事`
+            status: 'running',
+            progress: Math.round((macroIndex / macroStories.length) * 100),
+            message: `正在细化中故事 ${macroIndex + 1}/${macroStories.length}（第${chapterRange.start}-${chapterRange.end}${isMicrodrama ? '集' : '章'}）...`
+          });
+          setCurrentStepMessage(`正在细化中故事 ${macroIndex + 1}/${macroStories.length}（第${chapterRange.start}-${chapterRange.end}${isMicrodrama ? '集' : '章'}）...`);
+
+          const microResponse = await blueprintApi.generateMicroStories({
+            ...logicModelRequest,
+            macroStory: macroStory.content,
+            storyIndex: getChineseNumber(macroIndex + 1),
+            chapterRange: `${chapterRange.start}-${chapterRange.end}`,
+            mode: targetMode,
           });
 
-        } catch (error) {
-          console.error(`生成第一个中故事的小故事失败:`, error);
-          updateStep('micro-stories', { status: 'error', message: `生成失败: ${error instanceof Error ? error.message : '未知错误'}` });
-          throw error;
+          microStoryOutlines[`story_${macroIndex}`] = microResponse.data;
+          const microStories = parseMicroStories(microResponse.data, macroIndex, macroStory.title, macroStory.content, chapterRange.start, isMicrodrama ? '集' : '章');
+          savedMicroStories = [...savedMicroStories, ...microStories];
+
+          if (!isMicrodrama && savedMicroStories.length * 2 >= targetUnitCount) {
+            break;
+          }
+          if (isMicrodrama && savedMicroStories.length >= targetUnitCount) {
+            break;
+          }
         }
 
-        console.log(`第一个中故事细化完成，共生成 ${savedMicroStories.length} 个小故事`);
+        savedMicroStories.sort((a, b) => {
+          const ma = Number(String(a.macroStoryId).replace('story_', ''));
+          const mb = Number(String(b.macroStoryId).replace('story_', ''));
+          if (ma !== mb) return ma - mb;
+          return a.order - b.order;
+        });
 
-        // 缓存小故事
-        setCachedData(bookName, 'micro-stories', savedMicroStories);
+        const limitedStories = isMicrodrama
+          ? savedMicroStories.slice(0, targetUnitCount)
+          : savedMicroStories.slice(0, Math.ceil(targetUnitCount / 2));
+        savedMicroStories = limitedStories;
 
-        updateStep('micro-stories', { status: 'completed', message: `第一个中故事细化完成，共生成 ${savedMicroStories.length} 个小故事` });
+        setCachedData(bookName, microStoriesCacheKey, savedMicroStories);
+        updateStep('micro-stories', {
+          status: 'completed',
+          progress: 100,
+          message: isMicrodrama
+            ? `全部分集细纲完成，共 ${savedMicroStories.length} 集`
+            : `全部小故事细纲完成，共 ${savedMicroStories.length} 个，可生成 ${savedMicroStories.length * 2} 章`
+        });
       }
-
-        // 保存小故事到项目 - 同时更新savedMicroStories和microStoryOutlines
-        // 生成microStoryOutlines格式，与手动生成时保持一致
-        const outlineContent = savedMicroStories.map((story, index) => {
-          return `【小故事${index + 1}】${story.title}\n\n${story.content}`;
-        }).join('\n\n---\n\n');
-
-        const microStoryOutlines: {[key: string]: string} = {
-          'story_0': outlineContent
-        };
 
         if (isMountedRef.current) {
           updateProject(newProject.id, {
-            savedMicroStories: savedMicroStories,
-            microStoryOutlines: microStoryOutlines
+            savedMicroStories,
+            selectedMicroStories: savedMicroStories,
+            microStoryOutlines,
+            autoSelectedStories: true,
+            autoGenerationMode: true,
+            autoGenerationStarted: true,
           });
 
           console.log('项目更新完成，保存的小故事数据:', {
@@ -317,34 +396,14 @@ ${outline.themes}`;
           });
         }
 
-      // 7. 自动选择前4个小故事用于章节生成
-      updateStep('select-stories', { status: 'running', message: '正在自动选择小故事用于章节生成...' });
-      setCurrentStepMessage('正在自动选择小故事用于章节生成...');
-
-      // 自动选择前4个小故事（跳过用户手动选择的过程）
-      const selectedStories = savedMicroStories.slice(0, 4); // 取前4个小故事
-
-      // 更新项目，标记已选择的小故事
-      if (isMountedRef.current) {
-        updateProject(newProject.id, {
-          selectedMicroStories: selectedStories, // 添加已选择的小故事字段
-          autoSelectedStories: true // 标记为自动选择
-        });
-      }
-
-      console.log(`自动选择了 ${selectedStories.length} 个小故事用于章节生成:`, selectedStories.map(s => s.title));
-
-      await new Promise(resolve => setTimeout(resolve, 1000)); // 短暂准备时间
-
-      updateStep('select-stories', { status: 'completed', message: `已自动选择 ${selectedStories.length} 个小故事用于章节生成` });
-
-      // 8. 完成 - 跳转到正文写作界面并自动开始生成
-      updateStep('complete', { status: 'completed', message: '一键自动生成完成！正在跳转到正文写作工作室...' });
-      setCurrentStepMessage('一键自动生成完成！正在跳转到正文写作工作室...');
+      updateStep('complete', { status: 'completed', message: '前置自动化完成，正在进入正文写作并自动生成剧本...' });
+      setCurrentStepMessage('前置自动化完成，正在进入正文写作并自动生成剧本...');
 
       // 短暂延迟后跳转到正文写作界面，确保数据已经保存
       await new Promise(resolve => setTimeout(resolve, 2000));
       console.log('准备跳转到正文写作界面，项目ID:', newProject.id);
+      localStorage.setItem('story-architect-auto-flow', 'writer');
+      localStorage.setItem('story-architect-auto-export-json', 'true');
       onComplete(newProject.id, false); // 第二个参数为false，表示跳转到writer界面
 
     } catch (error) {
@@ -501,7 +560,44 @@ function parseMacroStories(outlineContent: string): Array<{title: string, conten
 }
 
 // 解析微故事内容，返回符合SavedMicroStory接口的格式
-function parseMicroStories(content: string, macroIndex: number, macroTitle: string, macroContent: string): any[] {
+function getChineseNumber(num: number): string {
+  const numbers = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  return numbers[num - 1] || num.toString();
+}
+
+function getMicrodramaChapterRange(macroIndex: number, macroCount: number, episodeCount = 30) {
+  if (macroCount <= 1) {
+    return { start: 1, end: episodeCount };
+  }
+
+  const base = Math.floor(episodeCount / macroCount);
+  const remainder = episodeCount % macroCount;
+  let start = 1;
+  for (let i = 0; i < macroIndex; i++) {
+    start += base + (i < remainder ? 1 : 0);
+  }
+  const count = base + (macroIndex < remainder ? 1 : 0);
+  return { start, end: start + Math.max(1, count) - 1 };
+}
+
+function getNovelChapterRange(macroIndex: number) {
+  const start = macroIndex * 20 + 1;
+  return { start, end: start + 19 };
+}
+
+function parseChapterRangeFromMacroStory(content: string, unitLabel: '集' | '章') {
+  const unitPattern = unitLabel === '集' ? '集' : '章';
+  const match = content.match(new RegExp(`(?:对应(?:集数|章节|范围)|第)?\\s*(\\d+)\\s*[-~—至到]\\s*(\\d+)\\s*${unitPattern}`))
+    || content.match(new RegExp(`第\\s*(\\d+)\\s*${unitPattern}\\s*[-~—至到]\\s*第?\\s*(\\d+)\\s*${unitPattern}`));
+
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return { start, end };
+}
+
+function parseMicroStories(content: string, macroIndex: number, macroTitle: string, macroContent: string, startEpisode = 1, unitLabel: '集' | '章' = '集'): any[] {
   const microStories: any[] = [];
   const lines = content.split('\n');
 
@@ -510,14 +606,14 @@ function parseMicroStories(content: string, macroIndex: number, macroTitle: stri
 
   for (const line of lines) {
     // 匹配小故事标题 - 支持多种格式
-    const titleMatch = line.match(/(?:【小故事([一二三四五六七八九十\d]+)】|小故事([一二三四五六七八九十\d]+)[:：])(.+)/);
+    const titleMatch = line.match(/(?:【(?:小故事|分集|单集)([一二三四五六七八九十\d]+)】|(?:小故事|分集|单集)([一二三四五六七八九十\d]+)[:：]|【第\s*([一二三四五六七八九十\d]+)\s*集】|第\s*([一二三四五六七八九十\d]+)\s*集\s*[:：、-]?\s*)(.*)/);
     if (titleMatch) {
       if (currentMicro) {
         microStories.push({
-          id: `micro_${macroIndex}_${microStoryIndex}`,
+          id: `story_${macroIndex}_micro_${microStoryIndex}_${Date.now()}_${Math.random()}`,
           title: currentMicro.title,
           content: currentMicro.content.join('\n').trim(),
-          macroStoryId: `macro_${macroIndex}`,
+          macroStoryId: `story_${macroIndex}`,
           macroStoryTitle: macroTitle,
           macroStoryContent: macroContent,
           order: microStoryIndex,
@@ -525,7 +621,9 @@ function parseMicroStories(content: string, macroIndex: number, macroTitle: stri
         });
         microStoryIndex++;
       }
-      const title = titleMatch[3]?.trim() || titleMatch[2]?.trim() || line.replace(/【?小故事[一二三四五六七八九十\d]+】?[:：]?/, '').trim();
+      const absoluteEpisode = startEpisode + microStoryIndex;
+      const titleText = titleMatch[5]?.trim() || '';
+      const title = titleText || `第${absoluteEpisode}${unitLabel}`;
       currentMicro = {
         title: title,
         content: []
@@ -538,10 +636,10 @@ function parseMicroStories(content: string, macroIndex: number, macroTitle: stri
   // 添加最后一个小故事
   if (currentMicro) {
     microStories.push({
-      id: `micro_${macroIndex}_${microStoryIndex}`,
+      id: `story_${macroIndex}_micro_${microStoryIndex}_${Date.now()}_${Math.random()}`,
       title: currentMicro.title,
       content: currentMicro.content.join('\n').trim(),
-      macroStoryId: `macro_${macroIndex}`,
+      macroStoryId: `story_${macroIndex}`,
       macroStoryTitle: macroTitle,
       macroStoryContent: macroContent,
       order: microStoryIndex,

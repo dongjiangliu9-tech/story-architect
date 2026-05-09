@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty } from 'class-validator';
+import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
-export class GenerateOutlineDto {
+export class GenerateOutlineDto extends LogicModelSelectionDto {
   @IsString()
   @IsNotEmpty()
   channel: string; // 频道 (例如：起点仙侠)
