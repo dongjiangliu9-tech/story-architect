@@ -285,8 +285,8 @@ ${outline.themes}`;
       updateStep('save-project', { status: 'completed', message: '项目保存完成' });
 
       // 6. 细化全部中故事为小故事/分集细纲
-      updateStep('micro-stories', { status: 'running', message: '正在细化全部中故事为分集细纲...' });
-      setCurrentStepMessage('正在细化全部中故事为分集细纲...');
+      updateStep('micro-stories', { status: 'running', message: `正在细化全部中故事为${isMicrodrama ? '分集' : '小故事'}细纲...` });
+      setCurrentStepMessage(`正在细化全部中故事为${isMicrodrama ? '分集' : '小故事'}细纲...`);
 
       let savedMicroStories: any[] = [];
       const microStoryOutlines: {[key: string]: string} = {};
@@ -396,8 +396,11 @@ ${outline.themes}`;
           });
         }
 
-      updateStep('complete', { status: 'completed', message: '前置自动化完成，正在进入正文写作并自动生成剧本...' });
-      setCurrentStepMessage('前置自动化完成，正在进入正文写作并自动生成剧本...');
+      updateStep('complete', {
+        status: 'completed',
+        message: `前置自动化完成，正在进入正文写作并自动生成${isMicrodrama ? '剧本' : '小说正文'}...`
+      });
+      setCurrentStepMessage(`前置自动化完成，正在进入正文写作并自动生成${isMicrodrama ? '剧本' : '小说正文'}...`);
 
       // 短暂延迟后跳转到正文写作界面，确保数据已经保存
       await new Promise(resolve => setTimeout(resolve, 2000));

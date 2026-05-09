@@ -66,16 +66,7 @@ function computePreviousEndingFromChapters(
 
 function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentProject']): 'novel' | 'microdrama' {
   if (!project) return 'novel';
-  if (project.detailedOutlineMode === 'microdrama') return 'microdrama';
-
-  const outlineText = [
-    project.detailedOutline,
-    ...Object.values(project.microStoryOutlines || {}),
-    ...(project.savedMicroStories || []).map(story => `${story.title || ''}\n${story.content || ''}`),
-    ...Object.values(project.generatedChapters || {})
-  ].join('\n');
-
-  return /微短剧|分集|第\s*\d+\s*集|100\s*集/.test(outlineText) ? 'microdrama' : 'novel';
+  return project.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
 }
 
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
