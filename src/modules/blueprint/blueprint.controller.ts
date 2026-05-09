@@ -115,7 +115,7 @@ export class BlueprintController {
     }
 
     console.log('找到生成请求，开始流式生成');
-    return this.blueprintService.generateChapterStream(dto);
+    return this.blueprintService.generateChapterStream(dto, requestId);
   }
 
   @Post('export-docx')
