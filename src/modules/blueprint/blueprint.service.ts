@@ -1763,6 +1763,99 @@ ${romanceLineRules}
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
   }
 
+  private buildNovelTwoPartStoryPrompt(
+    context: string,
+    storyStartChapter: number,
+    storyEndChapter: number,
+    previousEnding: string,
+  ): string {
+    const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
+    const romanceLineRules = this.getRomanceLineHardRulesPrompt();
+
+    return `${context}
+
+请基于以上完整的故事背景信息，生成当前小故事覆盖的两个连续章节：第${storyStartChapter}章到第${storyEndChapter}章。
+
+${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在第${storyStartChapter}章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
+
+感情线硬规则：
+${romanceLineRules}
+
+**⚠️ 重要限制条件：**
+- 当前小故事覆盖第${storyStartChapter}-${storyEndChapter}章，必须一次写完整个小故事，但要按两个章节清楚分段。
+- 两章必须写成同一个小故事的前半段与后半段：第${storyStartChapter}章负责危机开局、核心冲突和第一个高燃爽点；第${storyEndChapter}章必须承接第${storyStartChapter}章结尾，把冲突推到阶段高潮并留下下一章钩子。
+- 第${storyEndChapter}章禁止复述、重写或平行改写第${storyStartChapter}章已经发生的内容。
+- 必须严格遵循当前剧情范围写作，不能偏离当前阶段规定的情节发展。
+- 绝对不能涉及或暗示下一小故事的内容，确保每个小故事都有独立的发展空间。
+- 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
+- ${this.getPlanningLeakRule()}
+
+生成要求：
+1. 总字数必须写到4300-4500字，不要只写2000多字就结束。
+2. 第${storyStartChapter}章约2100-2200字，第${storyEndChapter}章约2200-2300字。
+3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
+4. 每章开头必须带着危机进入：承接上一章危机、抛出新威胁、制造关系爆雷、资源被夺、强敌压境或任务失败，不能平静开场。
+5. 推进过程中必须释放至少一个高燃点或爽点，例如反杀、打脸、破局、夺回资源、揭露真相、实力升级、情感爆发或关键选择。
+6. 每章结尾要为下一章留好铺垫，并自然融入悬念钩子；钩子不要写成说明性句子。
+7. 如果提供了“上一章结尾内容”，第${storyStartChapter}章开头必须从该结尾自然续写，至少连续推进300-500字后再转场或跳时。
+
+必须严格使用下面的编号标记，方便程序拆分。标记行之外不要添加任何解释：
+[[CHAPTER_${storyStartChapter}_START]]
+第${storyStartChapter}章 [章节标题]
+
+[第${storyStartChapter}章正文内容，2100-2200字]
+[[CHAPTER_${storyStartChapter}_END]]
+
+[[CHAPTER_${storyEndChapter}_START]]
+第${storyEndChapter}章 [章节标题]
+
+[第${storyEndChapter}章正文内容，2200-2300字]
+[[CHAPTER_${storyEndChapter}_END]]
+
+注意：直接输出以上两章正文，不要输出“下面是”“写作说明”“字数统计”等额外内容。`;
+  }
+
+  private extractMarkedNovelChapters(storyContent: string, startChapter: number, endChapter: number): string[] {
+    const chapters: string[] = [];
+
+    for (let chapterNum = startChapter; chapterNum <= endChapter; chapterNum++) {
+      const startMarker = `[[CHAPTER_${chapterNum}_START]]`;
+      const endMarker = `[[CHAPTER_${chapterNum}_END]]`;
+      const startIndex = storyContent.indexOf(startMarker);
+      if (startIndex < 0) {
+        return [];
+      }
+
+      const contentStart = startIndex + startMarker.length;
+      const explicitEnd = storyContent.indexOf(endMarker, contentStart);
+      const nextMarker = storyContent.indexOf(`[[CHAPTER_${chapterNum + 1}_START]]`, contentStart);
+      const endIndex = explicitEnd >= 0
+        ? explicitEnd
+        : nextMarker >= 0
+          ? nextMarker
+          : storyContent.length;
+      const rawPart = storyContent.slice(contentStart, endIndex).trim();
+      if (!rawPart) {
+        return [];
+      }
+
+      const normalizedTitle = this.normalizeChapterTitle(rawPart.split('\n')[0] || '', chapterNum, chapterNum - startChapter);
+      const body = this.stripLeadingChapterTitleLine(rawPart)
+        .replace(/\[\[CHAPTER_\d+_(?:START|END)\]\]/g, '')
+        .trim();
+      chapters.push(`${normalizedTitle}\n\n${body}`.trim());
+    }
+
+    return chapters;
+  }
+
+  private isNovelBatchLongEnough(chapters: string[]): boolean {
+    if (chapters.length === 0) return false;
+    const counts = chapters.map(chapter => this.getWordCount(chapter));
+    const total = counts.reduce((sum, count) => sum + count, 0);
+    return total >= 3600 && counts.every(count => count >= 1600);
+  }
+
 	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
     const existingJob = this.generationStreamJobs.get(requestId);
     if (existingJob) {
@@ -1899,7 +1992,89 @@ ${romanceLineRules}
                 const chapters: string[] = [];
                 const requestedLastChapter = startChapter + requestedUnitCount - 1;
                 const cappedStoryEndChapter = Math.min(storyEndChapter, requestedLastChapter);
+                const expectedChapterCount = cappedStoryEndChapter - storyStartChapter + 1;
 
+                if (expectedChapterCount > 1) {
+                  let storyContent = '';
+                  let isFirstChunk = true;
+                  const storyPrompt = this.buildNovelTwoPartStoryPrompt(
+                    storyContext,
+                    storyStartChapter,
+                    cappedStoryEndChapter,
+                    previousEnding,
+                  );
+
+                  await this.llmService.chatWithWriterModelStream(
+                    [
+                      { role: 'system', content: this.getStoryWritingSystemPrompt() },
+                      { role: 'user', content: storyPrompt }
+                    ],
+                    (chunk: string) => {
+                      storyContent += chunk;
+
+                      subscriber.next({
+                        data: JSON.stringify({
+                          type: 'story_chunk',
+                          storyIndex: storyIndex + 1,
+                          chapter: storyStartChapter,
+                          content: storyContent,
+                          isFirst: isFirstChunk
+                        })
+                      });
+
+                      if (isFirstChunk) {
+                        isFirstChunk = false;
+                      }
+                    },
+                    writerModelProvider,
+                    {
+                      signal: abortController.signal,
+                      isCancelled: () => this.isCancelled(requestId),
+                    },
+                  );
+
+                  const markedChapters = this.extractMarkedNovelChapters(storyContent, storyStartChapter, cappedStoryEndChapter);
+                  const parsedChapters = this.isNovelBatchLongEnough(markedChapters)
+                    ? markedChapters
+                    : this.extractChaptersFromContent(storyContent, storyStartChapter, cappedStoryEndChapter);
+
+                  if (this.isNovelBatchLongEnough(parsedChapters)) {
+                    for (const [index, chapter] of parsedChapters.entries()) {
+                      const chapterNum = storyStartChapter + index;
+                      const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
+                      const validatedChapter = await this.validateAndTrimChapterScope({
+                        content: chapter,
+                        chapterNumber: chapterNum,
+                        storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
+                        nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
+                        mode,
+                      });
+
+                      if (validatedChapter) {
+                        chapters.push(validatedChapter);
+
+                        subscriber.next({
+                          data: JSON.stringify({
+                            type: 'chapter_complete',
+                            chapter: chapterNum,
+                            content: validatedChapter
+                          })
+                        });
+
+                        console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(validatedChapter)}`);
+                      }
+                    }
+
+                    const lastChapter = chapters[chapters.length - 1];
+                    if (lastChapter) {
+                      previousEnding = this.extractEndingForContinuity(lastChapter);
+                    }
+                  } else {
+                    console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}一次生成字数不足或编号缺失，改用逐章补救`);
+                  }
+                }
+
+                if (chapters.length === 0) {
                 for (let chapterNum = storyStartChapter; chapterNum <= cappedStoryEndChapter; chapterNum++) {
                   if (this.isCancelled(requestId)) {
                     throw new Error('GENERATION_CANCELLED');
@@ -1975,6 +2150,7 @@ ${romanceLineRules}
 
                     console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(validatedChapter)}`);
                   }
+                }
                 }
 
                 if (chapters.length > 0) {
