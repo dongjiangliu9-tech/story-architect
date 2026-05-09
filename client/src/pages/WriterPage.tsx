@@ -803,10 +803,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            case 'story_chunk':
 	              if (data.content) {
 	                const cleanContent = cleanWriterContent(data.content);
+	                const streamingChapter = data.chapter || activeStreamingChapter;
+	                activeStreamingChapter = streamingChapter;
 
 	                // 实时显示小故事生成过程
-	                setCurrentChapter(activeStreamingChapter);
-	                setJumpToChapter(activeStreamingChapter.toString());
+	                setCurrentChapter(streamingChapter);
+	                setJumpToChapter(streamingChapter.toString());
+	                setGenerationState(prev => ({
+	                  ...prev,
+	                  currentGeneratingChapter: streamingChapter
+	                }));
 	                setGeneratedContent(cleanContent);
 	                console.log(`第${data.storyIndex}个小故事实时更新，当前长度: ${cleanContent.length}`);
 	              }
@@ -824,7 +830,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 setGenerationState(prev => ({
                   ...prev,
                   completedChapters: [...prev.completedChapters, data.chapter],
-                  currentGeneratingChapter: data.chapter + 1 <= prev.totalChapters ? data.chapter + 1 : null
+                  currentGeneratingChapter: data.chapter + 1 <= startChapter + batchUnitCount - 1 ? data.chapter + 1 : null
                 }));
 
 	                // 如果当前完成的是正在流式显示的单元，继续显示最终内容
@@ -1282,8 +1288,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                case 'story_chunk':
 	                  if (data.content) {
 	                    const cleanContent = cleanWriterContent(data.content);
-	                    setCurrentChapter(activeStreamingChapter);
-	                    setJumpToChapter(activeStreamingChapter.toString());
+	                    const streamingChapter = data.chapter || activeStreamingChapter;
+	                    activeStreamingChapter = streamingChapter;
+	                    setCurrentChapter(streamingChapter);
+	                    setJumpToChapter(streamingChapter.toString());
+	                    setGenerationState(prev => ({
+	                      ...prev,
+	                      currentGeneratingChapter: streamingChapter
+	                    }));
 	                    setGeneratedContent(cleanContent);
 	                    console.log(`模拟用户：实时更新内容，当前长度: ${cleanContent.length}`);
 	                  }
@@ -1300,7 +1312,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     setGenerationState(prev => ({
                       ...prev,
                       completedChapters: [...prev.completedChapters, data.chapter],
-                      currentGeneratingChapter: data.chapter + 1 <= prev.totalChapters ? data.chapter + 1 : null
+                      currentGeneratingChapter: data.chapter + 1 <= startChapter + chapterCount - 1 ? data.chapter + 1 : null
                     }));
 
 	                    if (data.chapter === activeStreamingChapter) {

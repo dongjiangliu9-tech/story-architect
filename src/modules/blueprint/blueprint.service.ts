@@ -1706,6 +1706,63 @@ ${romanceLineRules}
     }
   }
 
+  private buildNovelChapterPrompt(
+    context: string,
+    chapterNumber: number,
+    previousEnding: string,
+    chapterPosition: 'first' | 'second' | 'single' = 'single',
+    storyStartChapter?: number,
+    storyEndChapter?: number,
+  ): string {
+    const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
+    const romanceLineRules = this.getRomanceLineHardRulesPrompt();
+    const storyRange = storyStartChapter && storyEndChapter
+      ? `当前小故事覆盖第${storyStartChapter}-${storyEndChapter}章。`
+      : '当前小故事覆盖当前章节。';
+    const positionRule = chapterPosition === 'first'
+      ? `本章负责当前小故事的前半段：必须把开局危机、核心冲突和第一个高燃爽点写扎实，但不要提前写完整个小故事的最终结局，也不要写第${chapterNumber + 1}章应该承接展开的后半段。`
+      : chapterPosition === 'second'
+        ? `本章负责当前小故事的后半段：必须从上一章结尾继续推进，禁止复述、重写或平行改写前半段；要把冲突推到阶段高潮，并在结尾留下下一章钩子；但不能进入下一个小故事才该展开的场景、目标或结果。`
+        : `本章必须完成当前章节细纲内的核心冲突推进，并在结尾留下下一章钩子。`;
+
+    return `${context}
+
+请基于以上完整的故事背景信息，生成第${chapterNumber}章的内容。
+
+${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在本章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
+
+感情线硬规则：
+${romanceLineRules}
+
+**⚠️ 重要限制条件：**
+- ${storyRange}
+- 只生成第${chapterNumber}章，绝对不要生成第${chapterNumber + 1}章或其他章节。
+- 必须严格遵循当前小故事剧情范围，不能偏离当前阶段规定的情节发展。
+- 绝对不能涉及或暗示下一小故事的内容，确保每个小故事都有独立的发展空间。
+- 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
+- ${positionRule}
+- ${this.getPlanningLeakRule()}
+
+生成要求：
+1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字。
+2. 严格控制字数：本章正文必须写到2100-2300字，最低不能少于2000字，不要用摘要、跳写或提前收尾来压缩篇幅。
+3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
+4. 保持与整体故事的连贯性和人物成长，特别要衔接好之前已生成的内容。
+5. 融入世界观设定和人物关系。
+6. 每章开头必须带着危机进入：承接上一章危机、抛出新威胁、制造关系爆雷、资源被夺、强敌压境或任务失败，不能平静开场。
+7. 推进过程中必须释放至少一个高燃点或爽点，例如反杀、打脸、破局、夺回资源、揭露真相、实力升级、情感爆发或关键选择。
+8. 章节结尾要为下一章留好铺垫，并自然融入悬念钩子，制造期待感，拉动读者继续阅读的欲望。
+9. 钩子要融入正文叙述中，作为故事发展的自然延伸，不要在文章结尾单独添加说明性句子。
+10. 衔接要求：如果提供了“上一章结尾内容”，本章开头必须从该结尾自然续写（同一时空/同一动作/同一对话延续），不要用回顾式总结重述上一章；除非上一章结尾明确切换场景，否则开头至少连续推进300-500字后再转场或跳时。
+
+请直接输出章节内容，格式如下：
+第${chapterNumber}章 [章节标题]
+
+[第${chapterNumber}章正文内容，2100-2300字]
+
+注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
+  }
+
 	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
     const existingJob = this.generationStreamJobs.get(requestId);
     if (existingJob) {
@@ -1818,7 +1875,8 @@ ${romanceLineRules}
               for (let i = 1; i <= maxPrevStories; i++) {
                 const prevIndex = storyIndex - i;
                 if (prevIndex >= 0) {
-                  const prevStoryData = dto.savedMicroStories?.[prevIndex];
+                  const prevStoryAbsoluteIndex = Math.floor((startChapter - 1) / 2) + prevIndex;
+                  const prevStoryData = dto.savedMicroStories?.[prevStoryAbsoluteIndex];
                   if (prevStoryData) {
                     const prevStartChapter = startChapter + (prevIndex * 2);
                     const prevEndChapter = prevStartChapter + 1;
@@ -1834,6 +1892,137 @@ ${romanceLineRules}
             // 添加当前小故事的详细信息
             if (storyData) {
               storyContext += this.buildStoryBoundaryReference(storyData, 'novel');
+            }
+
+            if (mode !== 'microdrama') {
+              try {
+                const chapters: string[] = [];
+                const requestedLastChapter = startChapter + requestedUnitCount - 1;
+                const cappedStoryEndChapter = Math.min(storyEndChapter, requestedLastChapter);
+
+                for (let chapterNum = storyStartChapter; chapterNum <= cappedStoryEndChapter; chapterNum++) {
+                  if (this.isCancelled(requestId)) {
+                    throw new Error('GENERATION_CANCELLED');
+                  }
+
+                  const chapterPosition = storyStartChapter === cappedStoryEndChapter
+                    ? 'single'
+                    : chapterNum === storyStartChapter
+                      ? 'first'
+                      : 'second';
+                  const chapterPrompt = this.buildNovelChapterPrompt(
+                    storyContext,
+                    chapterNum,
+                    previousEnding,
+                    chapterPosition,
+                    storyStartChapter,
+                    cappedStoryEndChapter,
+                  );
+                  let chapterContent = '';
+                  let isFirstChunk = true;
+
+                  await this.llmService.chatWithWriterModelStream(
+                    [
+                      { role: 'system', content: this.getStoryWritingSystemPrompt() },
+                      { role: 'user', content: chapterPrompt }
+                    ],
+                    (chunk: string) => {
+                      chapterContent += chunk;
+
+                      subscriber.next({
+                        data: JSON.stringify({
+                          type: 'story_chunk',
+                          storyIndex: storyIndex + 1,
+                          chapter: chapterNum,
+                          content: chapterContent,
+                          isFirst: isFirstChunk
+                        })
+                      });
+
+                      if (isFirstChunk) {
+                        isFirstChunk = false;
+                      }
+                    },
+                    writerModelProvider,
+                    {
+                      signal: abortController.signal,
+                      isCancelled: () => this.isCancelled(requestId),
+                    },
+                  );
+
+                  const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
+                  const validatedChapter = chapterContent
+                    ? await this.validateAndTrimChapterScope({
+                        content: chapterContent,
+                        chapterNumber: chapterNum,
+                        storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
+                        nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
+                        mode,
+                      })
+                    : '';
+
+                  if (validatedChapter) {
+                    chapters.push(validatedChapter);
+                    previousEnding = this.extractEndingForContinuity(validatedChapter);
+
+                    subscriber.next({
+                      data: JSON.stringify({
+                        type: 'chapter_complete',
+                        chapter: chapterNum,
+                        content: validatedChapter
+                      })
+                    });
+
+                    console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(validatedChapter)}`);
+                  }
+                }
+
+                if (chapters.length > 0) {
+                  const storyContent = chapters.join('\n\n');
+                  subscriber.next({
+                    data: JSON.stringify({
+                      type: 'story_complete',
+                      storyIndex: storyIndex + 1,
+                      content: storyContent
+                    })
+                  });
+
+                  const recentSummary = this.buildRecentSummaryForContext(chapters, storyStartChapter, cappedStoryEndChapter);
+                  const maxContextLength = 3000;
+                  if (contextMemory.length > maxContextLength) {
+                    const baseContext = dto.context.substring(0, 1000);
+                    contextMemory = baseContext + `\n\n最近生成内容：${recentSummary}...`;
+                  } else {
+                    contextMemory += `\n\n最新生成内容：${recentSummary}...`;
+                  }
+
+                  console.log(`第${storyIndex + 1}个小故事生成成功，包含${chapters.length}个章节`);
+                }
+              } catch (storyError) {
+                if (this.isCancelled(requestId) || abortController.signal.aborted || String((storyError as Error)?.message || '') === 'GENERATION_CANCELLED') {
+                  console.log(`生成请求 ${requestId} 已在流式调用中终止`);
+                  subscriber.next({
+                    data: JSON.stringify({
+                      type: 'cancelled',
+                      message: '生成已被用户终止'
+                    })
+                  });
+                  subscriber.complete();
+                  clearInterval(heartbeat);
+                  this.clearGenerationRequest(requestId);
+                  return;
+                }
+                console.error(`第${storyIndex + 1}个小故事生成失败:`, storyError);
+                subscriber.next({
+                  data: JSON.stringify({
+                    type: 'story_error',
+                    storyIndex: storyIndex + 1,
+                    error: `第${storyIndex + 1}个小故事生成失败`
+                  })
+                });
+              }
+
+              continue;
             }
 
             const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
