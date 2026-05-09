@@ -1766,12 +1766,13 @@ ${romanceLineRules}
 - 必须严格遵循当前小故事剧情范围，不能偏离当前阶段规定的情节发展。
 - 绝对不能涉及或暗示下一小故事的内容，确保每个小故事都有独立的发展空间。
 - 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
+- 剧情边界优先于字数：一旦本章在当前小故事中的任务已经完成，必须立刻自然收束并停在钩子上，禁止为了凑字数继续写下一章、下一小故事或新增无关桥段。
 - ${positionRule}
 - ${this.getPlanningLeakRule()}
 
 生成要求：
 1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字。
-2. 严格控制字数：本章正文必须写到2100-2300字，最低不能少于2000字，不要用摘要、跳写或提前收尾来压缩篇幅。
+2. 字数是质量建议，不是硬性下限：本章优先写到1800-2300字；如果当前剧情范围在更短篇幅内已经完整抵达阶段终点，可以低于1800字，但不得用注水、重复、解释设定或越界剧情凑字。
 3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
 4. 保持与整体故事的连贯性和人物成长，特别要衔接好之前已生成的内容。
 5. 融入世界观设定和人物关系。
@@ -1784,7 +1785,7 @@ ${romanceLineRules}
 请直接输出章节内容，格式如下：
 第${chapterNumber}章 [章节标题]
 
-[第${chapterNumber}章正文内容，2100-2300字]
+[第${chapterNumber}章正文内容，以当前剧情边界自然完成为准]
 
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
   }
@@ -1814,11 +1815,13 @@ ${romanceLineRules}
 - 必须严格遵循当前剧情范围写作，不能偏离当前阶段规定的情节发展。
 - 绝对不能涉及或暗示下一小故事的内容，确保每个小故事都有独立的发展空间。
 - 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
+- 剧情边界优先于字数：写到当前小故事终点后必须停下来，禁止为了凑字数继续写下一小故事、提前兑现后续大事件、扩写无关副本或重复解释设定。
+- 宁可短一点但完整、干净、停在正确钩子上，也不要为了达到字数而透支后续提示词。
 - ${this.getPlanningLeakRule()}
 
 生成要求：
-1. 总字数必须写到4300-4500字，不要只写2000多字就结束。
-2. 第${storyStartChapter}章约2100-2200字，第${storyEndChapter}章约2200-2300字。
+1. 总字数建议在3200-4500字之间；这不是硬性下限。如果当前小故事在2000-3200字已经完整抵达终点，可以直接停止。
+2. 第${storyStartChapter}章与第${storyEndChapter}章按剧情自然分配篇幅，不要为了平均字数而拆碎节奏。
 3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
 4. 每章开头必须带着危机进入：承接上一章危机、抛出新威胁、制造关系爆雷、资源被夺、强敌压境或任务失败，不能平静开场。
 5. 推进过程中必须释放至少一个高燃点或爽点，例如反杀、打脸、破局、夺回资源、揭露真相、实力升级、情感爆发或关键选择。
@@ -1829,13 +1832,13 @@ ${romanceLineRules}
 [[CHAPTER_${storyStartChapter}_START]]
 第${storyStartChapter}章 [章节标题]
 
-[第${storyStartChapter}章正文内容，2100-2200字]
+[第${storyStartChapter}章正文内容，以当前小故事前半段自然完成为准]
 [[CHAPTER_${storyStartChapter}_END]]
 
 [[CHAPTER_${storyEndChapter}_START]]
 第${storyEndChapter}章 [章节标题]
 
-[第${storyEndChapter}章正文内容，2200-2300字]
+[第${storyEndChapter}章正文内容，以当前小故事后半段自然完成为准]
 [[CHAPTER_${storyEndChapter}_END]]
 
 注意：直接输出以上两章正文，不要输出“下面是”“写作说明”“字数统计”等额外内容。`;
@@ -1875,11 +1878,11 @@ ${romanceLineRules}
     return chapters;
   }
 
-  private isNovelBatchLongEnough(chapters: string[]): boolean {
-    if (chapters.length === 0) return false;
-    const counts = chapters.map(chapter => this.getWordCount(chapter));
-    const total = counts.reduce((sum, count) => sum + count, 0);
-    return total >= 3600 && counts.every(count => count >= 1600);
+  private hasExpectedNovelChapters(chapters: string[], expectedCount: number): boolean {
+    if (chapters.length < expectedCount) return false;
+    return chapters
+      .slice(0, expectedCount)
+      .every(chapter => this.stripLeadingChapterTitleLine(chapter).trim().length >= 120);
   }
 
 	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
@@ -2060,12 +2063,12 @@ ${romanceLineRules}
                   );
 
                   const markedChapters = this.extractMarkedNovelChapters(storyContent, storyStartChapter, cappedStoryEndChapter);
-                  const parsedChapters = this.isNovelBatchLongEnough(markedChapters)
+                  const parsedChapters = this.hasExpectedNovelChapters(markedChapters, expectedChapterCount)
                     ? markedChapters
                     : this.extractChaptersFromContent(storyContent, storyStartChapter, cappedStoryEndChapter);
 
-                  if (this.isNovelBatchLongEnough(parsedChapters)) {
-                    for (const [index, chapter] of parsedChapters.entries()) {
+                  if (this.hasExpectedNovelChapters(parsedChapters, expectedChapterCount)) {
+                    for (const [index, chapter] of parsedChapters.slice(0, expectedChapterCount).entries()) {
                       const chapterNum = storyStartChapter + index;
                       const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
                       const validatedChapter = await this.validateAndTrimChapterScope({
@@ -2096,7 +2099,7 @@ ${romanceLineRules}
                       previousEnding = this.extractEndingForContinuity(lastChapter);
                     }
                   } else {
-                    console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}一次生成字数不足或编号缺失，改用逐章补救`);
+                    console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}一次生成未能拆出完整章节，改用逐章补救`);
                   }
                 }
 
