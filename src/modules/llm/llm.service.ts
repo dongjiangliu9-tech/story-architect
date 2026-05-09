@@ -458,9 +458,19 @@ export class LlmService {
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     onChunk: (chunk: string) => void,
     provider: 'deepseek' | 'gemini' = 'deepseek',
+    options: { signal?: AbortSignal; isCancelled?: () => boolean } = {},
   ) {
+    const throwIfCancelled = () => {
+      if (options.signal?.aborted || options.isCancelled?.()) {
+        throw new Error('GENERATION_CANCELLED');
+      }
+    };
+
+    throwIfCancelled();
+
     if (provider === 'gemini') {
       const content = await this.chat(messages);
+      throwIfCancelled();
       if (content) {
         onChunk(content);
       }
@@ -475,15 +485,19 @@ export class LlmService {
         temperature: 1.2,
         max_tokens: 8192,
         stream: true,
-      });
+      }, options.signal ? { signal: options.signal } : undefined);
 
       for await (const chunk of stream) {
+        throwIfCancelled();
         const content = chunk.choices[0]?.delta?.content || '';
         if (content) {
           onChunk(content);
         }
       }
     } catch (error) {
+      if (options.signal?.aborted || options.isCancelled?.() || String((error as Error)?.message || '') === 'GENERATION_CANCELLED') {
+        throw new Error('GENERATION_CANCELLED');
+      }
       console.error('Deepseek写作API流式调用失败:', error);
       throw new Error('Deepseek写作服务暂时不可用，请稍后重试');
     }

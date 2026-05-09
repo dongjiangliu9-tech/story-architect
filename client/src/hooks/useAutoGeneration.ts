@@ -145,8 +145,11 @@ ${outline.themes}`;
       const targetUnitCount = isMicrodrama ? 30 : 80;
       const targetLabel = isMicrodrama ? '30集微短剧' : '80章网文';
       const outlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline' : 'novel-80-detailed-outline';
+      const preIteratedOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-pre-v1' : 'novel-80-detailed-outline-pre-v1';
       const finalOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-density-v3' : 'novel-80-detailed-outline-density-v3';
       const microStoriesCacheKey = isMicrodrama ? 'microdrama-30-all-micro-stories' : 'novel-80-all-micro-stories';
+      const expandedWorldCacheKey = isMicrodrama ? 'microdrama-30-world-expanded-v1' : 'novel-80-world-expanded-v1';
+      const expandedCharactersCacheKey = isMicrodrama ? 'microdrama-30-characters-expanded-v1' : 'novel-80-characters-expanded-v1';
 
       // 清理旧缓存
       clearCache(bookName);
@@ -180,6 +183,24 @@ ${outline.themes}`;
         updateStep('generate-world', { status: 'completed', message: '世界观基础设定生成完成' });
       }
 
+      const cachedExpandedWorld = getCachedData(bookName, expandedWorldCacheKey);
+      if (cachedExpandedWorld) {
+        worldResponse = { data: cachedExpandedWorld };
+        updateStep('generate-world', { status: 'completed', message: '从缓存加载扩充后的世界观基础设定' });
+      } else {
+        updateStep('generate-world', { status: 'running', message: '正在自动补充世界观：增加事例与副本...' });
+        setCurrentStepMessage('正在自动补充世界观：增加事例与副本...');
+        const expandedWorldResponse = await blueprintApi.generateWorldSetting({
+          ...logicModelRequest,
+          outline: outlineData,
+          existingWorldSetting: worldResponse.data,
+          note: '请在既有世界观基础上进行补充性生成，并插入到最合适的位置：新增20个可直接用于正文展开的具体事例，新增20个副本/试炼/任务/危机事件场景。每个新增项都要包含触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要删除原有设定，不要重写成另一套世界观。',
+        });
+        worldResponse = expandedWorldResponse;
+        setCachedData(bookName, expandedWorldCacheKey, worldResponse.data);
+        updateStep('generate-world', { status: 'completed', message: '世界观扩充完成：已补充事例与副本' });
+      }
+
       // 3. 生成人物设定
       updateStep('generate-characters', { status: 'running', message: '正在生成人物设定...' });
       setCurrentStepMessage('正在生成人物设定...');
@@ -197,6 +218,25 @@ ${outline.themes}`;
         });
         setCachedData(bookName, 'characters', charactersResponse.data);
         updateStep('generate-characters', { status: 'completed', message: '人物设定生成完成' });
+      }
+
+      const cachedExpandedCharacters = getCachedData(bookName, expandedCharactersCacheKey);
+      if (cachedExpandedCharacters) {
+        charactersResponse = { data: cachedExpandedCharacters };
+        updateStep('generate-characters', { status: 'completed', message: '从缓存加载扩充后的人物设定' });
+      } else {
+        updateStep('generate-characters', { status: 'running', message: '正在自动补充人物设定：增加阶段出场角色...' });
+        setCurrentStepMessage('正在自动补充人物设定：增加阶段出场角色...');
+        const expandedCharactersResponse = await blueprintApi.generateCharacters({
+          ...logicModelRequest,
+          outline: outlineData,
+          worldSetting: worldResponse.data,
+          existingCharacters: charactersResponse.data,
+          note: '请在既有人物设定基础上进行补充性生成，并插入到最合适的位置：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、身份阵营、欲望目标、能力/资源、与主角或核心人物的关系、首次登场场景、能制造的冲突、后续可回收的伏笔或反转。角色要覆盖前期压迫、中期副本/任务、后期势力博弈等不同阶段，不要删除原有角色，不要重写成另一套人物体系。',
+        });
+        charactersResponse = expandedCharactersResponse;
+        setCachedData(bookName, expandedCharactersCacheKey, charactersResponse.data);
+        updateStep('generate-characters', { status: 'completed', message: '人物设定扩充完成：已补充阶段出场角色' });
       }
 
       // 4. 生成情节细纲
@@ -228,6 +268,29 @@ ${outline.themes}`;
       setCurrentStepMessage('正在进行第1轮三密度滑块迭代...');
 
       let detailedOutline = outlineResponse.data;
+      const cachedPreIteratedOutline = getCachedData(bookName, preIteratedOutlineCacheKey);
+      if (!isMicrodrama) {
+        if (cachedPreIteratedOutline) {
+          detailedOutline = cachedPreIteratedOutline;
+          updateStep('density-iterate', { status: 'running', message: '从缓存加载预迭代后的中故事细纲...' });
+        } else {
+          updateStep('density-iterate', { status: 'running', message: '正在进行中故事预迭代：扩充剧情承载力...' });
+          setCurrentStepMessage('正在进行中故事预迭代：扩充剧情承载力...');
+          const preIteratedOutlineResponse = await blueprintApi.generateDetailedOutline({
+            ...logicModelRequest,
+            outline: outlineData,
+            worldSetting: worldResponse.data,
+            characters: charactersResponse.data,
+            mode: targetMode,
+            reduceSensitiveContent: true,
+            outlineBatchIndex: 1,
+            existingDetailedOutline: detailedOutline,
+            outlineRevisionSuggestion: '现有的中故事内容无法支撑起20章的庞大剧情，需要AI进行自动化的融合更多实力与未出场的角色，设计更复杂的桥段，重新设计每个中故事。必须保留原有主线方向，但显著增加每个中故事内部的事件层级、角色参与度、副本/任务/危机结构、阶段目标、反转点、伏笔回收和章节承载力。每个中故事要足够支撑长篇网文多章连续展开，避免两三章就写完。请输出完整新版情节细纲，不要输出说明或差异对比。',
+          });
+          detailedOutline = preIteratedOutlineResponse.data;
+          setCachedData(bookName, preIteratedOutlineCacheKey, detailedOutline);
+        }
+      }
       let currentDensityLevels = emptyDensityLevels();
       const enabledDensity = Object.fromEntries(DENSITY_TUNING_KEYS.map(key => [key, true])) as Record<typeof DENSITY_TUNING_KEYS[number], boolean>;
 

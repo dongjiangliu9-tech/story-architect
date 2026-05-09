@@ -87,9 +87,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [_totalChapters, setTotalChapters] = useState(0);
   const [previousChapterEnding, setPreviousChapterEnding] = useState<string>('');
   const [generatedChapters, setGeneratedChapters] = useState<{[key: number]: string}>({});
+  const currentProjectRef = useRef(currentProject);
+  const generatedChaptersRef = useRef<{[key: number]: string}>({});
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [isFullCycleGenerating, setIsFullCycleGenerating] = useState(false);
   const [currentRequestId, setCurrentRequestId] = useState<string>('');
+  const currentRequestIdRef = useRef('');
   const [fullCycleProgress, setFullCycleProgress] = useState<{
     current: number;
     total: number;
@@ -139,6 +142,19 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     generationState.isGenerating &&
     generationState.currentGeneratingChapter === currentChapter &&
     generatedContent.length > 0;
+
+  useEffect(() => {
+    currentProjectRef.current = currentProject;
+  }, [currentProject]);
+
+  useEffect(() => {
+    generatedChaptersRef.current = generatedChapters;
+  }, [generatedChapters]);
+
+  useEffect(() => {
+    currentRequestIdRef.current = currentRequestId;
+  }, [currentRequestId]);
+
   const visibleChapterContent = isEditingChapter
     ? chapterDraft
     : isStreamingCurrentChapter
@@ -329,6 +345,41 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     } catch (error) {
       console.error('保存Writer页面状态失败:', error);
     }
+  };
+
+  const persistGeneratedChapters = (patch: {[key: number]: string}) => {
+    const project = currentProjectRef.current;
+    const mergedChapters = {
+      ...(project?.generatedChapters || {}),
+      ...generatedChaptersRef.current,
+      ...patch,
+    };
+
+    generatedChaptersRef.current = mergedChapters;
+    setGeneratedChapters(mergedChapters);
+
+    const snapshot = {
+      generatedContent: isEditingChapter ? chapterDraft : generatedContent,
+      currentChapter,
+      previousChapterEnding,
+      actionFirstScript,
+      targetEpisodeWords,
+      generatedChapters: mergedChapters,
+      generationState,
+      timestamp: Date.now()
+    };
+
+    try {
+      if (project?.id) {
+        updateProject(project.id, { generatedChapters: mergedChapters });
+        localStorage.setItem(`writer-state-${project.id}`, JSON.stringify(snapshot));
+      }
+      localStorage.setItem('writer-state-default', JSON.stringify(snapshot));
+    } catch (error) {
+      console.error('实时保存章节失败:', error);
+    }
+
+    return mergedChapters;
   };
 
   // 定期保存状态（每30秒）
@@ -536,16 +587,20 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     if (!confirmed) return;
 
     try {
+      const requestId = currentRequestIdRef.current || currentRequestId;
+      if (requestId) {
+        await blueprintApi.cancelGeneration(requestId);
+        console.log('已发送终止请求到后台');
+      } else {
+        console.warn('当前没有可取消的requestId，仅关闭前端连接');
+      }
+
       // 关闭SSE连接
       if (currentEventSource) {
         currentEventSource.close();
         setCurrentEventSource(null);
         console.log('SSE连接已关闭');
       }
-
-      // 调用API终止后台生成
-      await blueprintApi.cancelGeneration(currentRequestId);
-      console.log('已发送终止请求到后台');
     } catch (error) {
       console.error('终止生成失败:', error);
     }
@@ -707,6 +762,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           console.log('收到SSE消息:', data.type, data.chapter || '');
 
           switch (data.type) {
+            case 'ping':
+              break;
+
+            case 'duplicate_stream':
+              console.warn(data.message || '重复的流式连接已忽略');
+              eventSource.close();
+              setCurrentEventSource(null);
+              break;
+
             case 'start':
               console.log(data.message);
               setGenerationState(prev => ({
@@ -746,8 +810,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 const cleanContent = cleanWriterContent(data.content);
                 generatedChaptersData[data.chapter] = cleanContent;
 
-                // 更新状态
-                setGeneratedChapters(prev => ({ ...prev, [data.chapter]: cleanContent }));
+                // 每章完成立即落库，避免中断或刷新后丢章节
+                persistGeneratedChapters({ [data.chapter]: cleanContent });
 
                 // 更新生成状态
                 setGenerationState(prev => ({
@@ -809,10 +873,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 }
 
                 // 合并新生成的章节到总章节中
-                setGeneratedChapters(prev => ({ ...prev, ...generatedChaptersData }));
+                const updatedChapters = persistGeneratedChapters(generatedChaptersData);
 
                 // 重置生成状态
-                const totalGenerated = Object.keys(generatedChapters).length + Object.keys(generatedChaptersData).length;
+                const totalGenerated = Object.keys(updatedChapters).length;
                 setGenerationState({
                   isGenerating: false,
                   currentGeneratingChapter: null,
@@ -830,6 +894,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 }
                 eventSource.close();
                 setCurrentEventSource(null);
+                setCurrentRequestId('');
                 setIsBatchGenerating(false);
               } catch (error) {
                 console.error('处理完成事件时出现错误:', error);
@@ -861,6 +926,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           totalChapters: 0,
           completedChapters: []
         });
+        setCurrentRequestId('');
         setIsBatchGenerating(false);
       };
 
@@ -1163,6 +1229,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               console.log('模拟用户：收到SSE消息:', data.type, data.chapter || '');
 
               switch (data.type) {
+                case 'ping':
+                  break;
+
+                case 'duplicate_stream':
+                  console.warn(data.message || '重复的流式连接已忽略');
+                  eventSource.close();
+                  setCurrentEventSource(null);
+                  break;
+
                 case 'start':
                   console.log('模拟用户：开始生成');
                   setGenerationState(prev => ({
@@ -1199,7 +1274,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     const cleanContent = cleanWriterContent(data.content);
                     generatedChaptersData[data.chapter] = cleanContent;
 
-                    setGeneratedChapters(prev => ({ ...prev, [data.chapter]: cleanContent }));
+                    // 每章完成立即落库，避免中断或刷新后丢章节
+                    persistGeneratedChapters({ [data.chapter]: cleanContent });
 
                     setGenerationState(prev => ({
                       ...prev,
@@ -1230,6 +1306,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   eventSource.close();
                   setCurrentEventSource(null);
                   setIsBatchGenerating(false);
+                  setCurrentRequestId('');
                   reject(new Error('生成已被终止'));
                   break;
 
@@ -1255,9 +1332,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                     // 合并新生成的章节到总章节中
                     // 【修复】使用传入的参数或当前状态，确保累积保存包含所有历史章节
-                    const allExistingChapters = allGeneratedChapters || generatedChapters;
-                    const updatedChapters = { ...allExistingChapters, ...generatedChaptersData };
-                    setGeneratedChapters(updatedChapters);
+                    const updatedChapters = persistGeneratedChapters({
+                      ...(allGeneratedChapters || {}),
+                      ...generatedChaptersData,
+                    });
 
                     // 重置生成状态
                     const totalGenerated = Object.keys(updatedChapters).length;
@@ -1278,6 +1356,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                     eventSource.close();
                     setCurrentEventSource(null);
+                    setCurrentRequestId('');
                     setIsBatchGenerating(false);
 
                     // 完成这一批次的生成，返回新生成的章节数据
@@ -1305,6 +1384,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           eventSource.onerror = (error) => {
             console.error('模拟用户：SSE连接错误:', error);
             setIsBatchGenerating(false);
+            setCurrentRequestId('');
             reject(error);
           };
 

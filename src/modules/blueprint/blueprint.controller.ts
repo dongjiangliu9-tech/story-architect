@@ -107,15 +107,18 @@ export class BlueprintController {
   async generateChapterStream(@Query('requestId') requestId: string): Promise<Observable<MessageEvent>> {
     console.log('收到SSE流请求, requestId:', requestId);
 
-    const dto = this.blueprintService.getGenerationRequest(requestId);
-    if (!dto) {
+    const claimed = this.blueprintService.claimGenerationRequest(requestId);
+    if (!claimed) {
       console.error('生成请求不存在:', requestId);
       console.log('当前存储的请求数量:', this.blueprintService.getStoredRequestCount());
       throw new Error('生成请求不存在或已过期，请重新开始生成');
     }
+    if (claimed.alreadyActive) {
+      return this.blueprintService.generateDuplicateStreamNotice(requestId);
+    }
 
     console.log('找到生成请求，开始流式生成');
-    return this.blueprintService.generateChapterStream(dto, requestId);
+    return this.blueprintService.generateChapterStream(claimed.dto, requestId);
   }
 
   @Post('export-docx')
