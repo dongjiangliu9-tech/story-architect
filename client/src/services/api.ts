@@ -221,6 +221,7 @@ export interface GenerateDetailedOutlineDto {
   microdramaEpisodeCount?: 30 | 60 | 100;
   outlineBatchIndex?: number;
   existingDetailedOutline?: string;
+  outlineRevisionSuggestion?: string;
   isFinalBatch?: boolean;
   reduceSensitiveContent?: boolean;
 }

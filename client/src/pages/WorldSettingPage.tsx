@@ -78,6 +78,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const [isGeneratingWorldSetting, setIsGeneratingWorldSetting] = useState(false);
   const [isGeneratingCharacters, setIsGeneratingCharacters] = useState(false);
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
+  const [isRegeneratingOutlineWithSuggestion, setIsRegeneratingOutlineWithSuggestion] = useState(false);
+  const [outlineRevisionSuggestion, setOutlineRevisionSuggestion] = useState('');
   const [worldSettingGenerated, setWorldSettingGenerated] = useState(false);
   const [charactersGenerated, setCharactersGenerated] = useState(false);
   const [activeTab, setActiveTab] = useState<'world' | 'characters' | 'outline'>('world');
@@ -402,6 +404,70 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       alert('生成情节细纲失败，请稍后重试');
     } finally {
       setIsGeneratingOutline(false);
+    }
+  };
+
+  const handleImportOutlineSuggestion = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setOutlineRevisionSuggestion(text.trim());
+    } catch (error) {
+      console.error('读取情节建议文件失败:', error);
+      alert('读取建议文件失败，请改为直接粘贴文本');
+    }
+  };
+
+  const handleRegenerateOutlineWithSuggestion = async () => {
+    if (!selectedOutline && !currentProject?.outline) {
+      alert('未找到故事大纲，请返回第一步重新选择或加载项目');
+      return;
+    }
+    if (!worldSetting || !characters || !outline) {
+      alert('请先准备好世界观基础设定、人物设定和当前情节细纲');
+      return;
+    }
+    if (!outlineRevisionSuggestion.trim()) {
+      alert('请先粘贴或导入修改建议');
+      return;
+    }
+
+    const confirmed = confirm('将基于当前情节细纲、世界观、人设和导入建议，完整重生成所有中故事。新结果会覆盖当前情节细纲，确定继续吗？');
+    if (!confirmed) return;
+
+    setIsRegeneratingOutlineWithSuggestion(true);
+    try {
+      const outlineData = formatOutlineData(selectedOutline || currentProject!.outline);
+      const response = await blueprintApi.generateDetailedOutline({
+        outline: outlineData,
+        worldSetting,
+        characters,
+        mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent,
+        outlineBatchIndex: 1,
+        existingDetailedOutline: outline,
+        outlineRevisionSuggestion: outlineRevisionSuggestion.trim(),
+      });
+
+      setOutline(response.data);
+      setActiveTab('outline');
+
+      if (currentProject) {
+        updateProject(currentProject.id, {
+          detailedOutline: response.data,
+          detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          reduceSensitiveContent,
+        });
+      }
+
+      alert('已根据导入建议重生成情节细纲。');
+    } catch (error) {
+      console.error('根据建议重生成情节细纲失败:', error);
+      alert('根据建议重生成情节细纲失败，请稍后重试');
+    } finally {
+      setIsRegeneratingOutlineWithSuggestion(false);
     }
   };
 
@@ -1318,6 +1384,48 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                           )}
                         </div>
                       </div>
+                      {editingSection !== 'outline' && (
+                        <div className="mb-5 border border-amber-200 bg-amber-50 rounded-lg p-4 space-y-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium text-amber-900">导入建议后重生成中故事</div>
+                              <div className="text-xs text-amber-700 mt-1">
+                                会抓住当前情节细纲，结合世界观和人物设定，按建议完整重写所有中故事。
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="inline-flex items-center gap-2 px-3 py-2 bg-white hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg text-sm font-medium cursor-pointer">
+                                <Download className="w-4 h-4" />
+                                导入建议
+                                <input
+                                  type="file"
+                                  accept=".txt,.md,.json,text/plain,text/markdown,application/json"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    handleImportOutlineSuggestion(file);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
+                              <button
+                                onClick={handleRegenerateOutlineWithSuggestion}
+                                disabled={isRegeneratingOutlineWithSuggestion || !outlineRevisionSuggestion.trim()}
+                                className="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                              >
+                                {isRegeneratingOutlineWithSuggestion ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                按建议重生成
+                              </button>
+                            </div>
+                          </div>
+                          <textarea
+                            value={outlineRevisionSuggestion}
+                            onChange={(e) => setOutlineRevisionSuggestion(e.target.value)}
+                            className="w-full min-h-[96px] p-3 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-secondary-800 bg-white"
+                            placeholder="粘贴修改建议，或导入txt/md文件。比如：减少副线、强化男主事业线、保留爱情线但降低血腥桥段、第3个中故事改成更强反转..."
+                          />
+                        </div>
+                      )}
                       <div className="prose prose-sm max-w-none">
                         {editingSection === 'outline' ? (
                           <textarea

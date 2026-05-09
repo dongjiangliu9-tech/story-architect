@@ -781,6 +781,10 @@ ${characterNameLimitBlock}
   async generateDetailedOutline(dto: GenerateDetailedOutlineDto) {
     console.log('开始生成情节细纲，基于故事大纲自动选择中故事');
     const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    if (dto.outlineRevisionSuggestion?.trim() && dto.existingDetailedOutline?.trim()) {
+      return this.regenerateDetailedOutlineWithSuggestion(dto, mode);
+    }
+
     if (mode === 'microdrama') {
       const { prompt, compactPrompt, safetyPrompt } = this.buildMicrodramaDetailedOutlinePrompts(dto);
       try {
@@ -1010,6 +1014,62 @@ ${reviewRiskInstruction}
     } catch (error) {
       console.error('生成情节细纲失败:', error);
       throw new Error('AI生成情节细纲超时，请稍后重试');
+    }
+  }
+
+  private async regenerateDetailedOutlineWithSuggestion(dto: GenerateDetailedOutlineDto, mode: 'novel' | 'microdrama') {
+    const existingDetailedOutline = dto.existingDetailedOutline?.trim() || '';
+    const suggestion = dto.outlineRevisionSuggestion?.trim() || '';
+    const existingCount = this.countMacroStories(existingDetailedOutline);
+    const episodeCount = this.normalizeMicrodramaEpisodeCount(dto.microdramaEpisodeCount);
+    const modeRule = mode === 'microdrama'
+      ? `这是微短剧大纲，必须保持微短剧结构、全剧 ${episodeCount} 集、现有中故事数量和集数分配，不要改成网文章回。`
+      : `这是网文中故事细纲，必须保持中故事编号连续；若当前已有 ${existingCount || '若干'} 个中故事，重写后也应保留相同数量，不要擅自追加下一批。`;
+    const reviewRiskRule = dto.reduceSensitiveContent
+      ? `\n审核风险控制已开启：降低血腥、酷刑、虐杀、露骨伤害、极端暴力、违法教学、敏感身份冲突等容易卡审核的桥段；用关系压迫、利益夺取、证据反转、公开羞辱、限时危机、身份错位、舆论误会、资源封锁、背叛曝光等可发布表达替代。\n`
+      : '';
+
+    const prompt = `请根据用户导入的修改建议，对当前已有情节细纲进行“完整重生成”。
+
+【故事大纲】
+${dto.outline}
+
+【世界观基础设定】
+${dto.worldSetting}
+
+【人物设定】
+${dto.characters}
+
+【当前已有情节细纲，必须作为基底】
+${existingDetailedOutline}
+
+【用户导入的修改建议，必须显著执行】
+${suggestion}
+
+重生成要求：
+1. 输出完整新版情节细纲，不要输出修改说明、建议列表、差异对比或补丁。
+2. ${modeRule}
+3. 必须抓住原有中故事的核心结构、人物关系、阶段状态和前后承接，只按用户建议重排、强化、替换或降噪；不能丢失已有世界观、人设和主线逻辑。
+4. 每个中故事仍用【中故事一】、【中故事二】这种标题格式，编号必须连续，不能漏号、跳号或只输出局部。
+5. 每个中故事都要保留「详细剧情」和「阶段状态小结」；详细剧情仍是主体篇幅，阶段状态小结要写清主角当前状态、主要人物关系、当前压力、目标方向。
+6. 微短剧要保持快冲突、快反转、快打脸、每集钩子和黑场；网文要保持中故事能继续拆成小故事/章节。
+7. 男频、事业向、升级流或复仇向微短剧也要少量保留甜宠、打情骂俏、互相试探、暧昧误会、护短或救场后的反向调侃等爱情线桥段，但不能抢主线。
+${reviewRiskRule}
+请直接输出完整新版情节细纲。`;
+
+    try {
+      const result = await this.llmService.chat([
+        { role: 'system', content: this.getStoryWritingSystemPrompt() },
+        { role: 'user', content: prompt }
+      ]);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      console.error('根据建议重生成情节细纲失败:', error);
+      throw new Error('AI根据建议重生成情节细纲失败，请稍后重试');
     }
   }
 

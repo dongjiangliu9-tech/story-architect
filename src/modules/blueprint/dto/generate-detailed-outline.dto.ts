@@ -33,6 +33,10 @@ export class GenerateDetailedOutlineDto {
   @IsOptional()
   existingDetailedOutline?: string;
 
+  @IsString()
+  @IsOptional()
+  outlineRevisionSuggestion?: string;
+
   @IsBoolean()
   @IsOptional()
   isFinalBatch?: boolean;
