@@ -1281,15 +1281,15 @@ ${reviewRiskRule}
     const rangeInfo = dto.chapterRange
       ? `，对应${mode === 'microdrama' ? '微短剧集数范围' : '小说章节范围'}：第${dto.chapterRange}${unitLabel}`
       : '';
-    const microdramaUnitCount = this.getRangeUnitCount(dto.chapterRange);
+    const rangeUnitCount = this.getRangeUnitCount(dto.chapterRange);
     const rangeParts = dto.chapterRange?.split('-') || [];
     const microdramaLastUnitLabel = dto.chapterRange
       ? `第${rangeParts[rangeParts.length - 1]}集`
-      : `第${microdramaUnitCount}集`;
+      : `第${rangeUnitCount}集`;
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
 
     const prompt = mode === 'microdrama'
-      ? `基于以下中故事内容，为这部中故事生成${microdramaUnitCount}个单集具体情节细纲${rangeInfo}：
+      ? `基于以下中故事内容，为这部中故事生成${rangeUnitCount}个单集具体情节细纲${rangeInfo}：
 
 中故事${dto.storyIndex}内容：
 ${dto.macroStory}
@@ -1297,7 +1297,7 @@ ${dto.macroStory}
 **任务要求：**
 ${romanceLineRules}
 
-1. 输出必须是${microdramaUnitCount}个单集细纲，顺序连续、集数连续、逻辑闭环清晰；在微短剧模式下，每个单集细纲对应 1 集
+1. 输出必须是${rangeUnitCount}个单集细纲，顺序连续、集数连续、逻辑闭环清晰；在微短剧模式下，每个单集细纲对应 1 集
 2. 每个小故事都必须包含完整的情节发展：开场冲突→升级→爆发→结尾钩子
 3. 与中故事的主线情节紧密关联
 4. 展现不同的叙事角度和人物成长
@@ -1327,8 +1327,8 @@ ${romanceLineRules}
 - 每个小故事后面直接跟具体的情节细纲内容
 - 内容要详细具体，便于后续写作参考
 
-请直接输出${microdramaUnitCount}个单集细纲，不要添加任何额外的说明或格式。`
-      : `基于以下中故事内容，为这部中故事生成10个小故事的具体情节细纲${rangeInfo}：
+请直接输出${rangeUnitCount}个单集细纲，不要添加任何额外的说明或格式。`
+      : `基于以下中故事内容，为这部中故事生成${rangeUnitCount}个单章小故事细纲${rangeInfo}：
 
 中故事${dto.storyIndex}内容：
 ${dto.macroStory}
@@ -1336,22 +1336,22 @@ ${dto.macroStory}
 **任务要求：**
 ${romanceLineRules}
 
-请基于这个中故事的具体情节内容，自动抽取并设计10个小故事，每个小故事都要：
-1. 包含完整的情节发展：危机开头→快速推进→高燃点/爽点释放→高潮反转→结尾钩子
-2. 强制要求：每个小故事必须写作两章，每章大约2200字，也就是每个小故事总计约4400字内容
-3. 与中故事的主线情节紧密关联
-4. 展现不同的叙事角度和人物成长
-5. 包含具体的场景描述、对话、冲突和转折
-6. 每个小故事必须以具体危机开头，不能用平静铺垫；推进过程中至少安排一次高燃点或爽点释放，例如反杀、打脸、破局、夺回资源、揭露真相、情感爆发或实力升级
-7. 每个小故事结尾必须留钩子，为下一组章节留下更大危机、未解谜团、关系变化、敌人反扑或目标升级
-8. 重要：章节编号要连续，${dto.chapterRange ? `从第${dto.chapterRange.split('-')[0]}章开始` : '从当前章节开始'}，确保与整体小说章节连续
+请基于这个中故事的具体情节内容，自动抽取并设计${rangeUnitCount}个单章小故事，每个小故事只服务1章正文，后续写作时每章单独生成2000-2300字。
+1. 输出必须是${rangeUnitCount}个单章细纲，顺序连续、章节连续、逻辑清楚；每个小故事对应 1 章。
+2. 每个单章小故事都要包含完整的当章推进：危机开头→快速推进→高燃点/爽点释放→阶段反转→章尾钩子。
+3. 与中故事的主线情节紧密关联，但不能把后续章节的关键结果提前写进当前章。
+4. 展现不同的叙事角度和人物成长。
+5. 包含具体的场景描述、对话、冲突和转折，内容要详细具体到可直接扩写成一章正文。
+6. 每章必须以具体危机开头，不能用平静铺垫；推进过程中至少安排一次高燃点或爽点释放，例如反杀、打脸、破局、夺回资源、揭露真相、情感爆发或实力升级。
+7. 每章结尾必须留钩子，为下一章留下更大危机、未解谜团、关系变化、敌人反扑或目标升级；只留钩子，不要开始解决钩子。
+8. 重要：章节编号要连续，${dto.chapterRange ? `从第${dto.chapterRange.split('-')[0]}章开始` : '从当前章节开始'}，确保与整体小说章节连续。
 
 **输出格式要求：**
-- 每个小故事用【小故事一】【小故事二】...【小故事十】的格式标记
+- 每个单章小故事用全书绝对章节号标记，例如【第1章】【第2章】...
 - 每个小故事后面直接跟具体的情节细纲内容
 - 内容要详细具体，便于后续写作参考
 
-请直接输出10个小故事的细纲，不要添加任何额外的说明或格式。`;
+请直接输出${rangeUnitCount}个单章小故事细纲，不要添加任何额外的说明或格式。`;
 
     try {
       const result = await this.chatWithSelectedLogicModel([
@@ -1407,7 +1407,7 @@ ${romanceLineRules}
 4. 必须兼顾上下中故事连续性：承接前文已经发生的结果，不提前消耗后文核心爆点。
 5. ${mode === 'microdrama'
           ? '按爆款微短剧中故事设计：必须承接当前中故事已标注的对应集数，内部每集都要有惊艳开场、快节奏推进、打压、高潮、反转、打脸和最后一集黑场钩子；每一集的详细剧情都要展开到可继续拆成单集细纲；女频内容要强化爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯和情感误会，但不得越过当前关系阶段；结尾必须追加「阶段状态小结」。'
-          : '按小说中故事设计：默认能继续拆成10个小故事、20章左右；首个中故事以生死为局开头，后续中故事以重大危局开头，内部要有完整目标、阻碍、升级、高燃点/爽点释放、阶段高潮、结尾扣子和阶段收束；详细剧情必须写到可继续拆成小故事的程度。'}
+          : '按小说中故事设计：默认能继续拆成20个单章小故事；首个中故事以生死为局开头，后续中故事以重大危局开头，内部要有完整目标、阻碍、升级、高燃点/爽点释放、阶段高潮、结尾扣子和阶段收束；详细剧情必须写到可继续拆成单章细纲的程度。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础。
 7. 当前中故事开头必须精准承接【上一个中故事】结尾的结果、主角状态、关系变化、当前压力与“目标方向”；如果上一个中故事为空，则按本作品开局逻辑处理。
 8. 当前中故事结尾必须把主角推进到一个清晰的新阶段，并留下可递交给下一中故事的目标方向；如果【下一个中故事】已存在，严禁改写它已经建立的开头前提，严禁提前消耗它的核心爆点，只能把结尾目标自然对齐到它的开局。
@@ -1525,7 +1525,7 @@ ${romanceLineRules}
 4. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
 5. ${mode === 'microdrama'
       ? '按爆款微短剧单集思维设计：开场必须惊艳并立即抓人，中段快节奏推进，人物性格鲜明，有打压、有高潮、有反转、有打脸，结尾为下一集留下强钩子；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会；内容应便于继续扩成单集剧本。'
-      : '按小说小故事思维设计：保留两章承载空间，写清危机开头、冲突递进、高燃点/爽点释放、高潮反转、结尾钩子和阶段收束。'}
+        : '按小说单章小故事思维设计：每个小故事只服务1章，写清危机开头、冲突递进、高燃点/爽点释放、阶段反转、章尾钩子和当章收束。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础，而不是退回原方案。
 
 输出格式必须严格如下：
@@ -1650,9 +1650,7 @@ ${episodeNumber}-2 日/夜 内/外 地点
         const currentChapterNum = startChapter + i;
         console.log(`正在生成第${currentChapterNum}${unitLabel}...`);
 
-        const storyData = dto.savedMicroStories?.[mode === 'microdrama'
-          ? currentChapterNum - 1
-          : Math.floor((currentChapterNum - 1) / 2)];
+        const storyData = dto.savedMicroStories?.[currentChapterNum - 1];
         const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
         const chapterPrompt = mode === 'microdrama'
           ? this.buildMicrodramaEpisodePrompt(contextMemory, currentChapterNum, previousEnding, storyData, dto.actionFirstScript, dto.targetEpisodeWords)
@@ -1667,7 +1665,7 @@ ${romanceLineRules}
 
 生成要求：
 1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字
-2. 严格控制字数：每章内容必须在2200-2500字之间
+2. 严格控制字数：每章内容必须在2000-2300字之间
 3. 内容要详细丰满，包含具体的场景描写、对话、心理活动和冲突
 4. 保持与整体故事的连贯性和人物成长
 5. 融入世界观设定和人物关系
@@ -1680,7 +1678,7 @@ ${romanceLineRules}
 请直接输出章节内容，格式如下：
 第${currentChapterNum}章 [章节标题]
 
-[章节正文内容，至少2200字]
+[章节正文内容，2000-2300字]
 
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
 
@@ -1698,9 +1696,7 @@ ${romanceLineRules}
               content: chapterResult,
               chapterNumber: currentChapterNum,
               storyData,
-              nextStoryData: dto.savedMicroStories?.[mode === 'microdrama'
-                ? currentChapterNum
-                : Math.floor((currentChapterNum - 1) / 2) + 1],
+              nextStoryData: dto.savedMicroStories?.[currentChapterNum],
               mode,
             })
           : '';
@@ -1736,20 +1732,13 @@ ${romanceLineRules}
     context: string,
     chapterNumber: number,
     previousEnding: string,
-    chapterPosition: 'first' | 'second' | 'single' = 'single',
-    storyStartChapter?: number,
-    storyEndChapter?: number,
+    _chapterPosition: 'first' | 'second' | 'single' = 'single',
+    _storyStartChapter?: number,
+    _storyEndChapter?: number,
   ): string {
     const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
-    const storyRange = storyStartChapter && storyEndChapter
-      ? `当前小故事覆盖第${storyStartChapter}-${storyEndChapter}章。`
-      : '当前小故事覆盖当前章节。';
-    const positionRule = chapterPosition === 'first'
-      ? `本章负责当前小故事的前半段：必须把开局危机、核心冲突和第一个高燃爽点写扎实，但不要提前写完整个小故事的最终结局，也不要写第${chapterNumber + 1}章应该承接展开的后半段。`
-      : chapterPosition === 'second'
-        ? `本章负责当前小故事的后半段：必须从上一章结尾继续推进，禁止复述、重写或平行改写前半段；要把冲突推到阶段高潮，并在结尾留下下一章钩子；但不能进入下一个小故事才该展开的场景、目标或结果。`
-        : `本章必须完成当前章节细纲内的核心冲突推进，并在结尾留下下一章钩子。`;
+    const storyRange = `当前小故事只覆盖第${chapterNumber}章。`;
 
     return `${context}
 
@@ -1764,15 +1753,15 @@ ${romanceLineRules}
 - ${storyRange}
 - 只生成第${chapterNumber}章，绝对不要生成第${chapterNumber + 1}章或其他章节。
 - 必须严格遵循当前小故事剧情范围，不能偏离当前阶段规定的情节发展。
-- 绝对不能涉及或暗示下一小故事的内容，确保每个小故事都有独立的发展空间。
+- 网文模式下每个小故事只对应一章；绝对不能涉及或暗示下一章/下一小故事的内容，确保每章都有独立的发展空间。
 - 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
 - 剧情边界优先于字数：一旦本章在当前小故事中的任务已经完成，必须立刻自然收束并停在钩子上，禁止为了凑字数继续写下一章、下一小故事或新增无关桥段。
-- ${positionRule}
+- 本章必须完成当前章节细纲内的核心冲突推进，并在结尾留下下一章钩子；只留钩子，不要开始解决钩子。
 - ${this.getPlanningLeakRule()}
 
 生成要求：
 1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字。
-2. 字数是质量建议，不是硬性下限：本章优先写到1800-2300字；如果当前剧情范围在更短篇幅内已经完整抵达阶段终点，可以低于1800字，但不得用注水、重复、解释设定或越界剧情凑字。
+2. 字数要求：本章优先写到2000-2300字；不要低于2000字，不要超过2300字。若接近2300字时已经抵达章尾钩子，必须停笔。
 3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
 4. 保持与整体故事的连贯性和人物成长，特别要衔接好之前已生成的内容。
 5. 融入世界观设定和人物关系。
@@ -1790,214 +1779,6 @@ ${romanceLineRules}
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
   }
 
-  private buildNovelTwoPartStoryPrompt(
-    context: string,
-    storyStartChapter: number,
-    storyEndChapter: number,
-    previousEnding: string,
-  ): string {
-    const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
-    const romanceLineRules = this.getRomanceLineHardRulesPrompt();
-
-    return `${context}
-
-请基于以上完整的故事背景信息，生成当前小故事覆盖的两个连续章节：第${storyStartChapter}章到第${storyEndChapter}章。
-
-${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在第${storyStartChapter}章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
-
-感情线硬规则：
-${romanceLineRules}
-
-**⚠️ 重要限制条件：**
-- 当前小故事覆盖第${storyStartChapter}-${storyEndChapter}章，必须一次写完整个小故事，但要按两个章节清楚分段。
-- 两章必须写成同一个小故事的前半段与后半段：第${storyStartChapter}章负责危机开局、核心冲突和第一个高燃爽点；第${storyEndChapter}章必须承接第${storyStartChapter}章结尾，把冲突推到阶段高潮并留下下一章钩子。
-- 第${storyEndChapter}章禁止复述、重写或平行改写第${storyStartChapter}章已经发生的内容。
-- 必须严格遵循当前剧情范围写作，不能偏离当前阶段规定的情节发展。
-- 当前小故事卡是唯一可写范围；所属中故事、世界观和人物设定只作为背景，不得把所属中故事后半段或下一小故事提前写出来。
-- 绝对不能涉及或暗示下一小故事的内容，确保每个小故事都有独立的发展空间。
-- 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
-- 剧情边界优先于字数：写到当前小故事终点后必须像微短剧黑场一样立刻停下来，禁止为了凑字数继续写下一小故事、提前兑现后续大事件、扩写无关副本或重复解释设定。
-- 宁可短一点但完整、干净、停在正确钩子上，也不要为了达到字数而透支后续提示词。
-- ${this.getPlanningLeakRule()}
-
-生成要求：
-1. 总字数建议在3200-4300字之间；这不是硬性下限。如果当前小故事在2000-3200字已经完整抵达终点，可以直接停止。不要超过4500字。
-2. 第${storyStartChapter}章与第${storyEndChapter}章按剧情自然分配篇幅，不要为了平均字数而拆碎节奏。
-3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
-4. 每章开头必须带着危机进入：承接上一章危机、抛出新威胁、制造关系爆雷、资源被夺、强敌压境或任务失败，不能平静开场。
-5. 推进过程中必须释放至少一个高燃点或爽点，例如反杀、打脸、破局、夺回资源、揭露真相、实力升级、情感爆发或关键选择。
-6. 每章结尾要为下一章留好铺垫，并自然融入悬念钩子；钩子不要写成说明性句子。
-7. 第${storyEndChapter}章的结尾只允许留下下一章钩子，不允许开始解决这个钩子，更不允许进入下一小故事的第一个场景。
-8. 如果提供了“上一章结尾内容”，第${storyStartChapter}章开头必须从该结尾自然续写，至少连续推进300-500字后再转场或跳时。
-
-必须严格使用下面的编号标记，方便程序拆分。标记行之外不要添加任何解释：
-[[CHAPTER_${storyStartChapter}_START]]
-第${storyStartChapter}章 [章节标题]
-
-[第${storyStartChapter}章正文内容，以当前小故事前半段自然完成为准]
-[[CHAPTER_${storyStartChapter}_END]]
-
-[[CHAPTER_${storyEndChapter}_START]]
-第${storyEndChapter}章 [章节标题]
-
-[第${storyEndChapter}章正文内容，以当前小故事后半段自然完成为准]
-[[CHAPTER_${storyEndChapter}_END]]
-
-注意：直接输出以上两章正文，不要输出“下面是”“写作说明”“字数统计”等额外内容。`;
-  }
-
-  private extractMarkedNovelChapters(storyContent: string, startChapter: number, endChapter: number): string[] {
-    const chapters: string[] = [];
-
-    for (let chapterNum = startChapter; chapterNum <= endChapter; chapterNum++) {
-      const startMarker = `[[CHAPTER_${chapterNum}_START]]`;
-      const endMarker = `[[CHAPTER_${chapterNum}_END]]`;
-      const startIndex = storyContent.indexOf(startMarker);
-      if (startIndex < 0) {
-        return [];
-      }
-
-      const contentStart = startIndex + startMarker.length;
-      const explicitEnd = storyContent.indexOf(endMarker, contentStart);
-      const nextMarker = storyContent.indexOf(`[[CHAPTER_${chapterNum + 1}_START]]`, contentStart);
-      const endIndex = explicitEnd >= 0
-        ? explicitEnd
-        : nextMarker >= 0
-          ? nextMarker
-          : storyContent.length;
-      const rawPart = storyContent.slice(contentStart, endIndex).trim();
-      if (!rawPart) {
-        return [];
-      }
-
-      const normalizedTitle = this.normalizeChapterTitle(rawPart.split('\n')[0] || '', chapterNum, chapterNum - startChapter);
-      const body = this.stripLeadingChapterTitleLine(rawPart)
-        .replace(/\[\[CHAPTER_\d+_(?:START|END)\]\]/g, '')
-        .trim();
-      chapters.push(`${normalizedTitle}\n\n${body}`.trim());
-    }
-
-    return chapters;
-  }
-
-  private hasExpectedNovelChapters(chapters: string[], expectedCount: number): boolean {
-    if (chapters.length < expectedCount) return false;
-    return chapters
-      .slice(0, expectedCount)
-      .every(chapter => this.stripLeadingChapterTitleLine(chapter).trim().length >= 120);
-  }
-
-  private needsNovelBatchExpansion(chapters: string[], expectedCount: number): boolean {
-    if (expectedCount !== 2 || chapters.length < expectedCount) return false;
-
-    const counts = chapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
-    const total = counts.reduce((sum, count) => sum + count, 0);
-    return total < 4000 || counts.some(count => count < 2100);
-  }
-
-  private isExpandedNovelBatchBetter(originalChapters: string[], expandedChapters: string[], expectedCount: number): boolean {
-    if (!this.hasExpectedNovelChapters(expandedChapters, expectedCount)) return false;
-
-    const originalCounts = originalChapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
-    const expandedCounts = expandedChapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
-    const originalTotal = originalCounts.reduce((sum, count) => sum + count, 0);
-    const expandedTotal = expandedCounts.reduce((sum, count) => sum + count, 0);
-
-    return expandedTotal >= originalTotal
-      && expandedTotal >= 3800
-      && expandedTotal <= 4600
-      && expandedCounts.every(count => count >= 1800 && count <= 2600);
-  }
-
-  private isNovelBatchTooLong(chapters: string[], expectedCount: number): boolean {
-    if (expectedCount !== 2 || chapters.length < expectedCount) return false;
-
-    const counts = chapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
-    const total = counts.reduce((sum, count) => sum + count, 0);
-    return total > 5000 || counts.some(count => count > 2800);
-  }
-
-  private hardCapNovelBatchLength(chapters: string[], expectedCount: number): string[] {
-    if (!this.isNovelBatchTooLong(chapters, expectedCount)) return chapters;
-
-    return chapters.map(chapter => this.trimChapterToChineseCharLimit(chapter, 2300));
-  }
-
-  private buildNovelBatchExpansionPrompt(
-    context: string,
-    storyStartChapter: number,
-    storyEndChapter: number,
-    chapters: string[],
-  ): string {
-    const currentTotal = chapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0);
-    const currentDraft = chapters.join('\n\n');
-
-    return `${context}
-
-下面是已经完成范围校验后的第${storyStartChapter}-${storyEndChapter}章草稿。它已经基本写完当前小故事，但篇幅偏短。请只在当前小故事边界内进行一次扩写重写。
-
-【已校验草稿，当前约${currentTotal}字】
-${currentDraft}
-
-扩写目标：
-1. 保留当前两章的剧情走向、阶段终点和结尾钩子，不要改变小故事的结局位置。
-2. 目标总字数为4000-4300字；两章尽量各约2100字左右，单章不要明显低于2100字。
-3. 允许自由丰富但只能丰富当前剧情内部：增加场景细节、动作过程、对话交锋、心理反应、人物性格外化、冲突来回、爽点释放前后的代价与余波。
-4. 禁止为了凑字数写下一小故事、提前兑现后续大事件、增加无关副本、重复解释设定、复述上一章或写后台规划说明。
-5. 如果扩写到目标字数会破坏当前小故事边界，宁可略短，也必须停在正确的当前小故事终点。
-6. 绝对不要把所属中故事、后续小故事或下一章组的目标写进正文；到当前小故事最后一个钩子时立刻停笔。
-7. 必须继续使用下面的编号标记，方便程序拆分。标记行之外不要添加任何解释。
-
-[[CHAPTER_${storyStartChapter}_START]]
-第${storyStartChapter}章 [章节标题]
-
-[扩写后的第${storyStartChapter}章正文]
-[[CHAPTER_${storyStartChapter}_END]]
-
-[[CHAPTER_${storyEndChapter}_START]]
-第${storyEndChapter}章 [章节标题]
-
-[扩写后的第${storyEndChapter}章正文]
-[[CHAPTER_${storyEndChapter}_END]]`;
-  }
-
-  private buildNovelBatchConcisionPrompt(
-    context: string,
-    storyStartChapter: number,
-    storyEndChapter: number,
-    chapters: string[],
-  ): string {
-    const currentTotal = chapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0);
-    const currentDraft = chapters.join('\n\n');
-
-    return `${context}
-
-下面是第${storyStartChapter}-${storyEndChapter}章草稿，当前约${currentTotal}字。它已经明显过长，可能把当前小故事之外的内容也写进去了。请按爆款微短剧“单集到钩子立刻黑场”的停顿方式，把它重写成边界清晰的两章网文正文。
-
-【过长草稿】
-${currentDraft}
-
-重写硬规则：
-1. 只保留当前小故事范围内必须发生的情节，删除铺陈、复述、设定解释、无关支线，以及任何下一小故事/下一章组才该发生的行动、结果、新目标或新场景。
-2. 总字数控制在4000-4300字；如果严格停在当前小故事钩子会略短，可以低于4000，但绝对不能超过4600。
-3. 第${storyStartChapter}章写当前小故事前半段，第${storyEndChapter}章写当前小故事后半段；第${storyEndChapter}章到当前小故事钩子后必须立刻停笔。
-4. 所属中故事、世界观、人物关系只能作为背景，不得把整个中故事后续目标提前写完。
-5. 不要输出字数统计、写作说明或后台标签。
-
-必须继续使用下面的编号标记：
-[[CHAPTER_${storyStartChapter}_START]]
-第${storyStartChapter}章 [章节标题]
-
-[压缩重写后的第${storyStartChapter}章正文]
-[[CHAPTER_${storyStartChapter}_END]]
-
-[[CHAPTER_${storyEndChapter}_START]]
-第${storyEndChapter}章 [章节标题]
-
-[压缩重写后的第${storyEndChapter}章正文]
-[[CHAPTER_${storyEndChapter}_END]]`;
-  }
-
 	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
     const existingJob = this.generationStreamJobs.get(requestId);
     if (existingJob) {
@@ -2009,9 +1790,9 @@ ${currentDraft}
 	    const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
     const unitLabel = mode === 'microdrama' ? '集' : '章';
     const requestedUnitCount = Math.max(1, dto.unitCount ?? (mode === 'microdrama' ? 1 : 8));
-    const loopCount = mode === 'microdrama' ? requestedUnitCount : Math.ceil(requestedUnitCount / 2);
+    const loopCount = requestedUnitCount;
     const unitBatchSize = requestedUnitCount;
-    const unitsPerStory = mode === 'microdrama' ? 1 : 2;
+    const unitsPerStory = 1;
     const abortController = new AbortController();
     this.generationAbortControllers.set(requestId, abortController);
     const job = this.createGenerationStreamJob(requestId);
@@ -2077,10 +1858,8 @@ ${currentDraft}
             }
 
             const storyStartChapter = startChapter + (storyIndex * unitsPerStory);
-            const storyEndChapter = mode === 'microdrama' ? storyStartChapter : storyStartChapter + 1;
-            const currentStoryIndex = mode === 'microdrama'
-              ? storyStartChapter - 1
-              : Math.floor((storyStartChapter - 1) / 2);
+            const storyEndChapter = storyStartChapter;
+            const currentStoryIndex = storyStartChapter - 1;
             const storyData = dto.savedMicroStories?.[currentStoryIndex];
 
             // 发送小故事开始信号
@@ -2088,16 +1867,16 @@ ${currentDraft}
               data: JSON.stringify({
                 type: 'story_start',
                 storyIndex: storyIndex + 1,
-                chapters: mode === 'microdrama' ? [storyStartChapter] : [storyStartChapter, storyEndChapter],
+                chapters: [storyStartChapter],
                 message: mode === 'microdrama'
                   ? `开始生成第${storyStartChapter}集`
-                  : `开始生成第${storyIndex + 1}个小故事（第${storyStartChapter}-${storyEndChapter}章）`
+                  : `开始生成第${storyStartChapter}章`
               })
             });
 
             console.log(mode === 'microdrama'
               ? `正在生成第${storyStartChapter}集...`
-              : `正在生成第${storyIndex + 1}个小故事（第${storyStartChapter}-${storyEndChapter}章）...`);
+              : `正在生成第${storyStartChapter}章...`);
 
             // 构建包含当前小故事的上下文
             let storyContext = contextMemory;
@@ -2105,18 +1884,17 @@ ${currentDraft}
             // 添加最近生成的小故事内容作为参考，避免上下文过长
             if (storyIndex > 0 && mode !== 'microdrama') {
               storyContext += `\n\n【最近生成内容参考】\n`;
-              // 只包含最近1-2个小故事的内容作为参考，避免累积过多上下文
+              // 只包含最近1-2章对应的小故事内容作为参考，避免累积过多上下文
               const maxPrevStories = Math.min(storyIndex, 2); // 最多只参考最近2个小故事
               for (let i = 1; i <= maxPrevStories; i++) {
                 const prevIndex = storyIndex - i;
                 if (prevIndex >= 0) {
-                  const prevStoryAbsoluteIndex = Math.floor((startChapter - 1) / 2) + prevIndex;
+                  const prevStoryAbsoluteIndex = startChapter - 1 + prevIndex;
                   const prevStoryData = dto.savedMicroStories?.[prevStoryAbsoluteIndex];
                   if (prevStoryData) {
-                    const prevStartChapter = startChapter + (prevIndex * 2);
-                    const prevEndChapter = prevStartChapter + 1;
+                    const prevStartChapter = startChapter + prevIndex;
 
-                    storyContext += `\n【小故事${prevIndex + 1}（第${prevStartChapter}-${prevEndChapter}章）：${prevStoryData.title}】\n`;
+                    storyContext += `\n【小故事${prevIndex + 1}（第${prevStartChapter}章）：${prevStoryData.title}】\n`;
                     storyContext += `内容概述：${prevStoryData.content.substring(0, 300)}...\n`; // 减少内容长度
                   }
                 }
@@ -2132,284 +1910,71 @@ ${currentDraft}
             if (mode !== 'microdrama') {
               try {
                 const chapters: string[] = [];
-                const requestedLastChapter = startChapter + requestedUnitCount - 1;
-                const cappedStoryEndChapter = Math.min(storyEndChapter, requestedLastChapter);
-                const expectedChapterCount = cappedStoryEndChapter - storyStartChapter + 1;
-
-                if (expectedChapterCount > 1) {
-                  let storyContent = '';
-                  let isFirstChunk = true;
-                  const storyPrompt = this.buildNovelTwoPartStoryPrompt(
-                    storyContext,
-                    storyStartChapter,
-                    cappedStoryEndChapter,
-                    previousEnding,
-                  );
-
-                  await this.llmService.chatWithWriterModelStream(
-                    [
-                      { role: 'system', content: this.getStoryWritingSystemPrompt() },
-                      { role: 'user', content: storyPrompt }
-                    ],
-                    (chunk: string) => {
-                      storyContent += chunk;
-
-                      subscriber.next({
-                        data: JSON.stringify({
-                          type: 'story_chunk',
-                          storyIndex: storyIndex + 1,
-                          chapter: storyStartChapter,
-                          content: storyContent,
-                          isFirst: isFirstChunk
-                        })
-                      });
-
-                      if (isFirstChunk) {
-                        isFirstChunk = false;
-                      }
-                    },
-                    writerModelProvider,
-                    {
-                      signal: abortController.signal,
-                      isCancelled: () => this.isCancelled(requestId),
-                    },
-                  );
-
-                  const markedChapters = this.extractMarkedNovelChapters(storyContent, storyStartChapter, cappedStoryEndChapter);
-                  const parsedChapters = this.hasExpectedNovelChapters(markedChapters, expectedChapterCount)
-                    ? markedChapters
-                    : this.extractChaptersFromContent(storyContent, storyStartChapter, cappedStoryEndChapter);
-
-                  if (this.hasExpectedNovelChapters(parsedChapters, expectedChapterCount)) {
-                    const validatedChapters: string[] = [];
-
-                    for (const [index, chapter] of parsedChapters.slice(0, expectedChapterCount).entries()) {
-                      const chapterNum = storyStartChapter + index;
-                      const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
-                      const validatedChapter = await this.validateAndTrimChapterScope({
-                        content: chapter,
-                        chapterNumber: chapterNum,
-                        storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
-                        nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
-                        mode,
-                      });
-
-                      if (validatedChapter) {
-                        validatedChapters.push(validatedChapter);
-                      }
-                    }
-
-                    let finalChapters = validatedChapters;
-                    if (this.needsNovelBatchExpansion(validatedChapters, expectedChapterCount)) {
-                      try {
-                        console.log(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}校验后篇幅偏短，执行边界内扩写`);
-                        const expansionPrompt = this.buildNovelBatchExpansionPrompt(
-                          storyContext,
-                          storyStartChapter,
-                          cappedStoryEndChapter,
-                          validatedChapters,
-                        );
-                        const expandedContent = await this.llmService.chatWithWriterModel(
-                          [
-                            { role: 'system', content: this.getStoryWritingSystemPrompt() },
-                            { role: 'user', content: expansionPrompt }
-                          ],
-                          writerModelProvider,
-                        );
-
-                        const expandedMarkedChapters = this.extractMarkedNovelChapters(expandedContent || '', storyStartChapter, cappedStoryEndChapter);
-                        if (this.hasExpectedNovelChapters(expandedMarkedChapters, expectedChapterCount)) {
-                          const expandedValidatedChapters: string[] = [];
-                          for (const [index, chapter] of expandedMarkedChapters.slice(0, expectedChapterCount).entries()) {
-                            const chapterNum = storyStartChapter + index;
-                            const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
-                            const validatedExpandedChapter = await this.validateAndTrimChapterScope({
-                              content: chapter,
-                              chapterNumber: chapterNum,
-                              storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
-                              nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
-                              mode,
-                            });
-                            if (validatedExpandedChapter) {
-                              expandedValidatedChapters.push(validatedExpandedChapter);
-                            }
-                          }
-
-                          if (this.isExpandedNovelBatchBetter(validatedChapters, expandedValidatedChapters, expectedChapterCount)) {
-                            finalChapters = expandedValidatedChapters;
-                            console.log(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}边界内扩写成功，总字数: ${expandedValidatedChapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0)}`);
-                          } else {
-                            console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}扩写结果未明显改善或仍偏短，保留第一版校验结果`);
-                          }
-                        } else {
-                          console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}扩写结果无法按标记拆章，保留第一版校验结果`);
-                        }
-                      } catch (expansionError) {
-                        if (this.isCancelled(requestId) || abortController.signal.aborted || String((expansionError as Error)?.message || '') === 'GENERATION_CANCELLED') {
-                          throw expansionError;
-                        }
-                        console.error(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}边界内扩写失败，保留第一版校验结果:`, expansionError);
-                      }
-                    }
-
-                    if (this.isNovelBatchTooLong(finalChapters, expectedChapterCount)) {
-                      try {
-                        console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}生成结果过长，执行边界内压缩重写，总字数: ${finalChapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0)}`);
-                        const concisionPrompt = this.buildNovelBatchConcisionPrompt(
-                          storyContext,
-                          storyStartChapter,
-                          cappedStoryEndChapter,
-                          finalChapters,
-                        );
-                        const conciseContent = await this.llmService.chatWithWriterModel(
-                          [
-                            { role: 'system', content: this.getStoryWritingSystemPrompt() },
-                            { role: 'user', content: concisionPrompt }
-                          ],
-                          writerModelProvider,
-                        );
-
-                        const conciseMarkedChapters = this.extractMarkedNovelChapters(conciseContent || '', storyStartChapter, cappedStoryEndChapter);
-                        if (this.hasExpectedNovelChapters(conciseMarkedChapters, expectedChapterCount)) {
-                          const conciseValidatedChapters: string[] = [];
-                          for (const [index, chapter] of conciseMarkedChapters.slice(0, expectedChapterCount).entries()) {
-                            const chapterNum = storyStartChapter + index;
-                            const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
-                            const validatedConciseChapter = await this.validateAndTrimChapterScope({
-                              content: chapter,
-                              chapterNumber: chapterNum,
-                              storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
-                              nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
-                              mode,
-                            });
-                            if (validatedConciseChapter) {
-                              conciseValidatedChapters.push(validatedConciseChapter);
-                            }
-                          }
-
-                          if (this.hasExpectedNovelChapters(conciseValidatedChapters, expectedChapterCount) && !this.isNovelBatchTooLong(conciseValidatedChapters, expectedChapterCount)) {
-                            finalChapters = conciseValidatedChapters;
-                            console.log(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}边界内压缩成功，总字数: ${conciseValidatedChapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0)}`);
-                          } else {
-                            console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}压缩结果仍过长或不可用，保留原校验结果`);
-                          }
-                        } else {
-                          console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}压缩结果无法按标记拆章，保留原校验结果`);
-                        }
-                      } catch (concisionError) {
-                        if (this.isCancelled(requestId) || abortController.signal.aborted || String((concisionError as Error)?.message || '') === 'GENERATION_CANCELLED') {
-                          throw concisionError;
-                        }
-                        console.error(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}边界内压缩失败，保留原校验结果:`, concisionError);
-                      }
-                    }
-
-                    if (this.isNovelBatchTooLong(finalChapters, expectedChapterCount)) {
-                      finalChapters = this.hardCapNovelBatchLength(finalChapters, expectedChapterCount);
-                      console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}压缩后仍过长，已执行本地硬上限裁剪，总字数: ${finalChapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0)}`);
-                    }
-
-                    for (const [index, finalChapter] of finalChapters.slice(0, expectedChapterCount).entries()) {
-                      const chapterNum = storyStartChapter + index;
-                      chapters.push(finalChapter);
-
-                      subscriber.next({
-                        data: JSON.stringify({
-                          type: 'chapter_complete',
-                          chapter: chapterNum,
-                          content: finalChapter
-                        })
-                      });
-
-                      console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(finalChapter)}`);
-                    }
-
-                    const lastChapter = chapters[chapters.length - 1];
-                    if (lastChapter) {
-                      previousEnding = this.extractEndingForContinuity(lastChapter);
-                    }
-                  } else {
-                    console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}一次生成未能拆出完整章节，改用逐章补救`);
-                  }
-                }
-
-                if (chapters.length === 0) {
-                  for (let chapterNum = storyStartChapter; chapterNum <= cappedStoryEndChapter; chapterNum++) {
-                  if (this.isCancelled(requestId)) {
+                const chapterNum = storyStartChapter;
+                if (this.isCancelled(requestId)) {
                     throw new Error('GENERATION_CANCELLED');
-                  }
+                }
+                const chapterPrompt = this.buildNovelChapterPrompt(
+                  storyContext,
+                  chapterNum,
+                  previousEnding,
+                );
+                let chapterContent = '';
+                let isFirstChunk = true;
 
-                  const chapterPosition = storyStartChapter === cappedStoryEndChapter
-                    ? 'single'
-                    : chapterNum === storyStartChapter
-                      ? 'first'
-                      : 'second';
-                  const chapterPrompt = this.buildNovelChapterPrompt(
-                    storyContext,
-                    chapterNum,
-                    previousEnding,
-                    chapterPosition,
-                    storyStartChapter,
-                    cappedStoryEndChapter,
-                  );
-                  let chapterContent = '';
-                  let isFirstChunk = true;
-
-                  await this.llmService.chatWithWriterModelStream(
-                    [
-                      { role: 'system', content: this.getStoryWritingSystemPrompt() },
-                      { role: 'user', content: chapterPrompt }
-                    ],
-                    (chunk: string) => {
-                      chapterContent += chunk;
-
-                      subscriber.next({
-                        data: JSON.stringify({
-                          type: 'story_chunk',
-                          storyIndex: storyIndex + 1,
-                          chapter: chapterNum,
-                          content: chapterContent,
-                          isFirst: isFirstChunk
-                        })
-                      });
-
-                      if (isFirstChunk) {
-                        isFirstChunk = false;
-                      }
-                    },
-                    writerModelProvider,
-                    {
-                      signal: abortController.signal,
-                      isCancelled: () => this.isCancelled(requestId),
-                    },
-                  );
-
-                  const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
-                  const validatedChapter = chapterContent
-                    ? await this.validateAndTrimChapterScope({
-                        content: chapterContent,
-                        chapterNumber: chapterNum,
-                        storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
-                        nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
-                        mode,
-                      })
-                    : '';
-
-                  if (validatedChapter) {
-                    chapters.push(validatedChapter);
-                    previousEnding = this.extractEndingForContinuity(validatedChapter);
+                await this.llmService.chatWithWriterModelStream(
+                  [
+                    { role: 'system', content: this.getStoryWritingSystemPrompt() },
+                    { role: 'user', content: chapterPrompt }
+                  ],
+                  (chunk: string) => {
+                    chapterContent += chunk;
 
                     subscriber.next({
                       data: JSON.stringify({
-                        type: 'chapter_complete',
+                        type: 'story_chunk',
+                        storyIndex: storyIndex + 1,
                         chapter: chapterNum,
-                        content: validatedChapter
+                        content: chapterContent,
+                        isFirst: isFirstChunk
                       })
                     });
 
-                    console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(validatedChapter)}`);
-                  }
-                }
+                    if (isFirstChunk) {
+                      isFirstChunk = false;
+                    }
+                  },
+                  writerModelProvider,
+                  {
+                    signal: abortController.signal,
+                    isCancelled: () => this.isCancelled(requestId),
+                  },
+                );
+
+                const chapterStoryIndex = chapterNum - 1;
+                const validatedChapter = chapterContent
+                  ? await this.validateAndTrimChapterScope({
+                      content: chapterContent,
+                      chapterNumber: chapterNum,
+                      storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
+                      nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
+                      mode,
+                    })
+                  : '';
+
+                if (validatedChapter) {
+                  chapters.push(validatedChapter);
+                  previousEnding = this.extractEndingForContinuity(validatedChapter);
+
+                  subscriber.next({
+                    data: JSON.stringify({
+                      type: 'chapter_complete',
+                      chapter: chapterNum,
+                      content: validatedChapter
+                    })
+                  });
+
+                  console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(validatedChapter)}`);
                 }
 
                 if (chapters.length > 0) {
@@ -2422,7 +1987,7 @@ ${currentDraft}
                     })
                   });
 
-                  const recentSummary = this.buildRecentSummaryForContext(chapters, storyStartChapter, cappedStoryEndChapter);
+                  const recentSummary = this.buildRecentSummaryForContext(chapters, storyStartChapter, storyStartChapter);
                   const maxContextLength = 3000;
                   if (contextMemory.length > maxContextLength) {
                     const baseContext = dto.context.substring(0, 1000);
@@ -2431,7 +1996,7 @@ ${currentDraft}
                     contextMemory += `\n\n最新生成内容：${recentSummary}...`;
                   }
 
-                  console.log(`第${storyIndex + 1}个小故事生成成功，包含${chapters.length}个章节`);
+                  console.log(`第${chapterNum}${unitLabel}生成成功`);
                 }
               } catch (storyError) {
                 if (this.isCancelled(requestId) || abortController.signal.aborted || String((storyError as Error)?.message || '') === 'GENERATION_CANCELLED') {
@@ -2460,45 +2025,7 @@ ${currentDraft}
               continue;
             }
 
-            const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
-            const storyPrompt = mode === 'microdrama'
-              ? this.buildMicrodramaEpisodePrompt(storyContext, storyStartChapter, previousEnding, storyData, dto.actionFirstScript, dto.targetEpisodeWords)
-              : `${storyContext}
-
-请基于以上完整的故事背景信息，特别是当前剧情范围，生成两个连续的独立章节。
-
-${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在第${storyStartChapter}章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
-
-**⚠️ 重要限制条件：**
-- **必须严格遵循当前剧情范围写作**，不能偏离当前阶段规定的情节发展
-- **绝对不能涉及或暗示下一小故事的内容**，确保每个小故事都有独立的发展空间
-- **如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准**
-- **${this.getPlanningLeakRule()}**
-
-生成要求：
-1. **严格字数控制**：两个章节的总字数必须严格控制在4000-4500字以内，绝对不能超过4500字
-2. **章节分配**：第一章约2000-2200字，第二章约2000-2300字，总计4000-4500字
-3. 章节标题要吸引人且符合故事风格，标题长度不超过8个字
-4. 内容要详细丰满，包含具体的场景描写、对话、心理活动和冲突
-5. 保持与整体故事的连贯性和人物成长，特别要衔接好之前已生成的内容
-6. 融入世界观设定和人物关系
-7. 每章开头必须带着危机进入：承接上一章危机、抛出新威胁、制造关系爆雷、资源被夺、强敌压境或任务失败，不能平静开场
-8. 推进过程中必须释放至少一个高燃点或爽点，例如反杀、打脸、破局、夺回资源、揭露真相、实力升级、情感爆发或关键选择
-9. 每个章节结尾要为下一章留好铺垫，并自然融入悬念钩子，制造期待感，拉动读者继续阅读的欲望
-10. **重要**：钩子要融入正文叙述中，作为故事发展的自然延伸，不要在文章结尾单独添加说明性句子
-11. **字数检查**：生成时请时刻注意字数控制，确保总字数不超过4500字
-12. **衔接要求（关键）**：如果提供了“上一章结尾内容”，第${storyStartChapter}章开头必须从该结尾**紧接着续写**（延续同一场景/动作/对话），不要用回顾式总结重述上一章；除非上一章结尾明确切换场景，否则开头至少连续推进300-500字后再转场或跳时。
-
-请按以下格式输出：
-第${storyStartChapter}章 [章节标题]
-
-[第${storyStartChapter}章正文内容，2000-2200字]
-
-第${storyEndChapter}章 [章节标题]
-
-[第${storyEndChapter}章正文内容，2000-2200字]
-
-注意：直接输出章节内容，不要添加多余说明。`;
+            const storyPrompt = this.buildMicrodramaEpisodePrompt(storyContext, storyStartChapter, previousEnding, storyData, dto.actionFirstScript, dto.targetEpisodeWords);
 
             try {
               let storyContent = '';
@@ -2544,17 +2071,13 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
                   })
                 });
 
-                const rawChapters = mode === 'microdrama'
-                  ? [storyContent.trim()]
-                  : this.extractChaptersFromContent(storyContent, storyStartChapter, storyEndChapter);
+                const rawChapters = [storyContent.trim()];
                 const chapters: string[] = [];
 
                 // 发送每个章节
                 for (const [index, chapter] of rawChapters.entries()) {
                   const chapterNum = storyStartChapter + index;
-                  const chapterStoryIndex = mode === 'microdrama'
-                    ? chapterNum - 1
-                    : Math.floor((chapterNum - 1) / 2);
+                  const chapterStoryIndex = chapterNum - 1;
                   const validatedChapter = await this.validateAndTrimChapterScope({
                     content: chapter,
                     chapterNumber: chapterNum,
@@ -2999,7 +2522,7 @@ ${sanitizedContent}
 判断规则：
 1. 如果正文整体仍属于当前细纲范围，即使结尾有合理钩子，也算 scope_ok=true。
 2. 如果正文开始写下一小故事/下一分集才应该展开的行动、场景、结果、反转或新目标，算越界。
-3. 网文模式下，一个小故事通常覆盖连续两章；第1章铺垫或局部触及第2章同一小故事内的动作、修炼、冲突升级，不算越界。只有进入【下一个小故事】的场景、目标或结果，才算越界。
+3. 网文模式下，一个小故事只覆盖当前这一章；只要正文进入下一章/下一小故事才应该展开的场景、目标、行动、结果或反转，就算越界。
 4. 如果越界，只需要指出“从原文哪里开始删除”。delete_from_excerpt 必须从【已生成正文】里逐字复制第一句越界内容开头处连续 20-80 个字符，方便程序本地定位裁剪。
 5. 不要返回裁剪后的正文，不要复述正文。
 
@@ -3134,37 +2657,6 @@ ${sanitizedContent}
     // 计算中文字符数（不包括英文和数字）
     const chineseChars = text.match(/[\u4e00-\u9fa5]/g) || [];
     return chineseChars.length;
-  }
-
-  private trimChapterToChineseCharLimit(content: string, maxChineseChars: number): string {
-    if (this.getWordCount(content) <= maxChineseChars) return content;
-
-    const lines = String(content || '').split('\n');
-    const titleLine = lines.find(line => /^第\d+[章节集]\b/.test(line.trim()));
-    const body = this.stripLeadingChapterTitleLine(content);
-    let chineseCount = 0;
-    let cutIndex = body.length;
-
-    for (let i = 0; i < body.length; i++) {
-      if (/[\u4e00-\u9fa5]/.test(body[i])) {
-        chineseCount += 1;
-      }
-      if (chineseCount >= maxChineseChars) {
-        cutIndex = i + 1;
-        break;
-      }
-    }
-
-    let trimmedBody = body.slice(0, cutIndex).trim();
-    const punctuationIndexes = ['。', '！', '？', '；', '!', '?', ';']
-      .map(mark => trimmedBody.lastIndexOf(mark))
-      .filter(index => index > Math.floor(trimmedBody.length * 0.65));
-    const sentenceEnd = punctuationIndexes.length ? Math.max(...punctuationIndexes) : -1;
-    if (sentenceEnd > 0) {
-      trimmedBody = trimmedBody.slice(0, sentenceEnd + 1).trim();
-    }
-
-    return `${titleLine || ''}${titleLine ? '\n\n' : ''}${trimmedBody}`.trim();
   }
 
   // 导出为DOCX格式（暂时使用文本格式，未来可以升级为真正的DOCX）

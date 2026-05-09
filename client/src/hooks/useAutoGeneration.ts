@@ -412,7 +412,7 @@ ${outline.themes}`;
           const microStories = parseMicroStories(microResponse.data, macroIndex, macroStory.title, macroStory.content, chapterRange.start, isMicrodrama ? '集' : '章');
           savedMicroStories = [...savedMicroStories, ...microStories];
 
-          if (!isMicrodrama && savedMicroStories.length * 2 >= targetUnitCount) {
+          if (!isMicrodrama && savedMicroStories.length >= targetUnitCount) {
             break;
           }
           if (isMicrodrama && savedMicroStories.length >= targetUnitCount) {
@@ -429,7 +429,7 @@ ${outline.themes}`;
 
         const limitedStories = isMicrodrama
           ? savedMicroStories.slice(0, targetUnitCount)
-          : savedMicroStories.slice(0, Math.ceil(targetUnitCount / 2));
+          : savedMicroStories.slice(0, targetUnitCount);
         savedMicroStories = limitedStories;
 
         setCachedData(bookName, microStoriesCacheKey, savedMicroStories);
@@ -438,7 +438,7 @@ ${outline.themes}`;
           progress: 100,
           message: isMicrodrama
             ? `全部分集细纲完成，共 ${savedMicroStories.length} 集`
-            : `全部小故事细纲完成，共 ${savedMicroStories.length} 个，可生成 ${savedMicroStories.length * 2} 章`
+            : `全部小故事细纲完成，共 ${savedMicroStories.length} 个，可生成 ${savedMicroStories.length} 章`
         });
       }
 
@@ -672,7 +672,7 @@ function parseMicroStories(content: string, macroIndex: number, macroTitle: stri
 
   for (const line of lines) {
     // 匹配小故事标题 - 支持多种格式
-    const titleMatch = line.match(/(?:【(?:小故事|分集|单集)([一二三四五六七八九十\d]+)】|(?:小故事|分集|单集)([一二三四五六七八九十\d]+)[:：]|【第\s*([一二三四五六七八九十\d]+)\s*集】|第\s*([一二三四五六七八九十\d]+)\s*集\s*[:：、-]?\s*)(.*)/);
+    const titleMatch = line.match(/(?:【(?:小故事|分集|单集)([一二三四五六七八九十\d]+)】|(?:小故事|分集|单集)([一二三四五六七八九十\d]+)[:：]|【第\s*([一二三四五六七八九十\d]+)\s*[章节集]】|第\s*([一二三四五六七八九十\d]+)\s*[章节集]\s*[:：、-]?\s*)(.*)/);
     if (titleMatch) {
       if (currentMicro) {
         microStories.push({

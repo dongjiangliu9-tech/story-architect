@@ -74,8 +74,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const writerMode = inferWriterMode(currentProject);
   const isMicrodrama = writerMode === 'microdrama';
   const unitLabel = isMicrodrama ? '集' : '章';
-  const unitsPerMicroStory = isMicrodrama ? 1 : 2;
-  const storiesPerBatch = isMicrodrama ? 1 : 4;
+  const unitsPerMicroStory = 1;
+  const storiesPerBatch = isMicrodrama ? 1 : 8;
   const unitsPerBatch = isMicrodrama ? 1 : 8;
   const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
   const [actionFirstScript, setActionFirstScript] = useState(false);
@@ -169,15 +169,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const getUnitRangeDisplay = (chapterNumber: number): string => {
     if (isMicrodrama) return `第${chapterNumber}集`;
-    const startChapter = Math.floor((chapterNumber - 1) / 2) * 2 + 1;
-    const endChapter = startChapter + 1;
-    return `第${startChapter}～${endChapter}章`;
+    return `第${chapterNumber}章`;
   };
 
-  // 每2章为一组：groupStart / groupStart + 1；微短剧则每集一组
+  // 现在网文与微短剧都按单个单位对应一个细纲
   const getBestExistingChapterInGroup = (groupStart: number): number | null => {
     if (hasChapter(groupStart)) return groupStart;
-    if (!isMicrodrama && hasChapter(groupStart + 1)) return groupStart + 1;
     return null;
   };
 
@@ -493,7 +490,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       return;
     }
 
-    const groupStart = isMicrodrama ? targetChapter : Math.floor((targetChapter - 1) / 2) * 2 + 1;
+    const groupStart = targetChapter;
     const best = hasChapter(targetChapter) ? targetChapter : getBestExistingChapterInGroup(groupStart);
 
     if (best !== null) {
@@ -671,7 +668,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   useEffect(() => {
-    // 初始化/更新总单元数（网文每个小故事 2 章；微短剧每个小故事 1 集）
+    // 初始化/更新总单元数（网文每个小故事 1 章；微短剧每个小故事 1 集）
     if (!microStoryCount) return;
     const calculatedTotalChapters = Math.floor(microStoryCount * unitsPerMicroStory);
     setTotalChapters(calculatedTotalChapters);
@@ -1605,7 +1602,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           const chapterOffset = globalIndex * unitsPerMicroStory;
           const rangeText = isMicrodrama
             ? `第${chapterOffset + 1}集`
-            : `第${chapterOffset + 1}-${chapterOffset + 2}章`;
+            : `第${chapterOffset + 1}章`;
           context += `${isMicrodrama ? '分集' : '小故事'}${globalIndex + 1}（${rangeText}）：\n`;
           context += `标题：${story.title}\n`;
           context += `内容：${story.content}\n\n`;
@@ -1615,14 +1612,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     // 特别强调当前章节/当前集对应的剧情边界
     if (microStoriesInOrder && microStoriesInOrder.length > 0) {
-      const currentStoryIndex = isMicrodrama ? currentChapter - 1 : Math.floor((currentChapter - 1) / 2);
+      const currentStoryIndex = currentChapter - 1;
       const currentStory = microStoriesInOrder[currentStoryIndex];
 
       if (currentStory) {
         context += `【当前${unitLabel === '集' ? '单集' : '章节'}剧情边界参考】\n`;
         context += isMicrodrama
           ? `当前集：第${currentChapter}集\n`
-          : `章节：第${currentChapter}～${currentChapter + 1}章\n`;
+          : `章节：第${currentChapter}章\n`;
         context += `对应${isMicrodrama ? '分集' : '小故事'}：${currentStory.title}\n`;
         context += `${isMicrodrama ? '分集' : '小故事'}详细内容：${currentStory.content}\n`;
         context += `所属中故事：${currentStory.macroStoryTitle}\n\n`;
@@ -1637,9 +1634,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     if (!confirmDiscardChapterEdits()) return;
 
     if (direction === 'prev') {
-      const currentGroupStart = isMicrodrama
-        ? currentChapter
-        : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+      const currentGroupStart = currentChapter;
       const prevGroupStart = currentGroupStart - unitsPerMicroStory;
 
       if (prevGroupStart >= 1) {
@@ -1652,9 +1647,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         setJumpToChapter(bestPrev.toString());
       }
     } else if (direction === 'next') {
-      const currentGroupStart = isMicrodrama
-        ? currentChapter
-        : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+      const currentGroupStart = currentChapter;
       const nextGroupStart = currentGroupStart + unitsPerMicroStory;
 
       const bestNext = getBestExistingChapterInGroup(nextGroupStart);
@@ -1945,13 +1938,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <button
                   onClick={() => navigateChapter('prev')}
                   disabled={Object.keys(generatedChapters).length === 0 || (() => {
-                    const currentGroupStart = isMicrodrama ? currentChapter : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+                    const currentGroupStart = currentChapter;
                     const prevGroupStart = currentGroupStart - unitsPerMicroStory;
                     if (prevGroupStart < 1) return true;
                     return getBestExistingChapterInGroup(prevGroupStart) === null;
                   })()}
                   className="flex items-center justify-center w-8 h-8 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 rounded-lg transition-all duration-200 disabled:cursor-not-allowed hover:shadow-sm"
-                  title={isMicrodrama ? '上一集' : '上一组章节'}
+                  title={isMicrodrama ? '上一集' : '上一章'}
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -1983,12 +1976,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <button
                   onClick={() => navigateChapter('next')}
                   disabled={Object.keys(generatedChapters).length === 0 || (() => {
-                    const currentGroupStart = isMicrodrama ? currentChapter : Math.floor((currentChapter - 1) / 2) * 2 + 1;
+                    const currentGroupStart = currentChapter;
                     const nextGroupStart = currentGroupStart + unitsPerMicroStory;
                     return getBestExistingChapterInGroup(nextGroupStart) === null;
                   })()}
                   className="flex items-center justify-center w-8 h-8 bg-secondary-100 hover:bg-secondary-200 disabled:bg-gray-100 disabled:text-gray-400 rounded-lg transition-all duration-200 disabled:cursor-not-allowed hover:shadow-sm"
-                  title={isMicrodrama ? '下一集' : '下一组章节'}
+                  title={isMicrodrama ? '下一集' : '下一章'}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -2212,7 +2205,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           {microStoriesInOrder?.length
                             ? isMicrodrama
                               ? `一键循环生成 (${microStoriesInOrder.length}集剧本正文)`
-                              : `一键循环生成 (${microStoriesInOrder.length}个小故事 → ${microStoriesInOrder.length * 2}章)`
+                              : `一键循环生成 (${microStoriesInOrder.length}个小故事 → ${microStoriesInOrder.length}章)`
                             : '一键循环生成'}
                         </span>
                       </>
@@ -2525,7 +2518,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 </h3>
 
                 {(() => {
-                  const chapterIndex = isMicrodrama ? currentChapter - 1 : Math.floor((currentChapter - 1) / 2);
+                  const chapterIndex = currentChapter - 1;
                   const currentMicroStory = microStoriesInOrder?.[chapterIndex];
 
                   if (currentMicroStory) {
@@ -2577,7 +2570,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </>
                   ) : (
                     <>
-                      <p>• 每章2000-2200字</p>
+                      <p>• 每章2000-2300字</p>
                       <p>• 包含吸引人的章节标题</p>
                       <p>• 融入完整的故事背景</p>
                       <p>• 保持连贯的阅读体验</p>

@@ -70,9 +70,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     : {
         unit: '章',
         macro: '中故事',
-        micro: '小故事细纲',
-        microButton: '生成小故事细纲',
-        emptyHint: '点击左侧的中故事列表，选择要查看的小故事细纲',
+        micro: '单章小故事细纲',
+        microButton: '生成单章细纲',
+        emptyHint: '点击左侧的中故事列表，选择要查看的单章小故事细纲',
       };
   // 用索引而不是内容字符串来选择中故事，避免内容重复/空白差异导致 indexOf 失效
   const [selectedMacroStoryIndex, setSelectedMacroStoryIndex] = useState<number | null>(null);
@@ -178,14 +178,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     return stories;
   };
 
-  // 解析小故事内容，正确提取【小故事X】标记之间的内容
+  // 解析小故事内容，正确提取【小故事X】/【第X章】标记之间的内容
   const parseMicroStoriesFromOutline = (content: string): string[] => {
     const stories: string[] = [];
-    const microStoryRegex = /【(?:(?:小故事|分集|单集)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*集)】/g;
+    const microStoryRegex = /【(?:(?:小故事|分集|单集)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[章节集])】/g;
     const matches = [...content.matchAll(microStoryRegex)];
 
     if (matches.length === 0) {
-      const sceneLikeEpisodeRegex = /(?:^|\n)(?:第\s*[一二三四五六七八九十\d]+\s*集|[一二三四五六七八九十\d]+-\d+\s+(?:日|夜))/g;
+      const sceneLikeEpisodeRegex = /(?:^|\n)(?:第\s*[一二三四五六七八九十\d]+\s*[章节集]|[一二三四五六七八九十\d]+-\d+\s+(?:日|夜))/g;
       const sceneMatches = [...content.matchAll(sceneLikeEpisodeRegex)];
       if (sceneMatches.length > 0) {
         for (let i = 0; i < sceneMatches.length; i++) {
@@ -606,7 +606,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
           title: isMicrodrama
             ? `第${chapterRange.startChapter + index}集`
-            : getMicroStoryDefaultTitle(index + 1),
+            : `第${chapterRange.startChapter + index}章`,
           content: cleanMicroStoryContent(content),
           macroStoryId: storyKey,
           macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -724,7 +724,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
             title: isMicrodrama
               ? `第${chapterRange.startChapter + index}集`
-              : getMicroStoryDefaultTitle(index + 1),
+              : `第${chapterRange.startChapter + index}章`,
             content: cleanMicroStoryContent(content),
             macroStoryId: storyKey,
             macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -832,7 +832,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         id: prev?.id || `${storyKey}_micro_${index}_${Date.now()}`,
         title: (draft.title || (isMicrodrama
           ? `第${chapterRange.startChapter + index}集`
-          : getMicroStoryDefaultTitle(index + 1))).trim(),
+          : `第${chapterRange.startChapter + index}章`)).trim(),
         content: draft.content ?? '',
         macroStoryId: storyKey,
         macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -1547,17 +1547,17 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     <div className="text-xs text-secondary-400 mt-1">
                       {isMicrodrama
                         ? `可生成 ${currentProject.savedMicroStories.length} 集剧本正文`
-                        : `可生成 ${currentProject.savedMicroStories.length * 2} 章节`}
+                        : `可生成 ${currentProject.savedMicroStories.length} 章节`}
                     </div>
                   </div>
 
                   <div className="text-center p-4 bg-white rounded-lg shadow-sm">
                     <div className="text-3xl font-bold text-green-600 mb-2">
-                      {isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 4400}
+                      {isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 2200}
                     </div>
                     <div className="text-sm text-secondary-600">预计总字数</div>
                     <div className="text-xs text-secondary-400 mt-1">
-                      约{Math.round((isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 4400) / 1000)}千字
+                      约{Math.round((isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 2200) / 1000)}千字
                     </div>
                   </div>
 
@@ -1766,7 +1766,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 <div className="card p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-lg font-semibold text-secondary-900">
-                      {structureLabels.micro} (10个)
+                      {structureLabels.micro} ({isMicrodrama ? '按集数' : '20章'})
                     </h3>
                     <div className="flex items-center space-x-2">
                       <button
