@@ -1885,6 +1885,62 @@ ${romanceLineRules}
       .every(chapter => this.stripLeadingChapterTitleLine(chapter).trim().length >= 120);
   }
 
+  private needsNovelBatchExpansion(chapters: string[], expectedCount: number): boolean {
+    if (expectedCount !== 2 || chapters.length < expectedCount) return false;
+
+    const counts = chapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
+    const total = counts.reduce((sum, count) => sum + count, 0);
+    return total < 4000 || counts.some(count => count < 2100);
+  }
+
+  private isExpandedNovelBatchBetter(originalChapters: string[], expandedChapters: string[], expectedCount: number): boolean {
+    if (!this.hasExpectedNovelChapters(expandedChapters, expectedCount)) return false;
+
+    const originalCounts = originalChapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
+    const expandedCounts = expandedChapters.slice(0, expectedCount).map(chapter => this.getWordCount(chapter));
+    const originalTotal = originalCounts.reduce((sum, count) => sum + count, 0);
+    const expandedTotal = expandedCounts.reduce((sum, count) => sum + count, 0);
+
+    return expandedTotal >= originalTotal && expandedTotal >= 3800 && expandedCounts.every(count => count >= 1800);
+  }
+
+  private buildNovelBatchExpansionPrompt(
+    context: string,
+    storyStartChapter: number,
+    storyEndChapter: number,
+    chapters: string[],
+  ): string {
+    const currentTotal = chapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0);
+    const currentDraft = chapters.join('\n\n');
+
+    return `${context}
+
+下面是已经完成范围校验后的第${storyStartChapter}-${storyEndChapter}章草稿。它已经基本写完当前小故事，但篇幅偏短。请只在当前小故事边界内进行一次扩写重写。
+
+【已校验草稿，当前约${currentTotal}字】
+${currentDraft}
+
+扩写目标：
+1. 保留当前两章的剧情走向、阶段终点和结尾钩子，不要改变小故事的结局位置。
+2. 目标总字数为4000-4300字；两章尽量各约2100字左右，单章不要明显低于2100字。
+3. 允许自由丰富但只能丰富当前剧情内部：增加场景细节、动作过程、对话交锋、心理反应、人物性格外化、冲突来回、爽点释放前后的代价与余波。
+4. 禁止为了凑字数写下一小故事、提前兑现后续大事件、增加无关副本、重复解释设定、复述上一章或写后台规划说明。
+5. 如果扩写到目标字数会破坏当前小故事边界，宁可略短，也必须停在正确的当前小故事终点。
+6. 必须继续使用下面的编号标记，方便程序拆分。标记行之外不要添加任何解释。
+
+[[CHAPTER_${storyStartChapter}_START]]
+第${storyStartChapter}章 [章节标题]
+
+[扩写后的第${storyStartChapter}章正文]
+[[CHAPTER_${storyStartChapter}_END]]
+
+[[CHAPTER_${storyEndChapter}_START]]
+第${storyEndChapter}章 [章节标题]
+
+[扩写后的第${storyEndChapter}章正文]
+[[CHAPTER_${storyEndChapter}_END]]`;
+  }
+
 	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
     const existingJob = this.generationStreamJobs.get(requestId);
     if (existingJob) {
@@ -2068,6 +2124,8 @@ ${romanceLineRules}
                     : this.extractChaptersFromContent(storyContent, storyStartChapter, cappedStoryEndChapter);
 
                   if (this.hasExpectedNovelChapters(parsedChapters, expectedChapterCount)) {
+                    const validatedChapters: string[] = [];
+
                     for (const [index, chapter] of parsedChapters.slice(0, expectedChapterCount).entries()) {
                       const chapterNum = storyStartChapter + index;
                       const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
@@ -2080,18 +2138,76 @@ ${romanceLineRules}
                       });
 
                       if (validatedChapter) {
-                        chapters.push(validatedChapter);
-
-                        subscriber.next({
-                          data: JSON.stringify({
-                            type: 'chapter_complete',
-                            chapter: chapterNum,
-                            content: validatedChapter
-                          })
-                        });
-
-                        console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(validatedChapter)}`);
+                        validatedChapters.push(validatedChapter);
                       }
+                    }
+
+                    let finalChapters = validatedChapters;
+                    if (this.needsNovelBatchExpansion(validatedChapters, expectedChapterCount)) {
+                      try {
+                        console.log(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}校验后篇幅偏短，执行边界内扩写`);
+                        const expansionPrompt = this.buildNovelBatchExpansionPrompt(
+                          storyContext,
+                          storyStartChapter,
+                          cappedStoryEndChapter,
+                          validatedChapters,
+                        );
+                        const expandedContent = await this.llmService.chatWithWriterModel(
+                          [
+                            { role: 'system', content: this.getStoryWritingSystemPrompt() },
+                            { role: 'user', content: expansionPrompt }
+                          ],
+                          writerModelProvider,
+                        );
+
+                        const expandedMarkedChapters = this.extractMarkedNovelChapters(expandedContent || '', storyStartChapter, cappedStoryEndChapter);
+                        if (this.hasExpectedNovelChapters(expandedMarkedChapters, expectedChapterCount)) {
+                          const expandedValidatedChapters: string[] = [];
+                          for (const [index, chapter] of expandedMarkedChapters.slice(0, expectedChapterCount).entries()) {
+                            const chapterNum = storyStartChapter + index;
+                            const chapterStoryIndex = Math.floor((chapterNum - 1) / 2);
+                            const validatedExpandedChapter = await this.validateAndTrimChapterScope({
+                              content: chapter,
+                              chapterNumber: chapterNum,
+                              storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
+                              nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
+                              mode,
+                            });
+                            if (validatedExpandedChapter) {
+                              expandedValidatedChapters.push(validatedExpandedChapter);
+                            }
+                          }
+
+                          if (this.isExpandedNovelBatchBetter(validatedChapters, expandedValidatedChapters, expectedChapterCount)) {
+                            finalChapters = expandedValidatedChapters;
+                            console.log(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}边界内扩写成功，总字数: ${expandedValidatedChapters.reduce((sum, chapter) => sum + this.getWordCount(chapter), 0)}`);
+                          } else {
+                            console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}扩写结果未明显改善或仍偏短，保留第一版校验结果`);
+                          }
+                        } else {
+                          console.warn(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}扩写结果无法按标记拆章，保留第一版校验结果`);
+                        }
+                      } catch (expansionError) {
+                        if (this.isCancelled(requestId) || abortController.signal.aborted || String((expansionError as Error)?.message || '') === 'GENERATION_CANCELLED') {
+                          throw expansionError;
+                        }
+                        console.error(`第${storyStartChapter}-${cappedStoryEndChapter}${unitLabel}边界内扩写失败，保留第一版校验结果:`, expansionError);
+                      }
+                    }
+
+                    for (const [index, finalChapter] of finalChapters.slice(0, expectedChapterCount).entries()) {
+                      const chapterNum = storyStartChapter + index;
+                      chapters.push(finalChapter);
+
+                      subscriber.next({
+                        data: JSON.stringify({
+                          type: 'chapter_complete',
+                          chapter: chapterNum,
+                          content: finalChapter
+                        })
+                      });
+
+                      console.log(`第${chapterNum}${unitLabel}生成完成，字数: ${this.getWordCount(finalChapter)}`);
                     }
 
                     const lastChapter = chapters[chapters.length - 1];
@@ -2104,7 +2220,7 @@ ${romanceLineRules}
                 }
 
                 if (chapters.length === 0) {
-                for (let chapterNum = storyStartChapter; chapterNum <= cappedStoryEndChapter; chapterNum++) {
+                  for (let chapterNum = storyStartChapter; chapterNum <= cappedStoryEndChapter; chapterNum++) {
                   if (this.isCancelled(requestId)) {
                     throw new Error('GENERATION_CANCELLED');
                   }
