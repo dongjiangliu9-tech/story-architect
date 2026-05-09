@@ -1,9 +1,18 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { blueprintApi } from '../services/api';
-import { OutlineData } from '../types';
-import { useWorldSettings } from '../contexts/WorldSettingsContext';
+import { DensityTuningKey, DensityTuningLevels, OutlineData } from '../types';
+import { sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
+import {
+  buildDensityTuningSuggestion,
+  DENSITY_TUNING_CONFIG,
+  DENSITY_TUNING_KEYS,
+  DENSITY_TUNING_MAX_LEVEL,
+  emptyDensityLevels,
+  extractRedFruitReview,
+  normalizeDensityLevels,
+} from '../utils/densityTuning';
 
 /**
  * 将OutlineData格式化为大纲字符串
@@ -44,6 +53,43 @@ function cleanMarkdownFormatting(text: string): string {
     .trim();
 }
 
+function chineseNumberToInt(value: string): number {
+  const normalized = value.trim();
+  if (/^\d+$/.test(normalized)) return Number(normalized);
+  const digitMap: Record<string, number> = {
+    一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+  };
+  if (normalized === '十') return 10;
+  if (normalized.startsWith('十')) return 10 + (digitMap[normalized.slice(1)] || 0);
+  if (normalized.includes('十')) {
+    const [tens, ones] = normalized.split('十');
+    return (digitMap[tens] || 1) * 10 + (digitMap[ones] || 0);
+  }
+  return digitMap[normalized] || 0;
+}
+
+function parseMacroStories(content: string): string[] {
+  const storyRegex = /【中故事([一二三四五六七八九十\d]+)】/g;
+  const matches = [...content.matchAll(storyRegex)];
+  const boundaries: Array<RegExpMatchArray & { storyNumber: number }> = [];
+  let lastStoryNumber = 0;
+
+  matches.forEach(match => {
+    const storyNumber = chineseNumberToInt(match[1] || '');
+    if (storyNumber > lastStoryNumber) {
+      boundaries.push(Object.assign(match, { storyNumber }));
+      lastStoryNumber = storyNumber;
+    }
+  });
+
+  return boundaries.map((currentMatch, index) => {
+    const nextMatch = boundaries[index + 1];
+    const startIndex = currentMatch.index! + currentMatch[0].length;
+    const endIndex = nextMatch ? nextMatch.index! : content.length;
+    return content.slice(startIndex, endIndex).trim();
+  }).filter(Boolean);
+}
+
 interface WorldSettingPageProps {
   onBack: () => void;
   onNavigateToStructure: () => void;
@@ -56,8 +102,16 @@ interface WorldSettingPageProps {
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
   const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
   const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
-  const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<30 | 60 | 100>(30);
+  const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<15 | 30 | 60 | 100>(30);
   const [reduceSensitiveContent, setReduceSensitiveContent] = useState(false);
+  const [densityTuningLevels, setDensityTuningLevels] = useState<DensityTuningLevels>(emptyDensityLevels);
+  const [densityDraftLevels, setDensityDraftLevels] = useState<DensityTuningLevels>(emptyDensityLevels);
+  const [enabledDensityTunings, setEnabledDensityTunings] = useState<Record<DensityTuningKey, boolean>>({
+    emotion: false,
+    plot: false,
+    element: false,
+  });
+  const [densityTuningLoading, setDensityTuningLoading] = useState(false);
   const [needsUpgradeSystem, setNeedsUpgradeSystem] = useState(true);
   const [useEnglishNames, setUseEnglishNames] = useState(false);
 
@@ -110,11 +164,13 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     ? {
         shortName: `微短剧${microdramaEpisodeCount}集`,
         buttonText: `生成微短剧${microdramaEpisodeCount}集大纲`,
-        generateHint: microdramaEpisodeCount === 30
-          ? '30集约7个中故事：1-2集、3-5集，其余每5集一个卡点'
-          : microdramaEpisodeCount === 60
-            ? '60集约13个中故事：1-2集、3-5集，其余每5集一个卡点'
-            : '100集保留10个中故事卡点，每个卡点拆10集',
+        generateHint: microdramaEpisodeCount === 15
+          ? '15集6个中故事：第1集单卡，2-3集一张卡，4-15集按3集连续卡推进'
+          : microdramaEpisodeCount === 30
+            ? '30集约7个中故事：1-2集、3-5集，其余每5集一个卡点'
+            : microdramaEpisodeCount === 60
+              ? '60集约13个中故事：1-2集、3-5集，其余每5集一个卡点'
+              : '100集保留10个中故事卡点，每个卡点拆10集',
         resultTitle: `微短剧${microdramaEpisodeCount}集大纲结果`,
         emptyTitle: `尚未生成微短剧${microdramaEpisodeCount}集大纲`,
         emptyActionText: `手动填写微短剧${microdramaEpisodeCount}集大纲`,
@@ -151,11 +207,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setCharactersGenerated(!!currentProject.characters);
       setOutlineMode(currentProject.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel');
       setMicrodramaEpisodeCount(
-        currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
+        currentProject.microdramaEpisodeCount === 15 || currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
           ? currentProject.microdramaEpisodeCount
           : 30
       );
       setReduceSensitiveContent(Boolean(currentProject.reduceSensitiveContent));
+      const normalizedDensityLevels = normalizeDensityLevels(currentProject.densityTuningLevels);
+      setDensityTuningLevels(normalizedDensityLevels);
+      setDensityDraftLevels(normalizedDensityLevels);
+      setEnabledDensityTunings({ emotion: false, plot: false, element: false });
       setNeedsUpgradeSystem(currentProject.worldSettingNeedsUpgradeSystem !== false);
 
       // 如果有内容，自动切换到对应的标签页
@@ -181,6 +241,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setActiveTab('world');
       setOutlineMode('novel');
       setNeedsUpgradeSystem(true);
+      const emptyLevels = emptyDensityLevels();
+      setDensityTuningLevels(emptyLevels);
+      setDensityDraftLevels(emptyLevels);
+      setEnabledDensityTunings({ emotion: false, plot: false, element: false });
 
       // 如果有selectedOutline，设置书名
       if (selectedOutline) {
@@ -399,6 +463,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       console.log('生成的情节细纲:', response.data);
       setOutline(response.data);
+      const resetDensityLevels = emptyDensityLevels();
+      setDensityTuningLevels(resetDensityLevels);
+      setDensityDraftLevels(resetDensityLevels);
+      setEnabledDensityTunings({ emotion: false, plot: false, element: false });
     } catch (error) {
       console.error('生成情节细纲失败:', error);
       alert('生成情节细纲失败，请稍后重试');
@@ -471,6 +539,113 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     }
   };
 
+  const setDensityTuningEnabled = (key: DensityTuningKey, enabled: boolean) => {
+    setEnabledDensityTunings(prev => ({ ...prev, [key]: enabled }));
+    setDensityDraftLevels(prev => ({
+      ...prev,
+      [key]: enabled
+        ? Math.min(DENSITY_TUNING_MAX_LEVEL, densityTuningLevels[key] + 1)
+        : densityTuningLevels[key],
+    }));
+  };
+
+  const setDensityDraftLevel = (key: DensityTuningKey, rawValue: number) => {
+    const currentLevel = densityTuningLevels[key];
+    const nextLevel = Math.min(DENSITY_TUNING_MAX_LEVEL, currentLevel + 1);
+    const clamped = Math.min(nextLevel, Math.max(currentLevel, Math.floor(rawValue)));
+    setDensityDraftLevels(prev => ({ ...prev, [key]: clamped }));
+  };
+
+  const hasActiveDensityTuning = DENSITY_TUNING_KEYS.some(
+    key => enabledDensityTunings[key] && densityDraftLevels[key] > densityTuningLevels[key]
+  );
+
+  const handleTuneDetailedOutlineDensity = async () => {
+    if (!selectedOutline && !currentProject?.outline) {
+      alert('未找到故事大纲，请返回第一步重新选择或加载项目');
+      return;
+    }
+    if (!worldSetting || !characters || !outline) {
+      alert('请先准备好世界观基础设定、人物设定和当前情节细纲');
+      return;
+    }
+    if (!hasActiveDensityTuning) {
+      alert('请至少勾选一个滑块，并向上提升一档');
+      return;
+    }
+
+    setDensityTuningLoading(true);
+    try {
+      const nextLevels: DensityTuningLevels = { ...densityTuningLevels };
+      DENSITY_TUNING_KEYS.forEach(key => {
+        if (enabledDensityTunings[key] && densityDraftLevels[key] > densityTuningLevels[key]) {
+          nextLevels[key] = densityDraftLevels[key];
+        }
+      });
+
+      const outlineData = formatOutlineData(selectedOutline || currentProject!.outline);
+      const response = await blueprintApi.generateDetailedOutline({
+        outline: outlineData,
+        worldSetting,
+        characters,
+        mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent: true,
+        existingDetailedOutline: outline,
+        outlineRevisionSuggestion: buildDensityTuningSuggestion(
+          densityTuningLevels,
+          nextLevels,
+          enabledDensityTunings,
+        ),
+      });
+
+      setOutline(response.data);
+      setActiveTab('outline');
+      setReduceSensitiveContent(true);
+      setDensityTuningLevels(nextLevels);
+      setDensityDraftLevels(nextLevels);
+      setEnabledDensityTunings({ emotion: false, plot: false, element: false });
+
+      if (currentProject) {
+        const newStories = parseMacroStories(response.data);
+        const saved = currentProject.savedMicroStories || [];
+        const updatedSaved = saved.map(story => {
+          const macroIndex = Number(story.macroStoryId.replace('story_', ''));
+          return Number.isFinite(macroIndex) && newStories[macroIndex]
+            ? { ...story, macroStoryContent: newStories[macroIndex] }
+            : story;
+        });
+        const selected = currentProject.selectedMicroStories;
+        const updatedSelected = selected
+          ? selected.map(story => {
+              const macroIndex = Number(story.macroStoryId.replace('story_', ''));
+              return Number.isFinite(macroIndex) && newStories[macroIndex]
+                ? { ...story, macroStoryContent: newStories[macroIndex] }
+                : story;
+            })
+          : undefined;
+
+        updateProject(currentProject.id, {
+          detailedOutline: response.data,
+          detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          densityTuningLevels: nextLevels,
+          reduceSensitiveContent: true,
+          microStoryOutlines: {},
+          savedMicroStories: sortSavedMicroStoriesForChapters(updatedSaved),
+          ...(updatedSelected ? { selectedMicroStories: updatedSelected } : {}),
+        });
+      }
+
+      alert('三密度滑块迭代完成，已在本页更新完整情节细纲。');
+    } catch (error) {
+      console.error('三密度滑块迭代失败:', error);
+      alert('三密度滑块迭代失败，请稍后重试');
+    } finally {
+      setDensityTuningLoading(false);
+    }
+  };
+
   // 保存项目
   const handleSaveProject = () => {
     if (!selectedOutline) {
@@ -505,6 +680,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          densityTuningLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
@@ -517,6 +693,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          densityTuningLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
@@ -581,6 +758,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   // 检查是否可以保存
   const canSave = selectedOutline && bookName.trim() && worldSetting && characters && outline;
+  const redFruitReview = extractRedFruitReview(outline);
 
   const startEditSection = (section: 'world' | 'characters' | 'outline') => {
     const currentValue =
@@ -691,6 +869,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       console.log('批量生成：情节细纲成功');
       setOutline(outlineResponse.data);
+      const resetDensityLevels = emptyDensityLevels();
+      setDensityTuningLevels(resetDensityLevels);
+      setDensityDraftLevels(resetDensityLevels);
+      setEnabledDensityTunings({ emotion: false, plot: false, element: false });
       setBatchGenerationProgress({ current: 4, total: 4, message: '正在自动保存项目...' });
 
       // 第四步：自动保存项目
@@ -702,6 +884,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outlineResponse.data,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          densityTuningLevels: resetDensityLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
@@ -712,6 +895,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outlineResponse.data,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          densityTuningLevels: resetDensityLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
@@ -740,6 +924,99 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     }
   };
 
+  const renderDensityTuningPanel = () => {
+    if (!outline || editingSection === 'outline') return null;
+
+    return (
+      <div className="mt-4 border border-primary-100 bg-white rounded-lg p-4 space-y-4">
+        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+          <div className="flex items-start space-x-3">
+            <div className="p-2 bg-primary-100 rounded-lg">
+              <SlidersHorizontal className="w-5 h-5 text-primary-600" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-secondary-900">三密度滑块迭代器</div>
+              <div className="text-xs text-secondary-600 mt-1">
+                勾选后每轮只能向上提升一档，单项最高5档；重写完成后下方完整细纲会直接更新。
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleTuneDetailedOutlineDensity}
+            disabled={densityTuningLoading || !hasActiveDensityTuning}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+            title="把当前完整情节细纲和滑块建议发送给AI，重写所有中故事"
+          >
+            {densityTuningLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {densityTuningLoading ? '迭代中...' : '按滑块重写完整细纲'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {DENSITY_TUNING_KEYS.map(key => {
+            const config = DENSITY_TUNING_CONFIG[key];
+            const currentLevel = densityTuningLevels[key];
+            const nextLevel = Math.min(DENSITY_TUNING_MAX_LEVEL, currentLevel + 1);
+            const isEnabled = enabledDensityTunings[key] && currentLevel < DENSITY_TUNING_MAX_LEVEL;
+            const draftLevel = densityDraftLevels[key];
+
+            return (
+              <div key={key} className="rounded-lg border border-secondary-200 bg-secondary-50/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={enabledDensityTunings[key]}
+                      disabled={densityTuningLoading || currentLevel >= DENSITY_TUNING_MAX_LEVEL}
+                      onChange={(e) => setDensityTuningEnabled(key, e.target.checked)}
+                      className="w-4 h-4 text-primary-600 rounded border-secondary-300 focus:ring-primary-500"
+                    />
+                    <span className="text-sm font-semibold text-secondary-900">{config.title}</span>
+                  </label>
+                  <span className="text-xs font-medium text-primary-700 bg-primary-100 px-2 py-1 rounded">
+                    {currentLevel}/{DENSITY_TUNING_MAX_LEVEL}
+                  </span>
+                </div>
+
+                <p className="text-xs text-secondary-500 mt-2 min-h-[32px]">{config.description}</p>
+
+                <input
+                  type="range"
+                  min={currentLevel}
+                  max={nextLevel}
+                  step={1}
+                  value={draftLevel}
+                  disabled={!isEnabled || densityTuningLoading}
+                  onChange={(e) => setDensityDraftLevel(key, Number(e.target.value))}
+                  className="w-full accent-primary-600 disabled:opacity-40 mt-3"
+                />
+
+                <div className="flex items-center justify-between text-xs text-secondary-500 mt-1">
+                  <span>当前 {currentLevel}档</span>
+                  <span>{currentLevel >= DENSITY_TUNING_MAX_LEVEL ? '已满档' : `本轮最多 ${nextLevel}档`}</span>
+                </div>
+                <div className="mt-2 text-xs text-secondary-600">
+                  {enabledDensityTunings[key] && draftLevel > currentLevel
+                    ? `${config.shortLabel}本轮提升到 ${draftLevel}档`
+                    : '勾选后自动提升一档'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {redFruitReview && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="text-sm font-semibold text-amber-900 mb-2">最近一次红果核心维度复盘</div>
+            <div className="text-xs text-amber-900/80 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+              {redFruitReview}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100">
@@ -1014,8 +1291,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                   {outlineMode === 'microdrama' && (
                     <div className="mt-4 space-y-4">
                       <div className="text-xs font-medium text-secondary-700 mb-2">集数规格</div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {([30, 60, 100] as const).map((count) => (
+                      <div className="grid grid-cols-4 gap-2">
+                        {([15, 30, 60, 100] as const).map((count) => (
                           <button
                             key={count}
                             onClick={() => setMicrodramaEpisodeCount(count)}
@@ -1424,6 +1701,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                             className="w-full min-h-[96px] p-3 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-secondary-800 bg-white"
                             placeholder="粘贴修改建议，或导入txt/md文件。比如：减少副线、强化男主事业线、保留爱情线但降低血腥桥段、第3个中故事改成更强反转..."
                           />
+                          {renderDensityTuningPanel()}
                         </div>
                       )}
                       <div className="prose prose-sm max-w-none">

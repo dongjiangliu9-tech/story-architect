@@ -23,6 +23,10 @@ export interface OutlineData {
   savedAt?: string; // 保存时间戳（可选）
 }
 
+export type DensityTuningKey = 'emotion' | 'plot' | 'element';
+
+export type DensityTuningLevels = Record<DensityTuningKey, number>;
+
 // 网文分类类型
 export interface NovelCategory {
   id: string;

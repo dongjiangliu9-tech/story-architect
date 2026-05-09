@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { OutlineData } from '../types';
+import { DensityTuningLevels, OutlineData } from '../types';
 
 const WORLD_SETTINGS_KEY = 'story-architect-world-settings';
 const EXPORT_SCHEMA_VERSION = 1;
@@ -81,7 +81,8 @@ export interface WorldSettingsProject {
   charactersTransferRef?: string;
   detailedOutlineTransferRef?: string;
   detailedOutlineMode?: 'novel' | 'microdrama';
-  microdramaEpisodeCount?: 30 | 60 | 100;
+  microdramaEpisodeCount?: 15 | 30 | 60 | 100;
+  densityTuningLevels?: Partial<DensityTuningLevels>;
   reduceSensitiveContent?: boolean;
   worldSettingNeedsUpgradeSystem?: boolean;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
@@ -224,7 +225,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       bookName: bookName.trim(),
       outline,
       detailedOutlineMode: base.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel',
-      microdramaEpisodeCount: base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
+      microdramaEpisodeCount: base.microdramaEpisodeCount === 15 || base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
         ? base.microdramaEpisodeCount
         : 30,
       worldSettingNeedsUpgradeSystem: typeof base.worldSettingNeedsUpgradeSystem === 'boolean'

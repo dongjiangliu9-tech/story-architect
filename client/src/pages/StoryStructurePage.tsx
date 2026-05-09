@@ -76,8 +76,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const { currentProject, updateProject } = useWorldSettings();
   const detailedOutlineMode = currentProject?.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
   const isMicrodrama = detailedOutlineMode === 'microdrama';
-  const microdramaEpisodeCount: 30 | 60 | 100 =
-    currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
+  const microdramaEpisodeCount: 15 | 30 | 60 | 100 =
+    currentProject?.microdramaEpisodeCount === 15 || currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
       ? currentProject.microdramaEpisodeCount
       : 30;
   const structureLabels = isMicrodrama
@@ -479,6 +479,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       updateProject(currentProject.id, {
         detailedOutline: response.data,
         microStoryOutlines: {},
+        densityTuningLevels: { emotion: 0, plot: 0, element: 0 },
         reduceSensitiveContent,
       });
 
@@ -621,7 +622,18 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     isMicrodrama ? `第${num}集` : `小故事 ${getChineseNumber(num)}`
   );
 
-  const getMicrodramaMacroPlans = (episodeCount: 30 | 60 | 100) => {
+  const getMicrodramaMacroPlans = (episodeCount: 15 | 30 | 60 | 100) => {
+    if (episodeCount === 15) {
+      return [
+        { startChapter: 1, endChapter: 1 },
+        { startChapter: 2, endChapter: 3 },
+        { startChapter: 4, endChapter: 6 },
+        { startChapter: 7, endChapter: 9 },
+        { startChapter: 10, endChapter: 12 },
+        { startChapter: 13, endChapter: 15 },
+      ];
+    }
+
     if (episodeCount === 100) {
       return Array.from({ length: 10 }, (_, index) => ({
         startChapter: index * 10 + 1,
