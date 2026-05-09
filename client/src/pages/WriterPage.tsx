@@ -755,9 +755,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	      let generatedChaptersData: {[key: number]: string} = {};
 	      let activeStreamingChapter = startChapter;
+	      let lastSseEventAt = Date.now();
+	      let sseErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
       eventSource.onmessage = (event) => {
         try {
+          lastSseEventAt = Date.now();
+          if (sseErrorTimer) {
+            clearTimeout(sseErrorTimer);
+            sseErrorTimer = null;
+          }
           const data = JSON.parse(event.data);
           console.log('收到SSE消息:', data.type, data.chapter || '');
 
@@ -893,6 +900,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   alert(`批量生成完成！共生成了${totalGenerated}个${unitLabel}的内容`);
                 }
                 eventSource.close();
+                if (sseErrorTimer) clearTimeout(sseErrorTimer);
                 setCurrentEventSource(null);
                 setCurrentRequestId('');
                 setIsBatchGenerating(false);
@@ -916,18 +924,23 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       };
 
       eventSource.onerror = (error) => {
-        console.error('SSE连接错误:', error);
-        alert('生成过程中出现错误，请稍后重试');
-        eventSource.close();
-        setCurrentEventSource(null);
-        setGenerationState({
-          isGenerating: false,
-          currentGeneratingChapter: null,
-          totalChapters: 0,
-          completedChapters: []
-        });
-        setCurrentRequestId('');
-        setIsBatchGenerating(false);
+        console.warn('SSE连接暂时中断，等待浏览器自动重连:', error);
+        if (sseErrorTimer) clearTimeout(sseErrorTimer);
+        sseErrorTimer = setTimeout(() => {
+          if (Date.now() - lastSseEventAt < 60000) return;
+          console.error('SSE连接超过60秒没有恢复，停止前端等待');
+          alert('生成连接中断超过60秒，请刷新页面查看已保存章节，或从下一章继续生成');
+          eventSource.close();
+          setCurrentEventSource(null);
+          setGenerationState({
+            isGenerating: false,
+            currentGeneratingChapter: null,
+            totalChapters: 0,
+            completedChapters: []
+          });
+          setCurrentRequestId('');
+          setIsBatchGenerating(false);
+        }, 60000);
       };
 
     } catch (error) {
@@ -1221,10 +1234,17 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	          let generatedChaptersData: {[key: number]: string} = {};
 	          let activeStreamingChapter = startChapter;
+	          let lastSseEventAt = Date.now();
+	          let sseErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
           // 设置SSE消息处理器
           eventSource.onmessage = (event) => {
             try {
+              lastSseEventAt = Date.now();
+              if (sseErrorTimer) {
+                clearTimeout(sseErrorTimer);
+                sseErrorTimer = null;
+              }
               const data = JSON.parse(event.data);
               console.log('模拟用户：收到SSE消息:', data.type, data.chapter || '');
 
@@ -1355,6 +1375,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     console.log('模拟用户：完成本批次保存，准备继续下一批');
 
                     eventSource.close();
+                    if (sseErrorTimer) clearTimeout(sseErrorTimer);
                     setCurrentEventSource(null);
                     setCurrentRequestId('');
                     setIsBatchGenerating(false);
@@ -1382,10 +1403,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           };
 
           eventSource.onerror = (error) => {
-            console.error('模拟用户：SSE连接错误:', error);
-            setIsBatchGenerating(false);
-            setCurrentRequestId('');
-            reject(error);
+            console.warn('模拟用户：SSE连接暂时中断，等待浏览器自动重连:', error);
+            if (sseErrorTimer) clearTimeout(sseErrorTimer);
+            sseErrorTimer = setTimeout(() => {
+              if (Date.now() - lastSseEventAt < 60000) return;
+              console.error('模拟用户：SSE连接超过60秒没有恢复');
+              setIsBatchGenerating(false);
+              setCurrentRequestId('');
+              reject(error);
+            }, 60000);
           };
 
         } catch (error) {

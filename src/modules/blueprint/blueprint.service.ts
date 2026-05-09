@@ -8,7 +8,18 @@ import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateChapterDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { LogicModelSelectionDto } from './dto/logic-model-selection.dto';
-import { Observable } from 'rxjs';
+import { Observable, Subscriber } from 'rxjs';
+
+type GenerationStreamEvent = { data: string };
+
+interface GenerationStreamJob {
+  requestId: string;
+  events: GenerationStreamEvent[];
+  subscribers: Set<Subscriber<GenerationStreamEvent>>;
+  completed: boolean;
+  error?: unknown;
+  heartbeat?: ReturnType<typeof setInterval>;
+}
 
 @Injectable()
 export class BlueprintService {
@@ -22,6 +33,7 @@ export class BlueprintService {
   // 存储取消状态
   private cancelledRequests = new Set<string>();
   private generationAbortControllers = new Map<string, AbortController>();
+  private generationStreamJobs = new Map<string, GenerationStreamJob>();
 
   constructor(private llmService: LlmService) {}
 
@@ -433,19 +445,6 @@ ${reviewRiskRule ? `- 已开启审核风险控制：降低血腥、敏感、露�
     return this.cancelledRequests.has(requestId);
   }
 
-  generateDuplicateStreamNotice(requestId: string): Observable<any> {
-    return new Observable((subscriber) => {
-      console.warn(`忽略重复SSE连接，requestId 已在生成中: ${requestId}`);
-      subscriber.next({
-        data: JSON.stringify({
-          type: 'duplicate_stream',
-          message: '该生成请求已经在运行，已忽略重复连接',
-        }),
-      });
-      subscriber.complete();
-    });
-  }
-
   private scheduleGenerationRequestCleanup(id: string, delayMs: number): ReturnType<typeof setTimeout> {
     return setTimeout(() => {
       const entry = this.generationRequests.get(id);
@@ -467,6 +466,75 @@ ${reviewRiskRule ? `- 已开启审核风险控制：降低血腥、敏感、露�
     }
     this.generationAbortControllers.delete(id);
     this.cancelledRequests.delete(id);
+  }
+
+  private createGenerationStreamJob(requestId: string): GenerationStreamJob {
+    const job: GenerationStreamJob = {
+      requestId,
+      events: [],
+      subscribers: new Set(),
+      completed: false,
+    };
+    this.generationStreamJobs.set(requestId, job);
+    return job;
+  }
+
+  private getGenerationStreamObservable(job: GenerationStreamJob): Observable<GenerationStreamEvent> {
+    return new Observable((subscriber) => {
+      for (const event of job.events) {
+        subscriber.next(event);
+      }
+
+      if (job.completed) {
+        if (job.error) {
+          subscriber.error(job.error);
+        } else {
+          subscriber.complete();
+        }
+        return;
+      }
+
+      job.subscribers.add(subscriber);
+      return () => {
+        job.subscribers.delete(subscriber);
+      };
+    });
+  }
+
+  private publishGenerationStreamEvent(job: GenerationStreamJob, event: GenerationStreamEvent) {
+    if (job.completed) return;
+    job.events.push(event);
+    if (job.events.length > 500) {
+      job.events.splice(0, job.events.length - 500);
+    }
+    for (const subscriber of job.subscribers) {
+      if (!subscriber.closed) {
+        subscriber.next(event);
+      }
+    }
+  }
+
+  private finishGenerationStreamJob(job: GenerationStreamJob, error?: unknown) {
+    if (job.completed) return;
+    job.completed = true;
+    job.error = error;
+    if (job.heartbeat) {
+      clearInterval(job.heartbeat);
+    }
+
+    for (const subscriber of job.subscribers) {
+      if (subscriber.closed) continue;
+      if (error) {
+        subscriber.error(error);
+      } else {
+        subscriber.complete();
+      }
+    }
+    job.subscribers.clear();
+
+    setTimeout(() => {
+      this.generationStreamJobs.delete(job.requestId);
+    }, 10 * 60 * 1000);
   }
 
   async generateInspiration(dto: GenerateOutlineDto) {
@@ -1639,6 +1707,12 @@ ${romanceLineRules}
   }
 
 	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
+    const existingJob = this.generationStreamJobs.get(requestId);
+    if (existingJob) {
+      console.log(`接入已有流式生成任务: ${requestId}, 已缓存事件: ${existingJob.events.length}`);
+      return this.getGenerationStreamObservable(existingJob);
+    }
+
 	    const mode = this.normalizeDetailedOutlineMode(dto.mode);
 	    const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
     const unitLabel = mode === 'microdrama' ? '集' : '章';
@@ -1648,13 +1722,22 @@ ${romanceLineRules}
     const unitsPerStory = mode === 'microdrama' ? 1 : 2;
     const abortController = new AbortController();
     this.generationAbortControllers.set(requestId, abortController);
+    const job = this.createGenerationStreamJob(requestId);
+    const subscriber = {
+      get closed() {
+        return job.completed;
+      },
+      next: (event: GenerationStreamEvent) => this.publishGenerationStreamEvent(job, event),
+      complete: () => this.finishGenerationStreamJob(job),
+      error: (error: unknown) => this.finishGenerationStreamJob(job, error),
+    } as Subscriber<GenerationStreamEvent>;
 
-    return new Observable((subscriber) => {
-      const heartbeat = setInterval(() => {
-        if (!subscriber.closed) {
-          subscriber.next({ data: JSON.stringify({ type: 'ping', timestamp: Date.now() }) });
-        }
-      }, 15000);
+    const heartbeat = setInterval(() => {
+      if (!subscriber.closed) {
+        subscriber.next({ data: JSON.stringify({ type: 'ping', timestamp: Date.now() }) });
+      }
+    }, 15000);
+    job.heartbeat = heartbeat;
 
       (async () => {
         try {
@@ -1934,10 +2017,7 @@ ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previous
         }
       })();
 
-      return () => {
-        clearInterval(heartbeat);
-      };
-    });
+    return this.getGenerationStreamObservable(job);
   }
 
   async rewriteChapter(dto: RewriteChapterDto) {

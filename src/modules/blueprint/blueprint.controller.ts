@@ -113,11 +113,7 @@ export class BlueprintController {
       console.log('当前存储的请求数量:', this.blueprintService.getStoredRequestCount());
       throw new Error('生成请求不存在或已过期，请重新开始生成');
     }
-    if (claimed.alreadyActive) {
-      return this.blueprintService.generateDuplicateStreamNotice(requestId);
-    }
-
-    console.log('找到生成请求，开始流式生成');
+    console.log(claimed.alreadyActive ? '生成请求已在运行，接入现有流' : '找到生成请求，开始流式生成');
     return this.blueprintService.generateChapterStream(claimed.dto, requestId);
   }
 
