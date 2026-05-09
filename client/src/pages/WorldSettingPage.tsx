@@ -57,6 +57,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const { currentProject, createProject, updateProject, deleteProject, loadProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
   const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
   const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<30 | 60 | 100>(30);
+  const [reduceSensitiveContent, setReduceSensitiveContent] = useState(false);
   const [needsUpgradeSystem, setNeedsUpgradeSystem] = useState(true);
   const [useEnglishNames, setUseEnglishNames] = useState(false);
 
@@ -152,6 +153,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           ? currentProject.microdramaEpisodeCount
           : 30
       );
+      setReduceSensitiveContent(Boolean(currentProject.reduceSensitiveContent));
       setNeedsUpgradeSystem(currentProject.worldSettingNeedsUpgradeSystem !== false);
 
       // 如果有内容，自动切换到对应的标签页
@@ -388,6 +390,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         characters: characters,
         mode: outlineMode,
         microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent,
         outlineBatchIndex: 1,
         existingDetailedOutline: '',
       });
@@ -436,6 +439,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
       } else {
@@ -447,6 +451,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
         console.log('新项目创建完成，项目ID:', newProject.id);
@@ -613,6 +618,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         characters: charactersResponse.data,
         mode: outlineMode,
         microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent,
         outlineBatchIndex: 1,
         existingDetailedOutline: '',
       });
@@ -630,6 +636,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outlineResponse.data,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
       } else {
@@ -639,6 +646,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           detailedOutline: outlineResponse.data,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
         });
         console.log('批量生成：新项目创建完成，项目ID:', newProject.id);
@@ -938,7 +946,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     </button>
                   </div>
                   {outlineMode === 'microdrama' && (
-                    <div className="mt-4">
+                    <div className="mt-4 space-y-4">
                       <div className="text-xs font-medium text-secondary-700 mb-2">集数规格</div>
                       <div className="grid grid-cols-3 gap-2">
                         {([30, 60, 100] as const).map((count) => (
@@ -955,6 +963,31 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                           </button>
                         ))}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setReduceSensitiveContent(prev => !prev)}
+                        className={`w-full rounded-lg border px-4 py-3 text-left transition-all ${
+                          reduceSensitiveContent
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                            : 'border-secondary-200 bg-white text-secondary-700 hover:border-emerald-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">降低审核风险</div>
+                            <div className="mt-1 text-xs opacity-80">
+                              弱化血腥、敏感、露骨暴力桥段，用关系压迫、身份错位、限时危机和公开打脸替代。
+                            </div>
+                          </div>
+                          <div className={`h-5 w-10 rounded-full p-0.5 transition-colors ${
+                            reduceSensitiveContent ? 'bg-emerald-500' : 'bg-secondary-300'
+                          }`}>
+                            <div className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                              reduceSensitiveContent ? 'translate-x-5' : 'translate-x-0'
+                            }`}></div>
+                          </div>
+                        </div>
+                      </button>
                     </div>
                   )}
                 </div>

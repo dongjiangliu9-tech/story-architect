@@ -82,6 +82,7 @@ export interface WorldSettingsProject {
   detailedOutlineTransferRef?: string;
   detailedOutlineMode?: 'novel' | 'microdrama';
   microdramaEpisodeCount?: 30 | 60 | 100;
+  reduceSensitiveContent?: boolean;
   worldSettingNeedsUpgradeSystem?: boolean;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
   microStoryOutlines?: {[key: string]: string}; // 中故事ID -> 小故事细纲内容

@@ -36,4 +36,8 @@ export class GenerateDetailedOutlineDto {
   @IsBoolean()
   @IsOptional()
   isFinalBatch?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  reduceSensitiveContent?: boolean;
 }

@@ -103,6 +103,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [expandedStories, setExpandedStories] = useState<{[key: string]: boolean}>({});
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [continuingMacroBatch, setContinuingMacroBatch] = useState(false);
+  const [reduceSensitiveContent, setReduceSensitiveContent] = useState(Boolean(currentProject?.reduceSensitiveContent));
   const [batchGenerationProgress, setBatchGenerationProgress] = useState<{current: number, total: number, currentStory: string} | null>(null);
   const [isEditingMacroStory, setIsEditingMacroStory] = useState(false);
   const [macroStoryDraft, setMacroStoryDraft] = useState('');
@@ -461,6 +462,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         characters: currentProject.characters || '',
         mode: detailedOutlineMode,
         microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent,
         outlineBatchIndex: 1,
         existingDetailedOutline: '',
       });
@@ -476,13 +478,22 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       setMicroStoryOutlines({});
       updateProject(currentProject.id, {
         detailedOutline: response.data,
-        microStoryOutlines: {}
+        microStoryOutlines: {},
+        reduceSensitiveContent,
       });
 
       alert('中故事已重新生成！');
     } catch (error) {
       console.error('重新生成中故事失败:', error);
       alert('重新生成中故事失败，请稍后重试');
+    }
+  };
+
+  const toggleReduceSensitiveContent = () => {
+    const nextValue = !reduceSensitiveContent;
+    setReduceSensitiveContent(nextValue);
+    if (currentProject) {
+      updateProject(currentProject.id, { reduceSensitiveContent: nextValue });
     }
   };
 
@@ -516,6 +527,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         worldSetting: currentProject.worldSetting || '',
         characters: currentProject.characters || '',
         mode: 'novel',
+        reduceSensitiveContent,
         outlineBatchIndex: nextBatchIndex,
         existingDetailedOutline,
         isFinalBatch: nextBatchIndex === 4,
@@ -527,7 +539,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       const newStories = parseMacroStories(combinedDetailedOutline);
 
       updateProject(currentProject.id, {
-        detailedOutline: combinedDetailedOutline
+        detailedOutline: combinedDetailedOutline,
+        reduceSensitiveContent,
       });
       setMacroStories(newStories);
       setSelectedMacroStoryIndex(existingCount);
@@ -572,7 +585,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     } else {
       console.log('没有savedMicroStories数据');
     }
-  }, [currentProject?.id, currentProject?.detailedOutline, currentProject?.microStoryOutlines, currentProject?.savedMicroStories]);
+    setReduceSensitiveContent(Boolean(currentProject?.reduceSensitiveContent));
+  }, [currentProject?.id, currentProject?.detailedOutline, currentProject?.microStoryOutlines, currentProject?.savedMicroStories, currentProject?.reduceSensitiveContent]);
 
   // 检查自动化流程
   useEffect(() => {
@@ -1595,6 +1609,18 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={toggleReduceSensitiveContent}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  reduceSensitiveContent
+                    ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'
+                    : 'bg-secondary-100 hover:bg-secondary-200 text-secondary-700'
+                }`}
+                title="生成或刷新中故事时，降低血腥、敏感、露骨暴力等容易卡审核的桥段"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>{reduceSensitiveContent ? '已降低审核风险' : '降低审核风险'}</span>
+              </button>
               <button
                 onClick={clearAllMicroStoryOutlines}
                 className="flex items-center space-x-2 px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded-lg text-red-700 text-sm font-medium transition-colors"

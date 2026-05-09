@@ -222,6 +222,7 @@ export interface GenerateDetailedOutlineDto {
   outlineBatchIndex?: number;
   existingDetailedOutline?: string;
   isFinalBatch?: boolean;
+  reduceSensitiveContent?: boolean;
 }
 
 export interface GenerateMicroStoriesDto {
