@@ -313,7 +313,14 @@ export class LlmService {
         }
 
         const status = (error as { status?: number })?.status;
-        if (status === 401 || status === 403) {
+        const errorMessage = String((error as { message?: string })?.message || '');
+        const errorType = String((error as { type?: string })?.type || '');
+        if (
+          status === 401 ||
+          status === 403 ||
+          /无效的令牌|invalid token|unauthorized|forbidden/i.test(errorMessage) ||
+          /auth|token|unauthorized|forbidden/i.test(errorType)
+        ) {
           throw new Error('AI 网关拒绝访问，请检查网关 Token、模型权限或账户额度');
         }
         if (status === 404) {

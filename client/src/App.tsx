@@ -36,7 +36,7 @@ function BlueprintPage({
   const [selectedStyles, setSelectedStyles] = useState<NovelStyle[]>([]);
   const [theme, setTheme] = useState('');
   const [bookName, setBookName] = useState('');
-  const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-30' | 'novel-80'>('microdrama-30');
+  const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-30' | 'novel-75'>('microdrama-30');
   const [logicModelValue, setLogicModelValue] = useState(() => {
     try {
       return localStorage.getItem('story-architect-logic-model') || DEFAULT_LOGIC_MODEL_VALUE;
@@ -484,7 +484,7 @@ function BlueprintPage({
                   <div className="grid grid-cols-2 gap-2">
                     {([
                       { value: 'microdrama-30' as const, label: '30集微短剧' },
-                      { value: 'novel-80' as const, label: '80章网文' },
+                      { value: 'novel-75' as const, label: '75章网文' },
                     ]).map(option => (
                       <button
                         key={option.value}
@@ -513,7 +513,7 @@ function BlueprintPage({
                   }`}
                 >
                   <Sparkles className="w-6 h-6" />
-                  <span>{isAutoGenerating ? 'AI自动迭代中...' : `AI自动迭代文学作品（${autoGenerationTarget === 'microdrama-30' ? '30集' : '80章'}）`}</span>
+                  <span>{isAutoGenerating ? 'AI自动迭代中...' : `AI自动迭代文学作品（${autoGenerationTarget === 'microdrama-30' ? '30集' : '75章'}）`}</span>
                 </button>
               </div>
             </div>

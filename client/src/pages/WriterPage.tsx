@@ -2252,7 +2252,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     <span className="text-sm text-secondary-600">字/{unitLabel}</span>
                   </div>
                   <p className="mt-2 text-xs text-secondary-500">
-                    生成时以约 {activeTargetWords} 字为目标；网文默认 2100 字，超长会自动压缩。
+                    生成时以约 {activeTargetWords} 字为目标；网文超过 3000 字会用 DeepSeek 自动压缩约 30%。
                   </p>
                 </div>
 
@@ -2711,7 +2711,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </>
                   ) : (
                     <>
-                      <p>• 每章以约 {normalizeTargetNovelWords(targetNovelWords)} 字为目标，超长会自动压缩</p>
+                      <p>• 每章以约 {normalizeTargetNovelWords(targetNovelWords)} 字为目标，超过 3000 字会自动压缩约 30%</p>
                       <p>• 包含吸引人的章节标题</p>
                       <p>• 融入完整的故事背景</p>
                       <p>• 保持连贯的阅读体验</p>

@@ -20,7 +20,7 @@ export interface AutoGenerationStep {
   message?: string;
 }
 
-export type AutoGenerationTarget = 'microdrama-30' | 'novel-80';
+export type AutoGenerationTarget = 'microdrama-30' | 'novel-75';
 
 export interface AutoGenerationOptions {
   target: AutoGenerationTarget;
@@ -148,16 +148,16 @@ ${outline.themes}`;
     initializeSteps();
 
     try {
-      const targetMode = options.target === 'novel-80' ? 'novel' : 'microdrama';
+      const targetMode = options.target === 'novel-75' ? 'novel' : 'microdrama';
       const isMicrodrama = targetMode === 'microdrama';
-      const targetUnitCount = isMicrodrama ? 30 : 80;
-      const targetLabel = isMicrodrama ? '30集微短剧' : '80章网文';
-      const outlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline' : 'novel-80-detailed-outline';
-      const preIteratedOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-pre-v1' : 'novel-80-detailed-outline-pre-v1';
-      const finalOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-density-v3' : 'novel-80-detailed-outline-density-v3';
-      const microStoriesCacheKey = isMicrodrama ? 'microdrama-30-all-micro-stories' : 'novel-80-all-micro-stories';
-      const expandedWorldCacheKey = isMicrodrama ? 'microdrama-30-world-expanded-v1' : 'novel-80-world-expanded-v1';
-      const expandedCharactersCacheKey = isMicrodrama ? 'microdrama-30-characters-expanded-v1' : 'novel-80-characters-expanded-v1';
+      const targetUnitCount = isMicrodrama ? 30 : 75;
+      const targetLabel = isMicrodrama ? '30集微短剧' : '75章网文';
+      const outlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline' : 'novel-75-detailed-outline';
+      const preIteratedOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-pre-v1' : 'novel-75-detailed-outline-pre-v1';
+      const finalOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-density-v3' : 'novel-75-detailed-outline-density-v3';
+      const microStoriesCacheKey = isMicrodrama ? 'microdrama-30-all-micro-stories' : 'novel-75-all-micro-stories';
+      const expandedWorldCacheKey = isMicrodrama ? 'microdrama-30-world-expanded-v1' : 'novel-75-world-expanded-v1';
+      const expandedCharactersCacheKey = isMicrodrama ? 'microdrama-30-characters-expanded-v1' : 'novel-75-characters-expanded-v1';
 
       // 清理旧缓存
       clearCache(bookName);
@@ -299,7 +299,7 @@ ${outline.themes}`;
             reduceSensitiveContent: true,
             outlineBatchIndex: 1,
             existingDetailedOutline: detailedOutline,
-            outlineRevisionSuggestion: '现有的中故事内容无法支撑起20章的庞大剧情，需要AI进行自动化的融合更多实力与未出场的角色，设计更复杂的桥段，重新设计每个中故事。必须保留原有主线方向，但显著增加每个中故事内部的事件层级、角色参与度、副本/任务/危机结构、阶段目标、反转点、伏笔回收和章节承载力。每个中故事要足够支撑长篇网文多章连续展开，避免两三章就写完。请输出完整新版情节细纲，不要输出说明或差异对比。',
+            outlineRevisionSuggestion: '现有的中故事内容需要能支撑15章的连续剧情，需要AI进行自动化的融合更多实力与未出场的角色，设计更复杂的桥段，重新设计每个中故事。必须保留原有主线方向，但显著增加每个中故事内部的事件层级、角色参与度、副本/任务/危机结构、阶段目标、反转点、伏笔回收和章节承载力。每个中故事要足够拆成15个单章小故事，每个小故事对应一章，避免两三章就写完。请输出完整新版情节细纲，不要输出说明或差异对比。',
           });
           detailedOutline = preIteratedOutlineResponse.data;
           setCachedData(bookName, preIteratedOutlineCacheKey, detailedOutline);
@@ -405,11 +405,9 @@ ${outline.themes}`;
           const macroStory = macroStories[macroIndex];
           if (!macroStory?.content) continue;
 
-          const chapterRange = parseChapterRangeFromMacroStory(macroStory.content, isMicrodrama ? '集' : '章') || (
-            isMicrodrama
-              ? getMicrodramaChapterRange(macroIndex, macroStories.length, targetUnitCount)
-              : getNovelChapterRange(macroIndex)
-          );
+          const chapterRange = isMicrodrama
+            ? (parseChapterRangeFromMacroStory(macroStory.content, '集') || getMicrodramaChapterRange(macroIndex, macroStories.length, targetUnitCount))
+            : getNovelChapterRange(macroIndex);
           updateStep('micro-stories', {
             status: 'running',
             progress: Math.round((macroIndex / macroStories.length) * 100),
@@ -664,8 +662,8 @@ function getMicrodramaChapterRange(macroIndex: number, macroCount: number, episo
 }
 
 function getNovelChapterRange(macroIndex: number) {
-  const start = macroIndex * 20 + 1;
-  return { start, end: start + 19 };
+  const start = macroIndex * 15 + 1;
+  return { start, end: start + 14 };
 }
 
 function parseChapterRangeFromMacroStory(content: string, unitLabel: '集' | '章') {

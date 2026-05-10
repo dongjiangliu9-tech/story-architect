@@ -1205,9 +1205,9 @@ ${romanceLineRules}
    - **一级结构**：事业线中故事标明所用事业线一级结构（阻碍/危机/装逼/探明/取得/义举）；爱情线中故事标明所用爱情线一级结构（好感度变化/受益/争风吃醋/发展受阻/关系危机/装逼/狗粮）。
 4. **涉及主角与一位或多位配角之间爱情的中故事**，除上述外，还必须按当前爱情线阶段标明：好感度、两人关系阶段、爱情线阶段，并落实该阶段的必有节点与所用可选节点。
 5. 事业线中故事的节点设计可参照「事业线节点类型」的 11 类，合理选用目标与行动、里程碑状态、地图更新、利益团体、神器宝物、角色登场退场、关系发展、矛盾出现与升级、戏剧性、预期打破、里程碑情节等。
-6. 每个中故事必须能支撑 20 章以上的详细内容，含丰富情节、支线与深度发展。
+6. 每个中故事必须能支撑 15 章以上的详细内容，含丰富情节、支线与深度发展；自动拆分时会拆成15个单章小故事。
 7. ${batchIndex === 1
-      ? '【中故事一】必须以“生死为局”开头，是决定开局生死成败的核心中故事：主角一入场就面对不可回避的生死存亡、命运毁灭、身份崩塌或重大失败，必须足够精彩、不能拖沓，并且对应的前20章必须严格包含三张故事卡：第1-4章完成第一张卡，第5-12章完成第二张卡，第13-20章完成第三张卡。三张卡必须连续升级、持续爆点、快速推进。'
+      ? '【中故事一】必须以“生死为局”开头，是决定开局生死成败的核心中故事：主角一入场就面对不可回避的生死存亡、命运毁灭、身份崩塌或重大失败，必须足够精彩、不能拖沓，并且对应的前15章必须严格包含三段连续升级的故事段落：第1-3章完成第一段，第4-9章完成第二段，第10-15章完成第三段。三段必须连续升级、持续爆点、快速推进。'
       : `本批第一个中故事【中故事${this.getChineseNumber(startMacroStoryNumber)}】必须承接上一批结尾的阶段状态、关系变化、压力和目标，不要重新开局，也不要推翻前文事实。`}
 8. 除第一个中故事外，之后每一个中故事都必须以重大危局开头：新的强敌压境、旧账爆雷、关系撕裂、资源被夺、身份暴露、任务失败、势力围剿或目标突然升级，不能平铺过渡。
 9. 每个中故事都要让新颖且富有戏剧张力的情节层出不穷：信息差、预期打破、反转打脸、高燃对抗、情感爆雷、奇谋破局等爽点必须直达阶段高潮。
@@ -1216,7 +1216,7 @@ ${romanceLineRules}
 12. 每个中故事的主体篇幅必须放在「详细剧情」，至少占该中故事总字数的70%；必须写清开端、发展、高潮、转折、结局，不能被前置信息挤占。
 13. 避免简单套路，中故事需有复杂冲突、多层矛盾与主题探讨。
 14. 每个中故事结尾必须追加「阶段状态小结」，写清：主角当前状态、主角和主要人物的关系、主角目前受到的压力、主角下一阶段目标方向；并必须额外留下可推进下一中故事的扣子。
-15. 整体按约 40 个中故事支撑 200 万字长篇小说；本次只生成第 ${batchIndex} 批 10 个中故事。${isFinalBatch ? '本批必须完成全书终局、主线收束和人物关系落点。' : '本批结尾要留下可继续生成下一批的推进空间，不能写成全书大结局。'}
+15. 整体按约 40 个中故事支撑长篇小说；本次只生成第 ${batchIndex} 批 10 个中故事。自动化写作入口会先取前5个中故事，每个中故事拆成15章，共75章。${isFinalBatch ? '本批必须完成全书终局、主线收束和人物关系落点。' : '本批结尾要留下可继续生成下一批的推进空间，不能写成全书大结局。'}
 16. **格式要求：** 每个中故事用明确标题标记，必须从【中故事${this.getChineseNumber(startMacroStoryNumber)}】开始，到【中故事${this.getChineseNumber(endMacroStoryNumber)}】结束，格式如下：
     【中故事${this.getChineseNumber(startMacroStoryNumber)}】具体的标题内容
     【中故事${this.getChineseNumber(startMacroStoryNumber + 1)}】具体的标题内容
@@ -1232,7 +1232,7 @@ ${romanceLineRules}
     详细剧情：至少占本中故事70%篇幅，写清危局开场、事件递进、反转打脸、高潮和结尾扣子...
     阶段状态小结：主角当前状态：……；主要人物关系：……；当前压力：……；目标方向：……。
 
-请直接输出本批次的 10 个中故事细纲，不要先列出中故事名称列表。每个中故事的「详细剧情」必须详细具体，可作为 20 章内容的框架基础；前置信息只作短标注，事业线/爱情线信息要服务剧情，不要喧宾夺主。`;
+请直接输出本批次的 10 个中故事细纲，不要先列出中故事名称列表。每个中故事的「详细剧情」必须详细具体，可作为 15 章内容的框架基础；前置信息只作短标注，事业线/爱情线信息要服务剧情，不要喧宾夺主。`;
 
     try {
       const result = await this.chatWithSelectedLogicModel([
@@ -1325,7 +1325,9 @@ ${reviewRiskRule}
     const rangeInfo = dto.chapterRange
       ? `，对应${mode === 'microdrama' ? '微短剧集数范围' : '小说章节范围'}：第${dto.chapterRange}${unitLabel}`
       : '';
-    const rangeUnitCount = this.getRangeUnitCount(dto.chapterRange);
+    const rangeUnitCount = dto.chapterRange
+      ? this.getRangeUnitCount(dto.chapterRange)
+      : (mode === 'novel' ? 15 : 10);
     const rangeParts = dto.chapterRange?.split('-') || [];
     const microdramaLastUnitLabel = dto.chapterRange
       ? `第${rangeParts[rangeParts.length - 1]}集`
@@ -1389,6 +1391,7 @@ ${romanceLineRules}
 6. 每章必须以具体危机开头，不能用平静铺垫；推进过程中至少安排一次高燃点或爽点释放，例如反杀、打脸、破局、夺回资源、揭露真相、情感爆发或实力升级。
 7. 每章结尾必须留钩子，为下一章留下更大危机、未解谜团、关系变化、敌人反扑或目标升级；只留钩子，不要开始解决钩子。
 8. 重要：章节编号要连续，${dto.chapterRange ? `从第${dto.chapterRange.split('-')[0]}章开始` : '从当前章节开始'}，确保与整体小说章节连续。
+9. 输出的小故事细纲只能呈现剧情安排，不要写出“小故事卡”“技法卡”“一级结构”“卡点定位”等后台标签或卡片内容。
 
 **输出格式要求：**
 - 每个单章小故事用全书绝对章节号标记，例如【第1章】【第2章】...
@@ -1699,7 +1702,7 @@ ${episodeNumber}-2 日/夜 内/外 地点
   }): string {
     const currentWords = this.getWordCount(content);
     const minTargetWords = Math.max(700, Math.round(targetWords * 0.92));
-    const maxTargetWords = Math.min(2500, Math.round(targetWords * 1.08));
+    const maxTargetWords = Math.min(2600, Math.round(targetWords * 1.08));
     const storyReference = this.buildStoryBoundaryReference(storyData, 'novel');
     const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
 
@@ -1728,27 +1731,23 @@ ${content}
   private async enforceNovelChapterLength({
     content,
     chapterNumber,
-    targetNovelWords,
     context,
     storyData,
     nextStoryData,
     previousEnding,
-    writerModelProvider,
   }: {
     content: string;
     chapterNumber: number;
-    targetNovelWords?: number;
     context: string;
     storyData?: any;
     nextStoryData?: any;
     previousEnding?: string;
-    writerModelProvider: 'deepseek' | 'gemini';
   }): Promise<string> {
     const currentWords = this.getWordCount(content);
-    if (currentWords <= 2500) return content;
+    if (currentWords <= 3000) return content;
 
-    const targetWords = this.normalizeNovelTargetWords(targetNovelWords);
-    console.log(`第${chapterNumber}章超出字数阈值(${currentWords}字)，启动自动压缩重写，目标约${targetWords}字`);
+    const targetWords = Math.min(2400, Math.max(2000, Math.round(currentWords * 0.7)));
+    console.log(`第${chapterNumber}章超过3000字(${currentWords}字)，启动约30%自动压缩，目标约${targetWords}字`);
 
     try {
       const rewritten = await this.llmService.chatWithWriterModel([
@@ -1764,7 +1763,7 @@ ${content}
             previousEnding,
           }),
         },
-      ], writerModelProvider);
+      ], 'deepseek');
 
       const trimmedRewrite = rewritten
         ? await this.validateAndTrimChapterScope({
@@ -1808,7 +1807,7 @@ ${content}
         const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
         const targetNovelWords = this.normalizeNovelTargetWords(dto.targetNovelWords);
         const minNovelWords = Math.max(700, Math.round(targetNovelWords * 0.92));
-        const maxNovelWords = Math.min(2500, Math.round(targetNovelWords * 1.08));
+        const maxNovelWords = Math.min(3000, Math.round(targetNovelWords * 1.08));
         const chapterPrompt = mode === 'microdrama'
           ? this.buildMicrodramaEpisodePrompt(contextMemory, currentChapterNum, previousEnding, storyData, dto.actionFirstScript, dto.targetEpisodeWords)
           : `${contextMemory}
@@ -1862,12 +1861,10 @@ ${romanceLineRules}
           validatedChapter = await this.enforceNovelChapterLength({
             content: validatedChapter,
             chapterNumber: currentChapterNum,
-            targetNovelWords: dto.targetNovelWords,
             context: contextMemory,
             storyData,
             nextStoryData: dto.savedMicroStories?.[currentChapterNum],
             previousEnding,
-            writerModelProvider,
           });
         }
 
@@ -1912,7 +1909,7 @@ ${romanceLineRules}
     const storyRange = `当前小故事只覆盖第${chapterNumber}章。`;
     const normalizedTargetWords = this.normalizeNovelTargetWords(targetNovelWords);
     const minTargetWords = Math.max(700, Math.round(normalizedTargetWords * 0.92));
-    const maxTargetWords = Math.min(2500, Math.round(normalizedTargetWords * 1.08));
+    const maxTargetWords = Math.min(3000, Math.round(normalizedTargetWords * 1.08));
 
     return `${context}
 
@@ -2141,12 +2138,10 @@ ${romanceLineRules}
                   validatedChapter = await this.enforceNovelChapterLength({
                     content: validatedChapter,
                     chapterNumber: chapterNum,
-                    targetNovelWords: dto.targetNovelWords,
                     context: storyContext,
                     storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
                     nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
                     previousEnding,
-                    writerModelProvider,
                   });
                 }
 

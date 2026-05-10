@@ -1766,7 +1766,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 <div className="card p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-lg font-semibold text-secondary-900">
-                      {structureLabels.micro} ({isMicrodrama ? '按集数' : '20章'})
+                      {structureLabels.micro} ({isMicrodrama ? '按集数' : '15章'})
                     </h3>
                     <div className="flex items-center space-x-2">
                       <button
