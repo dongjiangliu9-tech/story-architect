@@ -48,6 +48,12 @@ function normalizeTargetEpisodeWords(value: unknown): number {
   return Math.min(5000, Math.max(500, Math.round(numericValue)));
 }
 
+function normalizeTargetNovelWords(value: unknown): number {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue)) return 2100;
+  return Math.min(5000, Math.max(800, Math.round(numericValue)));
+}
+
 function extractChapterEnding(content: string, linesCount: number = 10): string {
   if (!content) return '';
   const lines = content.split('\n').filter(l => l !== undefined);
@@ -80,6 +86,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
   const [actionFirstScript, setActionFirstScript] = useState(false);
   const [targetEpisodeWords, setTargetEpisodeWords] = useState(1000);
+  const [targetNovelWords, setTargetNovelWords] = useState(2100);
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -131,6 +138,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [chapterDraftTouched, setChapterDraftTouched] = useState(false);
   const pendingEditScrollYRef = useRef<number | null>(null);
   const contentEndRef = useRef<HTMLDivElement | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
   // 小故事必须按章节自然顺序排序（避免刷新/覆盖某一段后顺序错乱导致章节对照错位）
   const microStoriesInOrder = currentProject?.savedMicroStories
@@ -155,6 +163,55 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     currentRequestIdRef.current = currentRequestId;
   }, [currentRequestId]);
 
+  const requestGenerationWakeLock = async () => {
+    try {
+      const nav = navigator as any;
+      if (!nav?.wakeLock?.request || document.visibilityState !== 'visible') return;
+      if (wakeLockRef.current && !wakeLockRef.current.released) return;
+      wakeLockRef.current = await nav.wakeLock.request('screen');
+      wakeLockRef.current.addEventListener?.('release', () => {
+        wakeLockRef.current = null;
+      });
+      console.log('已启用屏幕常亮，生成期间不会自动进入屏保');
+    } catch (error) {
+      console.warn('当前浏览器未能启用屏幕常亮，生成会继续执行:', error);
+    }
+  };
+
+  const releaseGenerationWakeLock = async () => {
+    const lock = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (lock && !lock.released) {
+      try {
+        await lock.release();
+      } catch (error) {
+        console.warn('释放屏幕常亮失败:', error);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter;
+    if (shouldKeepAwake) {
+      void requestGenerationWakeLock();
+    } else {
+      void releaseGenerationWakeLock();
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && shouldKeepAwake) {
+        void requestGenerationWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (!shouldKeepAwake) return;
+      void releaseGenerationWakeLock();
+    };
+  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isRewritingChapter]);
+
   const visibleChapterContent = isEditingChapter
     ? chapterDraft
     : isStreamingCurrentChapter
@@ -162,6 +219,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       : (generatedChapters[currentChapter] ?? generatedContent);
   const visibleChapterWords = getWordCount(visibleChapterContent || '');
   const rewriteTargetWords = Math.max(300, Math.round(visibleChapterWords * (1 + rewritePercent / 100)));
+  const activeTargetWords = isMicrodrama
+    ? normalizeTargetEpisodeWords(targetEpisodeWords)
+    : normalizeTargetNovelWords(targetNovelWords);
 
   const hasChapter = (chapterNumber: number): boolean => {
     return generatedChapters[chapterNumber] !== undefined;
@@ -265,6 +325,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setPreviousChapterEnding(state.previousChapterEnding || '');
           setActionFirstScript(Boolean(state.actionFirstScript));
           setTargetEpisodeWords(normalizeTargetEpisodeWords(state.targetEpisodeWords));
+          setTargetNovelWords(normalizeTargetNovelWords(state.targetNovelWords));
           // 合并项目中的章节和localStorage中的章节
           const mergedChapters = { ...currentProject?.generatedChapters, ...state.generatedChapters };
           setGeneratedChapters(mergedChapters);
@@ -302,6 +363,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setPreviousChapterEnding(state.previousChapterEnding || '');
           setActionFirstScript(Boolean(state.actionFirstScript));
           setTargetEpisodeWords(normalizeTargetEpisodeWords(state.targetEpisodeWords));
+          setTargetNovelWords(normalizeTargetNovelWords(state.targetNovelWords));
           setGeneratedChapters(state.generatedChapters || {});
           setGenerationState(state.generationState || {
             isGenerating: false,
@@ -326,6 +388,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         previousChapterEnding,
         actionFirstScript,
         targetEpisodeWords,
+        targetNovelWords,
         generatedChapters,
         generationState,
         timestamp: Date.now()
@@ -361,6 +424,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       previousChapterEnding,
       actionFirstScript,
       targetEpisodeWords,
+      targetNovelWords,
       generatedChapters: mergedChapters,
       generationState,
       timestamp: Date.now()
@@ -383,7 +447,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     const interval = setInterval(saveWriterState, 30000);
     return () => clearInterval(interval);
-  }, [generatedContent, currentChapter, previousChapterEnding, actionFirstScript, targetEpisodeWords, generatedChapters, generationState]);
+  }, [generatedContent, currentChapter, previousChapterEnding, actionFirstScript, targetEpisodeWords, targetNovelWords, generatedChapters, generationState]);
 
   // 离开页面时保存状态
   useEffect(() => {
@@ -738,6 +802,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	        writerModelProvider,
 	        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	        targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
+	        targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
 	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
 	        generatedChapters: startChapter > 1 ? generatedChapters : undefined
       });
@@ -1229,6 +1294,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            writerModelProvider,
 	            actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	            targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
+	            targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
 	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
 	          });
 
@@ -1734,13 +1800,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     alert(`第${currentChapter}${unitLabel}已清空，你可以重新生成该${unitLabel}。`);
   };
 
-  const rewriteCurrentEpisodeLength = async () => {
-    if (!currentProject || !isMicrodrama) return;
+  const rewriteCurrentChapterLength = async () => {
+    if (!currentProject) return;
     if (isEditingChapter || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
 
     const currentContent = visibleChapterContent;
     if (!currentContent) {
-      alert('当前集没有可重写的内容');
+      alert(`当前${unitLabel}没有可重写的内容`);
       return;
     }
     if (rewritePercent === 0) {
@@ -1752,7 +1818,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const storyData = microStoriesInOrder?.[chapterIndex];
     const directionText = rewritePercent > 0 ? '膨胀' : '压缩';
     const confirmed = confirm(
-      `将把第${currentChapter}集按当前内容重新${directionText} ${Math.abs(rewritePercent)}%，目标约 ${rewriteTargetWords} 字。\n\n重写结果会覆盖当前集正文，确定继续吗？`
+      `将把第${currentChapter}${unitLabel}按当前内容重新${directionText} ${Math.abs(rewritePercent)}%，目标约 ${rewriteTargetWords} 字。\n\n重写结果会覆盖当前${unitLabel}正文，确定继续吗？`
     );
     if (!confirmed) return;
 
@@ -1766,7 +1832,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         context: buildGenerationContext(currentChapter),
         storyData,
         writerModelProvider,
-        actionFirstScript,
+        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+        mode: writerMode,
       });
 
       if (!response.success || !response.data) {
@@ -1780,9 +1847,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       updateProject(currentProject.id, {
         generatedChapters: updatedChapters,
       });
-      alert(`第${currentChapter}集已重写完成，当前约 ${getWordCount(rewrittenContent)} 字。`);
+      alert(`第${currentChapter}${unitLabel}已重写完成，当前约 ${getWordCount(rewrittenContent)} 字。`);
     } catch (error) {
-      console.error('重写当前集失败:', error);
+      console.error(`重写当前${unitLabel}失败:`, error);
       alert('重写失败，请稍后重试');
     } finally {
       setIsRewritingChapter(false);
@@ -2089,29 +2156,33 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   </div>
                 </div>
 
-                {isMicrodrama && (
-                  <div className="p-3 bg-white/80 border border-secondary-200 rounded-lg">
-                    <label className="block text-sm font-medium text-secondary-700 mb-2">
-                      每集目标字数
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="500"
-                        max="5000"
-                        step="100"
-                        value={targetEpisodeWords}
-                        onChange={(e) => setTargetEpisodeWords(normalizeTargetEpisodeWords(e.target.value))}
-                        disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
-                        className="w-28 px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
-                      />
-                      <span className="text-sm text-secondary-600">字/集</span>
-                    </div>
-                    <p className="mt-2 text-xs text-secondary-500">
-                      生成时按约 {normalizeTargetEpisodeWords(targetEpisodeWords)} 字控制，允许少量浮动。
-                    </p>
+                <div className="p-3 bg-white/80 border border-secondary-200 rounded-lg">
+                  <label className="block text-sm font-medium text-secondary-700 mb-2">
+                    每{unitLabel}目标字数
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={isMicrodrama ? 500 : 800}
+                      max="5000"
+                      step="100"
+                      value={isMicrodrama ? targetEpisodeWords : targetNovelWords}
+                      onChange={(e) => {
+                        if (isMicrodrama) {
+                          setTargetEpisodeWords(normalizeTargetEpisodeWords(e.target.value));
+                        } else {
+                          setTargetNovelWords(normalizeTargetNovelWords(e.target.value));
+                        }
+                      }}
+                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+                      className="w-28 px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
+                    />
+                    <span className="text-sm text-secondary-600">字/{unitLabel}</span>
                   </div>
-                )}
+                  <p className="mt-2 text-xs text-secondary-500">
+                    生成时以约 {activeTargetWords} 字为目标；网文默认 2100 字，超长会自动压缩。
+                  </p>
+                </div>
 
                 <div className="space-y-3">
                   {/* 检查是否有已生成的章节，如果有则显示手动选择模式 */}
@@ -2261,15 +2332,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                 </div>
 
-                {isMicrodrama && (
-                  <div className="p-4 bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200 rounded-lg">
+                <div className="p-4 bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200 rounded-lg">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-sky-900">当前集字数重写</h4>
+                        <h4 className="text-sm font-semibold text-sky-900">当前{unitLabel}字数重写</h4>
                         <p className="text-xs text-sky-700 mt-1">
                           {visibleChapterContent
                             ? `当前约 ${visibleChapterWords} 字，目标约 ${rewriteTargetWords} 字`
-                            : `先生成或打开一集正文，再按比例压缩/膨胀`}
+                            : `先生成或打开一${unitLabel}正文，再按比例压缩/膨胀`}
                         </p>
                       </div>
                       <div className={`px-2 py-1 rounded-md text-xs font-bold ${
@@ -2328,7 +2398,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </div>
 
                     <button
-                      onClick={rewriteCurrentEpisodeLength}
+                      onClick={rewriteCurrentChapterLength}
                       disabled={
                         !visibleChapterContent ||
                         isEditingChapter ||
@@ -2345,12 +2415,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         {isRewritingChapter
                           ? '重写中...'
                           : visibleChapterContent
-                            ? '按比例重写当前集'
-                            : '请先生成或打开当前集'}
+                            ? `按比例重写当前${unitLabel}`
+                            : `请先生成或打开当前${unitLabel}`}
                       </span>
                     </button>
                   </div>
-                )}
 
 		                <button
 		                  onClick={exportChapter}
@@ -2537,7 +2606,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         </div>
 
                         <div className="text-xs text-secondary-500 space-y-1">
-                          <p>• 对应{isMicrodrama ? '分集' : '章节'}：{isMicrodrama ? `第${currentChapter}集` : `第${currentChapter}～${currentChapter + 1}章`}</p>
+                          <p>• 对应{isMicrodrama ? '分集' : '章节'}：第{currentChapter}{unitLabel}</p>
                           <p>• 中故事：{currentMicroStory.macroStoryTitle}</p>
                           <p>• 顺序：第{currentMicroStory.order + 1}{isMicrodrama ? '集' : '个小故事'}</p>
                         </div>
@@ -2570,7 +2639,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </>
                   ) : (
                     <>
-                      <p>• 每章2000-2300字</p>
+                      <p>• 每章以约 {normalizeTargetNovelWords(targetNovelWords)} 字为目标，超长会自动压缩</p>
                       <p>• 包含吸引人的章节标题</p>
                       <p>• 融入完整的故事背景</p>
                       <p>• 保持连贯的阅读体验</p>

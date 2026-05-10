@@ -1336,7 +1336,7 @@ ${dto.macroStory}
 **任务要求：**
 ${romanceLineRules}
 
-请基于这个中故事的具体情节内容，自动抽取并设计${rangeUnitCount}个单章小故事，每个小故事只服务1章正文，后续写作时每章单独生成2000-2300字。
+请基于这个中故事的具体情节内容，自动抽取并设计${rangeUnitCount}个单章小故事，每个小故事只服务1章正文，后续写作时每章会按用户设置的目标字数单独生成，默认约2100字。
 1. 输出必须是${rangeUnitCount}个单章细纲，顺序连续、章节连续、逻辑清楚；每个小故事对应 1 章。
 2. 每个单章小故事都要包含完整的当章推进：危机开头→快速推进→高燃点/爽点释放→阶段反转→章尾钩子。
 3. 与中故事的主线情节紧密关联，但不能把后续章节的关键结果提前写进当前章。
@@ -1632,6 +1632,116 @@ ${episodeNumber}-2 日/夜 内/外 地点
 请直接输出该集剧本正文。`;
   }
 
+  private normalizeNovelTargetWords(targetNovelWords?: number): number {
+    return Number.isFinite(targetNovelWords)
+      ? Math.min(5000, Math.max(800, Math.round(targetNovelWords as number)))
+      : 2100;
+  }
+
+  private buildNovelLengthRewritePrompt({
+    content,
+    chapterNumber,
+    targetWords,
+    context,
+    storyData,
+    previousEnding,
+  }: {
+    content: string;
+    chapterNumber: number;
+    targetWords: number;
+    context: string;
+    storyData?: any;
+    previousEnding?: string;
+  }): string {
+    const currentWords = this.getWordCount(content);
+    const minTargetWords = Math.max(700, Math.round(targetWords * 0.92));
+    const maxTargetWords = Math.min(2500, Math.round(targetWords * 1.08));
+    const storyReference = this.buildStoryBoundaryReference(storyData, 'novel');
+    const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
+
+    return `请把下面已经生成的网文第${chapterNumber}章，按目标字数重新写成更精炼的成稿版本。
+
+【背景参考】
+${context || '无'}
+
+${previousEnding ? `【上一章衔接参考】\n${previousEnding}\n${previousLastSentence ? `上一章最后一句：${previousLastSentence}\n` : ''}\n` : ''}
+${storyReference}
+
+【当前第${chapterNumber}章原文，约${currentWords}字】
+${content}
+
+重写任务：
+1. 目标字数约 ${targetWords} 字，允许 ${minTargetWords}-${maxTargetWords} 字之间自然浮动；重点是压缩冗余，不要为了字数硬凑。
+2. 必须输出完整的第${chapterNumber}章正文，而不是摘要、修改建议、差异说明或补丁。
+3. 保留原文的核心冲突、人物选择、爽点/高燃点、感情线状态、章节结尾钩子和与下一章的承接边界。
+4. 压缩重复心理、重复解释、过长铺陈、可合并的动作和过度设定说明；保留关键场景的可读性。
+5. 只写当前小故事/当前章节范围，不要提前写下一章、下一小故事的行动、结果或反转。
+6. ${this.getPlanningLeakRule()}
+
+请直接输出重写后的第${chapterNumber}章正文。`;
+  }
+
+  private async enforceNovelChapterLength({
+    content,
+    chapterNumber,
+    targetNovelWords,
+    context,
+    storyData,
+    nextStoryData,
+    previousEnding,
+    writerModelProvider,
+  }: {
+    content: string;
+    chapterNumber: number;
+    targetNovelWords?: number;
+    context: string;
+    storyData?: any;
+    nextStoryData?: any;
+    previousEnding?: string;
+    writerModelProvider: 'deepseek' | 'gemini';
+  }): Promise<string> {
+    const currentWords = this.getWordCount(content);
+    if (currentWords <= 2500) return content;
+
+    const targetWords = this.normalizeNovelTargetWords(targetNovelWords);
+    console.log(`第${chapterNumber}章超出字数阈值(${currentWords}字)，启动自动压缩重写，目标约${targetWords}字`);
+
+    try {
+      const rewritten = await this.llmService.chatWithWriterModel([
+        { role: 'system', content: this.getStoryWritingSystemPrompt() },
+        {
+          role: 'user',
+          content: this.buildNovelLengthRewritePrompt({
+            content,
+            chapterNumber,
+            targetWords,
+            context,
+            storyData,
+            previousEnding,
+          }),
+        },
+      ], writerModelProvider);
+
+      const trimmedRewrite = rewritten
+        ? await this.validateAndTrimChapterScope({
+            content: rewritten,
+            chapterNumber,
+            storyData,
+            nextStoryData,
+            mode: 'novel',
+          })
+        : '';
+
+      if (!trimmedRewrite) return content;
+      const rewrittenWords = this.getWordCount(trimmedRewrite);
+      console.log(`第${chapterNumber}章自动压缩完成：${currentWords}字 -> ${rewrittenWords}字`);
+      return trimmedRewrite;
+    } catch (error) {
+      console.error(`第${chapterNumber}章自动压缩失败，保留原文:`, error);
+      return content;
+    }
+  }
+
   async generateChapter(dto: GenerateChapterDto) {
     const mode = this.normalizeDetailedOutlineMode(dto.mode);
     const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
@@ -1652,6 +1762,9 @@ ${episodeNumber}-2 日/夜 内/外 地点
 
         const storyData = dto.savedMicroStories?.[currentChapterNum - 1];
         const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
+        const targetNovelWords = this.normalizeNovelTargetWords(dto.targetNovelWords);
+        const minNovelWords = Math.max(700, Math.round(targetNovelWords * 0.92));
+        const maxNovelWords = Math.min(2500, Math.round(targetNovelWords * 1.08));
         const chapterPrompt = mode === 'microdrama'
           ? this.buildMicrodramaEpisodePrompt(contextMemory, currentChapterNum, previousEnding, storyData, dto.actionFirstScript, dto.targetEpisodeWords)
           : `${contextMemory}
@@ -1665,7 +1778,7 @@ ${romanceLineRules}
 
 生成要求：
 1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字
-2. 严格控制字数：每章内容必须在2000-2300字之间
+2. 字数目标：本章目标约 ${targetNovelWords} 字，允许 ${minNovelWords}-${maxNovelWords} 字之间自然浮动；不要为了超过某个字数硬凑内容，抵达当前小故事结尾钩子后就收束
 3. 内容要详细丰满，包含具体的场景描写、对话、心理活动和冲突
 4. 保持与整体故事的连贯性和人物成长
 5. 融入世界观设定和人物关系
@@ -1678,7 +1791,7 @@ ${romanceLineRules}
 请直接输出章节内容，格式如下：
 第${currentChapterNum}章 [章节标题]
 
-[章节正文内容，2000-2300字]
+[章节正文内容，以约${targetNovelWords}字为目标]
 
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
 
@@ -1691,7 +1804,7 @@ ${romanceLineRules}
         console.log(`第${currentChapterNum}${unitLabel}生成成功，长度: ${chapterResult?.length || 0}`);
 
         // 添加到总内容中
-        const validatedChapter = chapterResult
+        let validatedChapter = chapterResult
           ? await this.validateAndTrimChapterScope({
               content: chapterResult,
               chapterNumber: currentChapterNum,
@@ -1700,6 +1813,19 @@ ${romanceLineRules}
               mode,
             })
           : '';
+
+        if (mode === 'novel' && validatedChapter) {
+          validatedChapter = await this.enforceNovelChapterLength({
+            content: validatedChapter,
+            chapterNumber: currentChapterNum,
+            targetNovelWords: dto.targetNovelWords,
+            context: contextMemory,
+            storyData,
+            nextStoryData: dto.savedMicroStories?.[currentChapterNum],
+            previousEnding,
+            writerModelProvider,
+          });
+        }
 
         if (validatedChapter) {
           fullContent += validatedChapter + '\n\n';
@@ -1732,6 +1858,7 @@ ${romanceLineRules}
     context: string,
     chapterNumber: number,
     previousEnding: string,
+    targetNovelWords?: number,
     _chapterPosition: 'first' | 'second' | 'single' = 'single',
     _storyStartChapter?: number,
     _storyEndChapter?: number,
@@ -1739,6 +1866,9 @@ ${romanceLineRules}
     const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
     const storyRange = `当前小故事只覆盖第${chapterNumber}章。`;
+    const normalizedTargetWords = this.normalizeNovelTargetWords(targetNovelWords);
+    const minTargetWords = Math.max(700, Math.round(normalizedTargetWords * 0.92));
+    const maxTargetWords = Math.min(2500, Math.round(normalizedTargetWords * 1.08));
 
     return `${context}
 
@@ -1761,7 +1891,7 @@ ${romanceLineRules}
 
 生成要求：
 1. 章节标题要吸引人且符合故事风格，标题长度不超过8个字。
-2. 字数要求：本章优先写到2000-2300字；不要低于2000字，不要超过2300字。若接近2300字时已经抵达章尾钩子，必须停笔。
+2. 字数目标：本章以约 ${normalizedTargetWords} 字为目标，允许 ${minTargetWords}-${maxTargetWords} 字之间自然浮动；不要为了超过某个字数硬凑内容。若已经抵达当前小故事结尾钩子，必须停笔。
 3. 内容要详细丰满，包含具体的场景描写、对话、心理活动、动作推进和冲突变化。
 4. 保持与整体故事的连贯性和人物成长，特别要衔接好之前已生成的内容。
 5. 融入世界观设定和人物关系。
@@ -1774,7 +1904,7 @@ ${romanceLineRules}
 请直接输出章节内容，格式如下：
 第${chapterNumber}章 [章节标题]
 
-[第${chapterNumber}章正文内容，以当前剧情边界自然完成为准]
+[第${chapterNumber}章正文内容，以当前剧情边界自然完成为准，目标约${normalizedTargetWords}字]
 
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
   }
@@ -1918,6 +2048,7 @@ ${romanceLineRules}
                   storyContext,
                   chapterNum,
                   previousEnding,
+                  dto.targetNovelWords,
                 );
                 let chapterContent = '';
                 let isFirstChunk = true;
@@ -1952,7 +2083,7 @@ ${romanceLineRules}
                 );
 
                 const chapterStoryIndex = chapterNum - 1;
-                const validatedChapter = chapterContent
+                let validatedChapter = chapterContent
                   ? await this.validateAndTrimChapterScope({
                       content: chapterContent,
                       chapterNumber: chapterNum,
@@ -1961,6 +2092,19 @@ ${romanceLineRules}
                       mode,
                     })
                   : '';
+
+                if (validatedChapter) {
+                  validatedChapter = await this.enforceNovelChapterLength({
+                    content: validatedChapter,
+                    chapterNumber: chapterNum,
+                    targetNovelWords: dto.targetNovelWords,
+                    context: storyContext,
+                    storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
+                    nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
+                    previousEnding,
+                    writerModelProvider,
+                  });
+                }
 
                 if (validatedChapter) {
                   chapters.push(validatedChapter);
@@ -2169,18 +2313,24 @@ ${romanceLineRules}
 
   async rewriteChapter(dto: RewriteChapterDto) {
     const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
     const currentWords = this.getWordCount(dto.content);
     const targetWords = Math.min(8000, Math.max(300, Math.round(dto.targetWords || currentWords || 1500)));
     const minTargetWords = Math.max(250, Math.round(targetWords * 0.95));
     const maxTargetWords = Math.round(targetWords * 1.05);
     const direction = dto.adjustmentPercent > 0 ? '膨胀' : dto.adjustmentPercent < 0 ? '压缩' : '微调';
-    const storyData = this.buildStoryBoundaryReference(dto.storyData, 'microdrama');
+    const storyData = this.buildStoryBoundaryReference(dto.storyData, mode);
     const actionFirstRequirement = dto.actionFirstScript
       ? `\n动作主导模式仍然生效：重写后必须以动作、镜头、人物行为、走位、表情反应和场面变化为主，台词为辅；连续台词不要超过2行。\n`
       : '';
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
 
-    const prompt = `请基于已经写好的微短剧单集剧本，按用户指定的字数目标重新写一遍。
+    const microdramaFormatRules = `6. 仍然必须是标准微短剧拍摄剧本格式：场号、人物、△动作/镜头说明、角色对白都要保留。
+7. 不要提前写下一集内容，不要改变后续承接边界。`;
+    const novelFormatRules = `6. 仍然必须是网文章节正文格式：章节标题 + 正文段落，不要写成剧本、梗概或分镜。
+7. 不要提前写下一章内容，不要改变后续承接边界。`;
+
+    const prompt = `请基于已经写好的${mode === 'microdrama' ? '微短剧单集剧本' : '网文单章正文'}，按用户指定的字数目标重新写一遍。
 
 【背景参考】
 ${dto.context || '无'}
@@ -2188,20 +2338,19 @@ ${storyData}
 感情线硬规则：
 ${romanceLineRules}
 
-【当前已写好的第${dto.chapterNumber}集剧本】
+【当前已写好的第${dto.chapterNumber}${mode === 'microdrama' ? '集剧本' : '章正文'}】
 ${dto.content}
 
 重写任务：
 1. 当前约 ${currentWords} 字，用户要求${direction} ${Math.abs(dto.adjustmentPercent)}%，重写后的目标字数约 ${targetWords} 字，允许 ${minTargetWords}-${maxTargetWords} 字之间浮动。
-2. 必须输出完整的第${dto.chapterNumber}集剧本，而不是修改建议、摘要、差异说明或补丁。
-3. 保留原有核心剧情、人物动机、冲突走向、反转、打脸点、爱情线状态、结尾黑场钩子和剧本格式。
-4. 如果是膨胀：不要灌水，不要增加无关支线；主要通过补足可拍摄动作、镜头调度、人物反应、压迫过程、暧昧拉扯、爽点释放和场景细节来扩写。
-5. 如果是压缩：不要删掉关键剧情和钩子；压掉重复台词、解释性对白、冗余动作和可合并的场景，让节奏更紧。
-6. 仍然必须是标准微短剧拍摄剧本格式：场号、人物、△动作/镜头说明、角色对白都要保留。
-7. 不要提前写下一集内容，不要改变后续承接边界。
+2. 必须输出完整的第${dto.chapterNumber}${mode === 'microdrama' ? '集剧本' : '章正文'}，而不是修改建议、摘要、差异说明或补丁。
+3. 保留原有核心剧情、人物动机、冲突走向、反转、打脸点、爱情线状态、结尾钩子和${mode === 'microdrama' ? '剧本格式' : '章节阅读体验'}。
+4. 如果是膨胀：不要灌水，不要增加无关支线；主要通过补足${mode === 'microdrama' ? '可拍摄动作、镜头调度、人物反应、压迫过程、暧昧拉扯、爽点释放和场景细节' : '关键动作、人物反应、冲突推进、情绪递进、爽点释放、场景细节和必要对话'}来扩写。
+5. 如果是压缩：不要删掉关键剧情和钩子；压掉重复${mode === 'microdrama' ? '台词' : '心理描写'}、解释性${mode === 'microdrama' ? '对白' : '铺陈'}、冗余动作和可合并的场景，让节奏更紧。
+${mode === 'microdrama' ? microdramaFormatRules : novelFormatRules}
 8. ${this.getPlanningLeakRule()}
 ${actionFirstRequirement}
-请直接输出重写后的第${dto.chapterNumber}集剧本正文。`;
+请直接输出重写后的第${dto.chapterNumber}${mode === 'microdrama' ? '集剧本' : '章'}正文。`;
 
     try {
       const result = await this.llmService.chatWithWriterModel([
@@ -2474,7 +2623,7 @@ ${actionFirstRequirement}
   private buildStoryBoundaryReference(storyData: any, mode: 'novel' | 'microdrama'): string {
     if (!storyData) return '';
 
-    const unitName = mode === 'microdrama' ? '本集' : '本组章节';
+    const unitName = mode === 'microdrama' ? '本集' : '本章';
     const boundaryRule = mode === 'microdrama'
       ? '本集剧情范围是唯一可写内容；中故事参考只用于理解背景，不得提前写下一集。'
       : '本组章节剧情范围是唯一可写内容；所属中故事/阶段剧情只用于理解背景和人物压力，不得提前写后续小故事、后续目标或后续场景。';

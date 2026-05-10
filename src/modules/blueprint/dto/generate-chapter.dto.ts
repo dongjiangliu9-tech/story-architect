@@ -40,6 +40,10 @@ export class GenerateChapterDto {
   @IsNumber()
   @IsOptional()
   targetEpisodeWords?: number;
+
+  @IsNumber()
+  @IsOptional()
+  targetNovelWords?: number;
 }
 
 export class RewriteChapterDto {
@@ -71,6 +75,11 @@ export class RewriteChapterDto {
   @IsBoolean()
   @IsOptional()
   actionFirstScript?: boolean;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['novel', 'microdrama'])
+  mode?: 'novel' | 'microdrama';
 }
 
 export class ValidateChapterScopeDto {

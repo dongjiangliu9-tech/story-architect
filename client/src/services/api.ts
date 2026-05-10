@@ -263,6 +263,7 @@ export interface GenerateChapterDto {
   writerModelProvider?: 'deepseek' | 'gemini';
   actionFirstScript?: boolean;
   targetEpisodeWords?: number;
+  targetNovelWords?: number;
 }
 
 export interface RewriteChapterDto {
@@ -274,6 +275,7 @@ export interface RewriteChapterDto {
   storyData?: any;
   writerModelProvider?: 'deepseek' | 'gemini';
   actionFirstScript?: boolean;
+  mode?: 'novel' | 'microdrama';
 }
 
 export const blueprintApi = {
