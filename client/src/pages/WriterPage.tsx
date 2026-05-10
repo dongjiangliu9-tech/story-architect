@@ -139,6 +139,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const pendingEditScrollYRef = useRef<number | null>(null);
   const contentEndRef = useRef<HTMLDivElement | null>(null);
   const wakeLockRef = useRef<any>(null);
+  const noSleepVideoRef = useRef<HTMLVideoElement | null>(null);
+  const noSleepCanvasIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 小故事必须按章节自然顺序排序（避免刷新/覆盖某一段后顺序错乱导致章节对照错位）
   const microStoriesInOrder = currentProject?.savedMicroStories
@@ -178,6 +180,72 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   };
 
+  const startNoSleepVideoFallback = async () => {
+    if (noSleepVideoRef.current) return;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || !canvas.captureStream) return;
+
+      let tick = 0;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, 1, 1);
+      noSleepCanvasIntervalRef.current = setInterval(() => {
+        tick += 1;
+        ctx.fillStyle = tick % 2 === 0 ? '#000' : '#111';
+        ctx.fillRect(0, 0, 1, 1);
+      }, 1000);
+
+      const video = document.createElement('video');
+      video.setAttribute('aria-hidden', 'true');
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.srcObject = canvas.captureStream(1);
+      video.style.position = 'fixed';
+      video.style.width = '1px';
+      video.style.height = '1px';
+      video.style.opacity = '0';
+      video.style.pointerEvents = 'none';
+      video.style.left = '-10px';
+      video.style.bottom = '0';
+      document.body.appendChild(video);
+      await video.play();
+      noSleepVideoRef.current = video;
+      console.log('已启用隐藏视频保活，生成期间尽量阻止屏保');
+    } catch (error) {
+      if (noSleepCanvasIntervalRef.current) {
+        clearInterval(noSleepCanvasIntervalRef.current);
+        noSleepCanvasIntervalRef.current = null;
+      }
+      console.warn('隐藏视频保活未能启用，生成会继续执行:', error);
+    }
+  };
+
+  const stopNoSleepVideoFallback = () => {
+    if (noSleepCanvasIntervalRef.current) {
+      clearInterval(noSleepCanvasIntervalRef.current);
+      noSleepCanvasIntervalRef.current = null;
+    }
+
+    const video = noSleepVideoRef.current;
+    noSleepVideoRef.current = null;
+    if (!video) return;
+
+    try {
+      video.pause();
+      const stream = video.srcObject as MediaStream | null;
+      stream?.getTracks().forEach(track => track.stop());
+      video.srcObject = null;
+      video.remove();
+    } catch (error) {
+      console.warn('关闭隐藏视频保活失败:', error);
+    }
+  };
+
   const releaseGenerationWakeLock = async () => {
     const lock = wakeLockRef.current;
     wakeLockRef.current = null;
@@ -194,13 +262,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter;
     if (shouldKeepAwake) {
       void requestGenerationWakeLock();
+      void startNoSleepVideoFallback();
     } else {
       void releaseGenerationWakeLock();
+      stopNoSleepVideoFallback();
     }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && shouldKeepAwake) {
         void requestGenerationWakeLock();
+        void startNoSleepVideoFallback();
       }
     };
 
@@ -209,6 +280,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (!shouldKeepAwake) return;
       void releaseGenerationWakeLock();
+      stopNoSleepVideoFallback();
     };
   }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isRewritingChapter]);
 
