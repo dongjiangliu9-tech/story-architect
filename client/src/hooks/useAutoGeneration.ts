@@ -90,6 +90,14 @@ export function useAutoGeneration() {
     }
   };
 
+  const mergeExpansionPack = (baseContent: string, title: string, expansionPack: string) => {
+    const base = String(baseContent || '').trim();
+    const expansion = String(expansionPack || '').trim();
+    if (!expansion) return base;
+    if (!base) return `${title}\n${expansion}`;
+    return `${base}\n\n${title}\n${expansion}`;
+  };
+
   const updateStep = useCallback((stepId: string, updates: Partial<AutoGenerationStep>) => {
     setSteps(prev => prev.map(step =>
       step.id === stepId ? { ...step, ...updates } : step
@@ -102,7 +110,7 @@ export function useAutoGeneration() {
       { id: 'generate-world', label: '生成世界观基础设定', status: 'pending' },
       { id: 'generate-characters', label: '生成人物设定', status: 'pending' },
       { id: 'generate-outline', label: '生成目标作品情节细纲', status: 'pending' },
-      { id: 'density-iterate', label: '三轮滑块密度迭代', status: 'pending' },
+      { id: 'density-iterate', label: '单轮滑块密度迭代', status: 'pending' },
       { id: 'save-project', label: '保存项目', status: 'pending' },
       { id: 'micro-stories', label: '细化全部中故事为正文细纲', status: 'pending' },
       { id: 'complete', label: '完成', status: 'pending' }
@@ -190,13 +198,16 @@ ${outline.themes}`;
       } else {
         updateStep('generate-world', { status: 'running', message: '正在自动补充世界观：增加事例与副本...' });
         setCurrentStepMessage('正在自动补充世界观：增加事例与副本...');
+        const baseWorldSetting = worldResponse.data;
         const expandedWorldResponse = await blueprintApi.generateWorldSetting({
           ...logicModelRequest,
           outline: outlineData,
-          existingWorldSetting: worldResponse.data,
-          note: '请在既有世界观基础上进行补充性生成，并插入到最合适的位置：新增20个可直接用于正文展开的具体事例，新增20个副本/试炼/任务/危机事件场景。每个新增项都要包含触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要删除原有设定，不要重写成另一套世界观。',
+          existingWorldSetting: baseWorldSetting,
+          note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增世界观扩展包：新增20个可直接用于正文展开的具体事例，新增20个副本/试炼/任务/危机事件场景。每个新增项都要包含触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要输出完整更新版，不要复写原有世界观。',
         });
-        worldResponse = expandedWorldResponse;
+        worldResponse = {
+          data: mergeExpansionPack(baseWorldSetting, '【世界观扩展包】', expandedWorldResponse.data),
+        };
         setCachedData(bookName, expandedWorldCacheKey, worldResponse.data);
         updateStep('generate-world', { status: 'completed', message: '世界观扩充完成：已补充事例与副本' });
       }
@@ -227,14 +238,17 @@ ${outline.themes}`;
       } else {
         updateStep('generate-characters', { status: 'running', message: '正在自动补充人物设定：增加阶段出场角色...' });
         setCurrentStepMessage('正在自动补充人物设定：增加阶段出场角色...');
+        const baseCharacters = charactersResponse.data;
         const expandedCharactersResponse = await blueprintApi.generateCharacters({
           ...logicModelRequest,
           outline: outlineData,
           worldSetting: worldResponse.data,
-          existingCharacters: charactersResponse.data,
-          note: '请在既有人物设定基础上进行补充性生成，并插入到最合适的位置：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、身份阵营、欲望目标、能力/资源、与主角或核心人物的关系、首次登场场景、能制造的冲突、后续可回收的伏笔或反转。角色要覆盖前期压迫、中期副本/任务、后期势力博弈等不同阶段，不要删除原有角色，不要重写成另一套人物体系。',
+          existingCharacters: baseCharacters,
+          note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增人物扩展包：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、身份阵营、欲望目标、能力/资源、与主角或核心人物的关系、首次登场场景、能制造的冲突、后续可回收的伏笔或反转。角色要覆盖前期压迫、中期副本/任务、后期势力博弈等不同阶段。不要输出完整更新版，不要复写原有人物设定。',
         });
-        charactersResponse = expandedCharactersResponse;
+        charactersResponse = {
+          data: mergeExpansionPack(baseCharacters, '【人物扩展包】', expandedCharactersResponse.data),
+        };
         setCachedData(bookName, expandedCharactersCacheKey, charactersResponse.data);
         updateStep('generate-characters', { status: 'completed', message: '人物设定扩充完成：已补充阶段出场角色' });
       }
@@ -264,8 +278,8 @@ ${outline.themes}`;
         updateStep('generate-outline', { status: 'completed', message: `${targetLabel}情节细纲生成完成` });
       }
 
-      updateStep('density-iterate', { status: 'running', message: '正在进行第1轮三密度滑块迭代...' });
-      setCurrentStepMessage('正在进行第1轮三密度滑块迭代...');
+      updateStep('density-iterate', { status: 'running', message: '正在进行单轮三密度滑块迭代...' });
+      setCurrentStepMessage('正在进行单轮三密度滑块迭代...');
 
       let detailedOutline = outlineResponse.data;
       const cachedPreIteratedOutline = getCachedData(bookName, preIteratedOutlineCacheKey);
@@ -294,20 +308,23 @@ ${outline.themes}`;
       let currentDensityLevels = emptyDensityLevels();
       const enabledDensity = Object.fromEntries(DENSITY_TUNING_KEYS.map(key => [key, true])) as Record<typeof DENSITY_TUNING_KEYS[number], boolean>;
 
-      for (let iteration = 1; iteration <= 3; iteration++) {
+      const densityIterationCount = 1;
+      const targetDensityLevel = 3;
+
+      for (let iteration = 1; iteration <= densityIterationCount; iteration++) {
         const nextDensityLevels = {
-          emotion: iteration,
-          plot: iteration,
-          element: iteration,
+          emotion: targetDensityLevel,
+          plot: targetDensityLevel,
+          element: targetDensityLevel,
         };
         const suggestion = buildDensityTuningSuggestion(currentDensityLevels, nextDensityLevels, enabledDensity);
 
         updateStep('density-iterate', {
           status: 'running',
-          progress: Math.round(((iteration - 1) / 3) * 100),
-          message: `正在进行第${iteration}/3轮密度迭代...`
+          progress: Math.round(((iteration - 1) / densityIterationCount) * 100),
+          message: `正在进行第${iteration}/${densityIterationCount}轮密度迭代...`
         });
-        setCurrentStepMessage(`正在进行第${iteration}/3轮密度迭代...`);
+        setCurrentStepMessage(`正在进行第${iteration}/${densityIterationCount}轮密度迭代...`);
 
         const densityResponse = await blueprintApi.generateDetailedOutline({
           ...logicModelRequest,
@@ -328,7 +345,7 @@ ${outline.themes}`;
 
       outlineResponse = { data: detailedOutline };
       setCachedData(bookName, finalOutlineCacheKey, detailedOutline);
-      updateStep('density-iterate', { status: 'completed', progress: 100, message: '三轮密度迭代完成，采用第3轮结果' });
+      updateStep('density-iterate', { status: 'completed', progress: 100, message: '单轮密度迭代完成，采用高强度结果' });
 
       // 5. 保存项目
       updateStep('save-project', { status: 'running', message: '正在保存项目...' });

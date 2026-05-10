@@ -696,7 +696,27 @@ ${template.power}`
   async generateWorldSetting(dto: GenerateWorldSettingDto) {
     console.log('开始生成世界观基础设定');
     if (dto.existingWorldSetting?.trim() && dto.note?.trim()) {
-      const supplementalPrompt = `你是一名长篇小说世界观总设定师。现在需要根据用户批注，在既有世界观正文的基础上补充内容，并把新增内容插入到最合适的位置。
+      const expansionPackOnly = dto.note.includes('[AUTO_EXPANSION_PACK_ONLY]');
+      const cleanedNote = dto.note.replace('[AUTO_EXPANSION_PACK_ONLY]', '').trim();
+      const supplementalPrompt = expansionPackOnly
+        ? `你是一名长篇小说世界观总设定师。现在需要根据用户批注，在既有世界观正文的基础上生成“新增扩展包”。
+
+故事大纲：
+${dto.outline}
+
+既有世界观正文（只作为一致性参考，不要复写）：
+${dto.existingWorldSetting}
+
+用户批注：
+${cleanedNote}
+
+请严格按以下要求输出：
+1. 只输出「世界观扩展包」，不要输出完整更新后的世界观正文，不要复写既有世界观。
+2. 扩展包必须能直接追加在既有世界观正文后方使用，标题、编号、条目清晰。
+3. 新增内容必须与故事大纲和既有设定一致，并能直接服务后续人物设定与情节生成。
+4. 不要删除、改写、总结或压缩原有设定。
+5. 不要输出补丁说明、修改清单、执行过程或额外解释。`
+        : `你是一名长篇小说世界观总设定师。现在需要根据用户批注，在既有世界观正文的基础上补充内容，并把新增内容插入到最合适的位置。
 
 故事大纲：
 ${dto.outline}
@@ -876,7 +896,31 @@ ${dto.outline}
 ⚠️ 名字里不可有默字`;
 
     if (dto.existingCharacters?.trim() && dto.note?.trim()) {
-      const supplementalPrompt = `你是一名长篇小说人物设定统筹。现在需要根据用户批注，在既有人物设定正文的基础上补充内容，并把新增内容插入到最合适的位置。
+      const expansionPackOnly = dto.note.includes('[AUTO_EXPANSION_PACK_ONLY]');
+      const cleanedNote = dto.note.replace('[AUTO_EXPANSION_PACK_ONLY]', '').trim();
+      const supplementalPrompt = expansionPackOnly
+        ? `你是一名长篇小说人物设定统筹。现在需要根据用户批注，在既有人物设定正文的基础上生成“新增人物扩展包”。
+
+故事大纲：
+${dto.outline}
+
+世界观基础设定：
+${dto.worldSetting}
+
+既有人物设定正文（只作为一致性参考，不要复写）：
+${dto.existingCharacters}
+
+用户批注：
+${cleanedNote}
+
+请严格按以下要求输出：
+1. 只输出「人物扩展包」，不要输出完整更新后的人物设定正文，不要复写既有人物设定。
+2. 扩展包必须能直接追加在既有人物设定正文后方使用，角色编号、类别、出场阶段清晰。
+3. 新增角色必须与故事大纲、世界观和既有人设一致，并能直接服务后续中故事/小故事生成。
+4. 不要删除、改写、总结或压缩原有角色。
+5. 不要输出补丁说明、修改清单、执行过程或额外解释。
+${characterNameRestrictions}`
+        : `你是一名长篇小说人物设定统筹。现在需要根据用户批注，在既有人物设定正文的基础上补充内容，并把新增内容插入到最合适的位置。
 
 故事大纲：
 ${dto.outline}

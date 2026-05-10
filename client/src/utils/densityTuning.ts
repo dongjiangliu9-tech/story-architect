@@ -54,7 +54,7 @@ export const buildDensityTuningSuggestion = (
   const activeKeys = DENSITY_TUNING_KEYS.filter(key => enabled[key] && draftLevels[key] > currentLevels[key]);
   const activeInstructions = activeKeys.map(key => {
     const config = DENSITY_TUNING_CONFIG[key];
-    return `- ${config.title}：从第${currentLevels[key]}档提升到第${draftLevels[key]}档。本轮只提升一档，要求：${config.promptFocus}`;
+    return `- ${config.title}：从第${currentLevels[key]}档提升到第${draftLevels[key]}档。本轮按目标档位一次性强化，要求：${config.promptFocus}`;
   }).join('\n');
 
   return `这是一次“中故事三密度滑块迭代”，请把当前完整中故事细纲作为基底重写，不要另起炉灶。
