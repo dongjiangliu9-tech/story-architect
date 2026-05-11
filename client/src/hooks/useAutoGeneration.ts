@@ -160,7 +160,7 @@ ${outline.themes}`;
       const preIteratedOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-pre-v1' : 'novel-75-detailed-outline-pre-v1';
       const finalOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-density-v3' : 'novel-75-detailed-outline-density-v3';
       const microStoriesCacheKey = isMicrodrama ? 'microdrama-30-all-micro-stories' : 'novel-75-all-micro-stories';
-      const expandedWorldCacheKey = isMicrodrama ? 'microdrama-30-world-expanded-v1' : 'novel-75-world-expanded-v1';
+      const expandedWorldCacheKey = isMicrodrama ? 'microdrama-30-world-expanded-forces-v2' : 'novel-75-world-expanded-forces-v2';
       const expandedCharactersCacheKey = isMicrodrama ? 'microdrama-30-characters-expanded-v1' : 'novel-75-characters-expanded-v1';
 
       // 清理旧缓存
@@ -202,20 +202,20 @@ ${outline.themes}`;
         worldResponse = { data: cachedExpandedWorld };
         updateStep('generate-world', { status: 'completed', message: '从缓存加载扩充后的世界观基础设定' });
       } else {
-        updateStep('generate-world', { status: 'running', message: '正在自动补充世界观：增加事例与副本...' });
-        setCurrentStepMessage('正在自动补充世界观：增加事例与副本...');
+        updateStep('generate-world', { status: 'running', message: '正在自动补充世界观：增加势力与副本...' });
+        setCurrentStepMessage('正在自动补充世界观：增加势力与副本...');
         const baseWorldSetting = worldResponse.data;
         const expandedWorldResponse = await blueprintApi.generateWorldSetting({
           ...logicModelRequest,
           outline: outlineData,
           existingWorldSetting: baseWorldSetting,
-          note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增世界观扩展包：新增20个可直接用于正文展开的具体事例，新增20个副本/试炼/任务/危机事件场景。每个新增项都要包含触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要输出完整更新版，不要复写原有世界观。',
+          note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增世界观扩展包：新增20个可直接用于正文展开的具体势力，新增20个副本/试炼/任务/危机事件场景。具体势力必须写清名称、类型、领袖或核心人物、资源/能力、地盘或活动范围、公开目标、隐藏目的、与主角和其他势力的关系、可制造的冲突、可服务的章节阶段。副本/试炼/任务/危机事件必须写清触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要输出完整更新版，不要复写原有世界观。',
         });
         worldResponse = {
           data: mergeExpansionPack(baseWorldSetting, '【世界观扩展包】', expandedWorldResponse.data),
         };
         setCachedData(bookName, expandedWorldCacheKey, worldResponse.data);
-        updateStep('generate-world', { status: 'completed', message: '世界观扩充完成：已补充事例与副本' });
+        updateStep('generate-world', { status: 'completed', message: '世界观扩充完成：已补充势力与副本' });
       }
 
       // 3. 生成人物设定
