@@ -783,6 +783,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         // 只有全自动流程才设置自动正文写作标志；手动细化小故事只保存，不自动跑正文。
         localStorage.setItem('story-architect-auto-flow', 'writer');
         localStorage.setItem('story-architect-auto-flow-project-id', String(currentProject.id));
+        localStorage.setItem('story-architect-auto-flow-source', 'full-auto');
+        localStorage.setItem('story-architect-auto-flow-created-at', String(Date.now()));
         localStorage.setItem('story-architect-auto-export-json', 'true');
 
         // 延迟跳转，让用户看到完成状态
@@ -1586,7 +1588,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 </div>
 
                 <button
-                  onClick={onNavigateToWriter}
+                  onClick={() => {
+                    localStorage.removeItem('story-architect-auto-flow');
+                    localStorage.removeItem('story-architect-auto-flow-project-id');
+                    localStorage.removeItem('story-architect-auto-flow-source');
+                    localStorage.removeItem('story-architect-auto-flow-created-at');
+                    onNavigateToWriter?.();
+                  }}
                   className="inline-flex items-center space-x-4 px-8 py-4 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-200"
                 >
                   <PenTool className="w-6 h-6" />

@@ -75,6 +75,8 @@ function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentPr
   return project.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
 }
 
+const WRITER_AUTO_FLOW_MAX_AGE_MS = 5 * 60 * 1000;
+
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
   const { currentProject, updateProject, exportProject, clearNovelCacheForProject } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
@@ -388,6 +390,29 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     autoFollowStreamingRef.current = false;
   };
 
+  const clearWriterAutoFlowFlags = () => {
+    localStorage.removeItem('story-architect-auto-flow');
+    localStorage.removeItem('story-architect-auto-flow-project-id');
+    localStorage.removeItem('story-architect-auto-flow-source');
+    localStorage.removeItem('story-architect-auto-flow-created-at');
+  };
+
+  const isFreshWriterAutoFlow = (expectedProjectId?: number | string): boolean => {
+    const autoFlowFlag = localStorage.getItem('story-architect-auto-flow');
+    const autoFlowProjectId = localStorage.getItem('story-architect-auto-flow-project-id');
+    const autoFlowSource = localStorage.getItem('story-architect-auto-flow-source');
+    const createdAt = Number(localStorage.getItem('story-architect-auto-flow-created-at') || 0);
+    const isCurrentAutoProject = !autoFlowProjectId || autoFlowProjectId === String(expectedProjectId || '');
+    const isFresh = Number.isFinite(createdAt) && Date.now() - createdAt <= WRITER_AUTO_FLOW_MAX_AGE_MS;
+
+    return (
+      autoFlowFlag === 'writer' &&
+      autoFlowSource === 'full-auto' &&
+      isCurrentAutoProject &&
+      isFresh
+    );
+  };
+
   // Writer页面状态持久化key
   const WRITER_STATE_KEY = currentProject?.id ? `writer-state-${currentProject.id}` : 'writer-state-default';
 
@@ -395,18 +420,17 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     const autoFlowFlag = localStorage.getItem('story-architect-auto-flow');
     const autoFlowProjectId = localStorage.getItem('story-architect-auto-flow-project-id');
-    const isCurrentAutoProject = !autoFlowProjectId || autoFlowProjectId === String(currentProject?.id || '');
     const projectGeneratedChapterCount = Object.keys(currentProject?.generatedChapters || {}).length;
     const restoredGeneratedChapterCount = Object.keys(generatedChaptersRef.current || {}).length;
     const hasAnyGeneratedChapters = projectGeneratedChapterCount > 0 || restoredGeneratedChapterCount > 0;
     const canStartWriterAutoFlow =
+      isFreshWriterAutoFlow(currentProject?.id) &&
       Boolean(currentProject?.autoGenerationMode) &&
       Boolean(currentProject?.autoGenerationStarted) &&
       !hasAnyGeneratedChapters;
 
     if (
       autoFlowFlag === 'writer' &&
-      isCurrentAutoProject &&
       canStartWriterAutoFlow &&
       !autoWriterStartedRef.current &&
       !generationState.isGenerating &&
@@ -417,8 +441,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     ) {
       console.log('检测到自动化流程：开始自动执行一键循环生成');
       autoWriterStartedRef.current = true;
-      localStorage.removeItem('story-architect-auto-flow');
-      localStorage.removeItem('story-architect-auto-flow-project-id');
+      clearWriterAutoFlowFlags();
 
       // 更新自动化状态
       if (setAutoFlowStep) setAutoFlowStep('正在自动点击"一键循环生成"...');
@@ -430,58 +453,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           generateFullCycleContent();
         }
       }, 1000);
-    } else if (autoFlowFlag === 'writer' && isCurrentAutoProject && !canStartWriterAutoFlow) {
-      console.log('检测到正文自动化标记，但当前项目不是可接管状态，已清理标记，避免进入正文页后自动续写');
-      localStorage.removeItem('story-architect-auto-flow');
-      localStorage.removeItem('story-architect-auto-flow-project-id');
+    } else if (autoFlowFlag === 'writer' && (!canStartWriterAutoFlow || autoFlowProjectId === String(currentProject?.id || ''))) {
+      console.log('检测到不可用或过期的正文自动化标记，已清理，避免进入正文页后自动续写');
+      clearWriterAutoFlowFlags();
     }
   }, [currentProject?.id, currentProject?.autoGenerationMode, currentProject?.autoGenerationStarted, currentProject?.generatedChapters, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
 
   // 从localStorage和项目中恢复状态
   useEffect(() => {
-    // 检查是否为自动生成模式，如果是则自动启动章节生成
-    // 只有在完全没有生成过任何章节的情况下才会自动启动，避免干扰手动操作
+    // 旧版本可能留下 writer-batch 自动标记。正文页不再因为进入页面而自动开写。
     const explicitBatchAutoFlow =
       localStorage.getItem('story-architect-auto-flow') === 'writer-batch' &&
       localStorage.getItem('story-architect-auto-flow-project-id') === String(currentProject?.id || '');
-    const hasGeneratedChapters =
-      Object.keys(generatedChapters).length > 0 ||
-      Object.keys(currentProject?.generatedChapters || {}).length > 0;
-    const shouldAutoStart = explicitBatchAutoFlow &&
-        currentProject?.autoSelectedStories &&
-        !currentProject?.autoGenerationStarted &&
-        !hasGeneratedChapters &&
-        !generationState.isGenerating &&
-        !isBatchGenerating &&
-        !isFullCycleGenerating &&
-        currentProject?.selectedMicroStories &&
-        currentProject.selectedMicroStories.length > 0;
-
-    if (shouldAutoStart) {
-      console.log('检测到自动选择的小故事，准备自动启动章节生成...');
-      console.log(`已选择 ${currentProject.selectedMicroStories?.length || 0} 个小故事用于生成`);
-
-      // 使用requestAnimationFrame确保在下一个渲染周期执行，避免竞态条件
-      const startAutoGeneration = () => {
-        // 再次检查条件，确保没有其他操作正在进行
-        if (!generationState.isGenerating &&
-            !hasGeneratedChapters &&
-            currentProject?.selectedMicroStories &&
-            currentProject.selectedMicroStories.length > 0) {
-
-          console.log('自动启动8章批量生成...');
-          localStorage.removeItem('story-architect-auto-flow');
-          localStorage.removeItem('story-architect-auto-flow-project-id');
-          generateBatchContent();
-        }
-      };
-
-      // 延迟执行，确保组件完全挂载
-      setTimeout(startAutoGeneration, 1000);
-    } else if (explicitBatchAutoFlow && hasGeneratedChapters) {
-      console.log('检测到批量自动化标记，但项目已有正文，已清理标记，等待用户手动选择续写位置');
-      localStorage.removeItem('story-architect-auto-flow');
-      localStorage.removeItem('story-architect-auto-flow-project-id');
+    if (explicitBatchAutoFlow) {
+      console.log('检测到旧的批量自动化标记，已清理；进入正文写作工作室后等待用户手动点击生成');
+      clearWriterAutoFlowFlags();
     }
 
     // 在组件挂载时立即尝试恢复状态
@@ -937,8 +923,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     generationCancelledRef.current = true;
     generationLockRef.current = false;
-    localStorage.removeItem('story-architect-auto-flow');
-    localStorage.removeItem('story-architect-auto-flow-project-id');
+    clearWriterAutoFlowFlags();
     localStorage.removeItem('story-architect-auto-export-json');
 
     try {
@@ -2273,7 +2258,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100">
+    <div
+      className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100"
+      onWheelCapture={(event) => {
+        if (!generationState.isGenerating) return;
+        if (event.deltaY < 0) {
+          pauseStreamingFollow();
+          return;
+        }
+        window.setTimeout(() => {
+          if (isNearPageBottom() && currentChapterRef.current === generationState.currentGeneratingChapter) {
+            enableStreamingFollow();
+          }
+        }, 0);
+      }}
+    >
       {/* Header - 重新设计的紧凑布局 */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-secondary-200 sticky top-0 z-50">
         <div className="w-full px-6 py-3">
@@ -2825,6 +2824,23 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     <h2 className="text-2xl font-bold text-secondary-900 mb-2">
                       {getUnitRangeDisplay(currentChapter)}
                     </h2>
+                    {generationState.isGenerating && (
+                      <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                        <span>
+                          正在生成{generationState.currentGeneratingChapter ? getUnitRangeDisplay(generationState.currentGeneratingChapter) : '正文'}
+                          {autoFollowStreaming && currentChapter === generationState.currentGeneratingChapter ? '，正在跟随最新输出' : '，已暂停自动跟随'}
+                        </span>
+                        {(!autoFollowStreaming || currentChapter !== generationState.currentGeneratingChapter) && (
+                          <button
+                            type="button"
+                            onClick={followLatestStreamingOutput}
+                            className="rounded-md bg-orange-600 px-2 py-1 font-medium text-white hover:bg-orange-700"
+                          >
+                            跟随最新
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {isEditingChapter && chapterDraftTouched && (
                       <div className="text-xs text-orange-700 bg-orange-50 border border-orange-200 inline-block px-2 py-1 rounded">
                         未保存的修改

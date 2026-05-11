@@ -536,6 +536,8 @@ ${outline.themes}`;
       console.log('准备跳转到正文写作界面，项目ID:', newProject.id);
       localStorage.setItem('story-architect-auto-flow', 'writer');
       localStorage.setItem('story-architect-auto-flow-project-id', String(newProject.id));
+      localStorage.setItem('story-architect-auto-flow-source', 'full-auto');
+      localStorage.setItem('story-architect-auto-flow-created-at', String(Date.now()));
       localStorage.setItem('story-architect-auto-export-json', 'true');
       onComplete(newProject.id, 'writer');
 
