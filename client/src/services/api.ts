@@ -54,6 +54,7 @@ function readStoredActivationCode(): string {
 function storeActivationCode(code: string) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(ACTIVATION_CODE_STORAGE_KEY, normalizeActivationCode(code));
+  window.dispatchEvent(new CustomEvent('story-architect-activation-updated'));
 }
 
 function clearActivationCode() {
@@ -346,6 +347,61 @@ export const blueprintApi = {
 
   exportAsDocx: async (data: { chapters: { [key: number]: string }, bookName: string }): Promise<{ success: boolean, data: string, filename: string }> => {
     const response = await api.post('/blueprint/export-docx', data);
+    return response.data;
+  },
+};
+
+export interface CloudProjectsBundle {
+  schemaVersion: number;
+  updatedAt?: string;
+  projects: any[];
+  localState?: {
+    writerStateByProjectId?: Record<string, any>;
+  };
+}
+
+function buildActivationHeaders(promptIfMissing = false) {
+  const storedCode = readStoredActivationCode();
+  const code = storedCode || (promptIfMissing ? requestActivationCode('请输入激活码以同步云端项目：') : '');
+  if (!code) return null;
+  return { 'X-Activation-Code': code };
+}
+
+export const cloudProjectApi = {
+  hasActivationCode: () => !!readStoredActivationCode(),
+
+  fetchProjects: async (promptIfMissing = false): Promise<CloudProjectsBundle | null> => {
+    const headers = buildActivationHeaders(promptIfMissing);
+    if (!headers) return null;
+    const response = await api.get<CloudProjectsBundle>('/cloud/projects', { headers });
+    return response.data;
+  },
+
+  syncProjects: async (bundle: CloudProjectsBundle, promptIfMissing = false): Promise<CloudProjectsBundle | null> => {
+    const headers = buildActivationHeaders(promptIfMissing);
+    if (!headers) return null;
+    const response = await api.post<CloudProjectsBundle>('/cloud/projects/sync', bundle, { headers });
+    return response.data;
+  },
+
+  saveProject: async (project: any, writerState?: any, promptIfMissing = false): Promise<CloudProjectsBundle | null> => {
+    const headers = buildActivationHeaders(promptIfMissing);
+    if (!headers) return null;
+    const response = await api.post<CloudProjectsBundle>(
+      `/cloud/projects/${encodeURIComponent(String(project?.id || ''))}`,
+      { project, writerState },
+      { headers },
+    );
+    return response.data;
+  },
+
+  deleteProject: async (projectId: number | string, promptIfMissing = false): Promise<CloudProjectsBundle | null> => {
+    const headers = buildActivationHeaders(promptIfMissing);
+    if (!headers) return null;
+    const response = await api.delete<CloudProjectsBundle>(
+      `/cloud/projects/${encodeURIComponent(String(projectId))}`,
+      { headers },
+    );
     return response.data;
   },
 };

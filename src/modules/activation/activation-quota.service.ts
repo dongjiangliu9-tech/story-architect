@@ -119,6 +119,31 @@ export class ActivationQuotaService {
     };
   }
 
+  validateForUserData(rawCode: string | undefined) {
+    const code = this.normalizeCode(rawCode);
+    const configuredCodes = this.getConfiguredCodes();
+
+    if (configuredCodes.length === 0) {
+      return 'LOCAL_DEV';
+    }
+
+    if (!code || !configuredCodes.includes(code)) {
+      throw new UnauthorizedException('请输入有效激活码后再访问云端项目');
+    }
+
+    const store = this.loadStore();
+    this.applyRemoteResets(store, configuredCodes);
+    this.ensureConfiguredCodes(store, configuredCodes);
+    this.saveStore(store);
+
+    const usage = store.codes[code];
+    if (!usage || usage.disabled) {
+      throw new ForbiddenException('该激活码已熔断，请联系管理员重新激活');
+    }
+
+    return code;
+  }
+
   private getConfiguredCodes() {
     return (process.env.ACTIVATION_CODES || '')
       .split(',')

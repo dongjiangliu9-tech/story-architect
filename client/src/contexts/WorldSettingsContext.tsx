@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { DensityTuningLevels, LlmModelProvider, OutlineData } from '../types';
+import { CloudProjectsBundle, cloudProjectApi } from '../services/api';
 
 const WORLD_SETTINGS_KEY = 'story-architect-world-settings';
 const EXPORT_SCHEMA_VERSION = 1;
@@ -189,6 +190,33 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const readWriterStateForProject = (projectId: number): WriterStateSnapshot | null => {
+    const raw = localStorage.getItem(`writer-state-${projectId}`);
+    return raw ? (safeParseJson(raw) as WriterStateSnapshot) : null;
+  };
+
+  const buildCloudBundle = (projectsToSave: WorldSettingsProject[]): CloudProjectsBundle => {
+    const writerStateByProjectId: Record<string, WriterStateSnapshot | null> = {};
+    for (const project of projectsToSave) {
+      writerStateByProjectId[String(project.id)] = readWriterStateForProject(project.id);
+    }
+    return {
+      schemaVersion: EXPORT_SCHEMA_VERSION,
+      updatedAt: new Date().toISOString(),
+      projects: projectsToSave,
+      localState: {
+        writerStateByProjectId,
+      },
+    };
+  };
+
+  const syncProjectsToCloud = (projectsToSave: WorldSettingsProject[]) => {
+    if (!cloudProjectApi.hasActivationCode()) return;
+    cloudProjectApi.syncProjects(buildCloudBundle(projectsToSave)).catch(error => {
+      console.warn('同步云端项目失败:', error);
+    });
+  };
+
   const downloadJson = (data: unknown, filename: string) => {
     const dataStr = JSON.stringify(data, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
@@ -263,6 +291,85 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const getUpdatedTime = (project: WorldSettingsProject) => {
+    const time = Date.parse(project.updatedAt || project.createdAt || '');
+    return Number.isFinite(time) ? time : 0;
+  };
+
+  const mergeCloudProjects = (localProjects: WorldSettingsProject[], cloudBundle: CloudProjectsBundle) => {
+    const byId = new Map<number, WorldSettingsProject>();
+    const cloudById = new Map<number, WorldSettingsProject>();
+    let changed = false;
+    let shouldSyncCloud = false;
+
+    for (const project of localProjects) {
+      byId.set(project.id, project);
+    }
+
+    for (const rawProject of cloudBundle.projects || []) {
+      const cloudProject = normalizeProject(rawProject);
+      if (!cloudProject) continue;
+      cloudById.set(cloudProject.id, cloudProject);
+
+      const localProject = byId.get(cloudProject.id);
+      if (!localProject || getUpdatedTime(cloudProject) > getUpdatedTime(localProject)) {
+        byId.set(cloudProject.id, cloudProject);
+        changed = true;
+      } else if (getUpdatedTime(localProject) > getUpdatedTime(cloudProject)) {
+        shouldSyncCloud = true;
+      }
+
+      const writerState = cloudBundle.localState?.writerStateByProjectId?.[String(cloudProject.id)] as WriterStateSnapshot | null | undefined;
+      if (writerState && !localStorage.getItem(`writer-state-${cloudProject.id}`)) {
+        restoreLocalStateForProject(cloudProject.id, writerState);
+      }
+    }
+
+    for (const localProject of localProjects) {
+      if (!cloudById.has(localProject.id)) {
+        shouldSyncCloud = true;
+      }
+    }
+
+    return {
+      projects: Array.from(byId.values()).sort((a, b) => getUpdatedTime(b) - getUpdatedTime(a)),
+      changed,
+      shouldSyncCloud,
+    };
+  };
+
+  const loadCloudProjects = (promptIfMissing = false) => {
+    cloudProjectApi.fetchProjects(promptIfMissing)
+      .then(bundle => {
+        if (!bundle) return;
+        setProjects(prevProjects => {
+          const merged = mergeCloudProjects(prevProjects, bundle);
+          if (merged.shouldSyncCloud) {
+            syncProjectsToCloud(merged.projects);
+          }
+          if (!merged.changed) return prevProjects;
+          saveToStorage(merged.projects);
+          setCurrentProject(prevCurrent => {
+            if (!prevCurrent) return prevCurrent;
+            return merged.projects.find(project => project.id === prevCurrent.id) || prevCurrent;
+          });
+          return merged.projects;
+        });
+      })
+      .catch(error => {
+        console.warn('加载云端项目失败:', error);
+      });
+  };
+
+  useEffect(() => {
+    loadCloudProjects(false);
+    const onActivationUpdated = () => loadCloudProjects(false);
+    window.addEventListener('story-architect-activation-updated', onActivationUpdated);
+    return () => {
+      window.removeEventListener('story-architect-activation-updated', onActivationUpdated);
+    };
+  }, []);
+
   // 创建新项目
   const createProject = (bookName: string, outline: OutlineData, additionalData?: Partial<WorldSettingsProject>): WorldSettingsProject => {
     const newProject: WorldSettingsProject = {
@@ -277,6 +384,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     const updatedProjects = [...projects, newProject];
     setProjects(updatedProjects);
     saveToStorage(updatedProjects);
+    syncProjectsToCloud(updatedProjects);
     setCurrentProject(newProject);
 
     console.log('创建新项目:', newProject.bookName);
@@ -295,6 +403,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       );
 
       saveToStorage(updatedProjects);
+      syncProjectsToCloud(updatedProjects);
       return updatedProjects;
     });
 
@@ -312,6 +421,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     const updatedProjects = projects.filter(project => project.id !== projectId);
     setProjects(updatedProjects);
     saveToStorage(updatedProjects);
+    syncProjectsToCloud(updatedProjects);
 
     // 如果删除的是当前项目，清空currentProject
     if (currentProject?.id === projectId) {
@@ -331,6 +441,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       );
       setProjects(updatedProjects);
       saveToStorage(updatedProjects);
+      syncProjectsToCloud(updatedProjects);
 
       // 同步更新当前项目引用
       if (currentProject?.id === projectId) {
@@ -364,6 +475,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       }));
       setProjects(updatedProjects);
       saveToStorage(updatedProjects);
+      syncProjectsToCloud(updatedProjects);
 
       // 同步更新当前项目引用
       if (currentProject) {
@@ -512,6 +624,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     const updatedProjects = [...projects, ...importedProjects];
     setProjects(updatedProjects);
     saveToStorage(updatedProjects);
+    syncProjectsToCloud(updatedProjects);
 
     // 默认加载最新导入的第一个项目，方便用户立刻看到恢复结果
     const first = importedProjects[0];

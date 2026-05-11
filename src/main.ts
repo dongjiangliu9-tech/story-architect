@@ -24,14 +24,14 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // 配置body-parser以支持大请求体（64章+小故事数据）
+  // 配置body-parser以支持大请求体（云端项目+正文快照）
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.set('trust proxy', 1);
 
-  // 增加请求体的最大大小限制到10MB
+  // 增加请求体的最大大小限制到50MB
   const bodyParser = require('body-parser');
-  expressApp.use(bodyParser.json({ limit: '10mb' }));
-  expressApp.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
+  expressApp.use(bodyParser.json({ limit: '50mb' }));
+  expressApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
   app.setGlobalPrefix('api');
 
