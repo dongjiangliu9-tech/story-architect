@@ -91,6 +91,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
   const [currentChapter, setCurrentChapter] = useState(1);
+  const currentChapterRef = useRef(1);
   const [_totalChapters, setTotalChapters] = useState(0);
   const [previousChapterEnding, setPreviousChapterEnding] = useState<string>('');
   const [generatedChapters, setGeneratedChapters] = useState<{[key: number]: string}>({});
@@ -105,6 +106,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const generationCancelledRef = useRef(false);
   const generationLockRef = useRef(false);
   const autoWriterStartedRef = useRef(false);
+  const lastAutoProjectSnapshotChapterCountRef = useRef(0);
+  const autoSnapshotProjectIdRef = useRef<number | null>(null);
+  const [autoFollowStreaming, setAutoFollowStreaming] = useState(true);
+  const autoFollowStreamingRef = useRef(true);
   const [fullCycleProgress, setFullCycleProgress] = useState<{
     current: number;
     total: number;
@@ -161,6 +166,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   useEffect(() => {
     currentProjectRef.current = currentProject;
+    const projectId = currentProject?.id ?? null;
+    if (projectId !== autoSnapshotProjectIdRef.current) {
+      autoSnapshotProjectIdRef.current = projectId;
+      lastAutoProjectSnapshotChapterCountRef.current = Object.keys(currentProject?.generatedChapters || {}).length;
+    }
   }, [currentProject]);
 
   useEffect(() => {
@@ -170,6 +180,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     currentRequestIdRef.current = currentRequestId;
   }, [currentRequestId]);
+
+  useEffect(() => {
+    currentChapterRef.current = currentChapter;
+  }, [currentChapter]);
+
+  useEffect(() => {
+    autoFollowStreamingRef.current = autoFollowStreaming;
+  }, [autoFollowStreaming]);
 
   const registerGenerationRequest = (requestId: string, eventSource: EventSource) => {
     generationCancelledRef.current = false;
@@ -355,6 +373,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     return getLastGeneratedChapterNumber() + 1;
   };
 
+  const isNearPageBottom = (threshold = 220): boolean => {
+    const scrollBottom = window.innerHeight + window.scrollY;
+    return document.documentElement.scrollHeight - scrollBottom <= threshold;
+  };
+
+  const enableStreamingFollow = () => {
+    setAutoFollowStreaming(true);
+    autoFollowStreamingRef.current = true;
+  };
+
+  const pauseStreamingFollow = () => {
+    setAutoFollowStreaming(false);
+    autoFollowStreamingRef.current = false;
+  };
+
   // Writer页面状态持久化key
   const WRITER_STATE_KEY = currentProject?.id ? `writer-state-${currentProject.id}` : 'writer-state-default';
 
@@ -525,32 +558,104 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   }, []); // 只在组件挂载时执行一次
 
+  const buildWriterStateSnapshot = (chapters: {[key: number]: string} = generatedChapters) => ({
+    generatedContent: isEditingChapter ? chapterDraft : generatedContent,
+    currentChapter,
+    previousChapterEnding,
+    actionFirstScript,
+    targetEpisodeWords,
+    targetNovelWords,
+    generatedChapters: chapters,
+    generationState,
+    timestamp: Date.now()
+  });
+
+  const saveWriterStateToLocalStorage = (chapters: {[key: number]: string} = generatedChapters) => {
+    const snapshot = buildWriterStateSnapshot(chapters);
+    const projectId = currentProjectRef.current?.id ?? currentProject?.id;
+    if (projectId) {
+      localStorage.setItem(`writer-state-${projectId}`, JSON.stringify(snapshot));
+    }
+    localStorage.setItem('writer-state-default', JSON.stringify(snapshot));
+  };
+
   // 保存状态到localStorage
   const saveWriterState = () => {
     try {
-      const state = {
-        generatedContent: isEditingChapter ? chapterDraft : generatedContent,
-        currentChapter,
-        previousChapterEnding,
-        actionFirstScript,
-        targetEpisodeWords,
-        targetNovelWords,
-        generatedChapters,
-        generationState,
-        timestamp: Date.now()
-      };
-
-      // 保存到项目特定的key
-      if (currentProject?.id) {
-        localStorage.setItem(WRITER_STATE_KEY, JSON.stringify(state));
-      }
-
-      // 同时保存到默认key，确保能恢复
-      localStorage.setItem('writer-state-default', JSON.stringify(state));
+      saveWriterStateToLocalStorage(generatedChapters);
       console.log('Writer页面状态已保存到localStorage');
     } catch (error) {
       console.error('保存Writer页面状态失败:', error);
     }
+  };
+
+  const createWriterSaveVersion = (chapters: {[key: number]: string}, idPrefix: 'save' | 'auto_save') => {
+    const chapterValues = Object.keys(chapters)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map(chapter => chapters[chapter])
+      .filter(Boolean);
+
+    return {
+      id: `${idPrefix}_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      chapterCount: chapterValues.length,
+      totalWords: chapterValues.reduce((sum, content) => sum + getWordCount(content), 0),
+      chapters: { ...chapters },
+      preview: chapterValues[0]?.substring(0, 200) + '...' || ''
+    };
+  };
+
+  const saveProjectSnapshot = (
+    chapters: {[key: number]: string},
+    opts?: { silent?: boolean; auto?: boolean; message?: string }
+  ) => {
+    const project = currentProjectRef.current;
+    if (!project || Object.keys(chapters).length === 0) {
+      if (!opts?.silent) alert('没有可保存的内容');
+      return;
+    }
+
+    const saveVersion = createWriterSaveVersion(chapters, opts?.auto ? 'auto_save' : 'save');
+    const savedVersions = [saveVersion, ...(project.savedVersions || [])].slice(0, 10);
+    const updatedProject = {
+      ...project,
+      generatedChapters: { ...chapters },
+      savedVersions,
+      updatedAt: new Date().toISOString(),
+    };
+
+    currentProjectRef.current = updatedProject;
+    updateProject(project.id, {
+      generatedChapters: updatedProject.generatedChapters,
+      savedVersions,
+    });
+    saveWriterStateToLocalStorage(chapters);
+    lastAutoProjectSnapshotChapterCountRef.current = Math.max(
+      lastAutoProjectSnapshotChapterCountRef.current,
+      Object.keys(chapters).length
+    );
+
+    console.log(opts?.auto ? '自动保存项目快照:' : '手动保存项目快照:', {
+      chapterCount: saveVersion.chapterCount,
+      totalWords: saveVersion.totalWords,
+    });
+
+    if (!opts?.silent) {
+      alert(opts?.message || '项目已保存！正文、版本历史和当前写作进度都已更新。');
+    }
+  };
+
+  const maybeAutoSaveProjectSnapshot = (chapters: {[key: number]: string}) => {
+    const chapterCount = Object.keys(chapters).length;
+    if (chapterCount <= 0) return;
+    const lastSavedCount = lastAutoProjectSnapshotChapterCountRef.current;
+    if (chapterCount - lastSavedCount < 10) return;
+    saveProjectSnapshot(chapters, {
+      silent: true,
+      auto: true,
+      message: `已自动保存到第${chapterCount}${unitLabel}`,
+    });
   };
 
   const persistGeneratedChapters = (patch: {[key: number]: string}) => {
@@ -564,24 +669,17 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     generatedChaptersRef.current = mergedChapters;
     setGeneratedChapters(mergedChapters);
 
-    const snapshot = {
-      generatedContent: isEditingChapter ? chapterDraft : generatedContent,
-      currentChapter,
-      previousChapterEnding,
-      actionFirstScript,
-      targetEpisodeWords,
-      targetNovelWords,
-      generatedChapters: mergedChapters,
-      generationState,
-      timestamp: Date.now()
-    };
-
     try {
       if (project?.id) {
+        currentProjectRef.current = {
+          ...project,
+          generatedChapters: mergedChapters,
+          updatedAt: new Date().toISOString(),
+        };
         updateProject(project.id, { generatedChapters: mergedChapters });
-        localStorage.setItem(`writer-state-${project.id}`, JSON.stringify(snapshot));
       }
-      localStorage.setItem('writer-state-default', JSON.stringify(snapshot));
+      saveWriterStateToLocalStorage(mergedChapters);
+      maybeAutoSaveProjectSnapshot(mergedChapters);
     } catch (error) {
       console.error('实时保存章节失败:', error);
     }
@@ -635,40 +733,74 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   }, [isEditingChapter]);
 
   useEffect(() => {
-    if (!generationState.isGenerating || isEditingChapter || !generatedContent) return;
+    if (!generationState.isGenerating) {
+      enableStreamingFollow();
+      return;
+    }
+
+    const handleScroll = () => {
+      if (isNearPageBottom() && currentChapterRef.current === generationState.currentGeneratingChapter) {
+        enableStreamingFollow();
+      } else {
+        pauseStreamingFollow();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [generationState.isGenerating, generationState.currentGeneratingChapter]);
+
+  const followLatestStreamingOutput = () => {
+    const streamingChapter = generationState.currentGeneratingChapter;
+    if (!streamingChapter) return;
+    setIsEditingChapter(false);
+    setChapterDraftTouched(false);
+    setCurrentChapter(streamingChapter);
+    setJumpToChapter(streamingChapter.toString());
+    enableStreamingFollow();
     requestAnimationFrame(() => {
       contentEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     });
-  }, [generatedContent, generationState.isGenerating, isEditingChapter]);
+  };
+
+  useEffect(() => {
+    if (!generationState.isGenerating || isEditingChapter || !generatedContent) return;
+    if (!autoFollowStreamingRef.current) return;
+    if (currentChapterRef.current !== generationState.currentGeneratingChapter) return;
+    requestAnimationFrame(() => {
+      contentEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+  }, [generatedContent, generationState.isGenerating, generationState.currentGeneratingChapter, isEditingChapter]);
 
   // 保存生成的内容到项目
   const saveGeneratedContent = () => {
-    if (!currentProject || Object.keys(generatedChapters).length === 0) {
+    const project = currentProjectRef.current;
+    if (!project) {
+      alert('未找到当前项目');
+      return;
+    }
+
+    const contentToSave = visibleChapterContent?.trim();
+    const chaptersToSave = {
+      ...(project.generatedChapters || {}),
+      ...generatedChaptersRef.current,
+      ...(contentToSave ? { [currentChapter]: contentToSave } : {}),
+    };
+
+    if (Object.keys(chaptersToSave).length === 0) {
       alert('没有可保存的内容');
       return;
     }
 
-    // 创建保存版本
-    const saveVersion = {
-      id: `save_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      chapterCount: Object.keys(generatedChapters).length,
-      totalWords: Object.values(generatedChapters).reduce((sum, content) => sum + getWordCount(content), 0),
-      chapters: { ...generatedChapters },
-      preview: Object.values(generatedChapters)[0]?.substring(0, 200) + '...' || ''
-    };
+    generatedChaptersRef.current = chaptersToSave;
+    setGeneratedChapters(chaptersToSave);
+    if (contentToSave) {
+      setGeneratedContent(contentToSave);
+    }
 
-    // 获取现有保存版本
-    const existingVersions = currentProject.savedVersions || [];
-
-    // 保存到项目中
-    updateProject(currentProject.id, {
-      generatedChapters: { ...generatedChapters },
-      savedVersions: [saveVersion, ...existingVersions].slice(0, 10) // 保留最近10个版本
+    saveProjectSnapshot(chaptersToSave, {
+      message: '项目已保存！正文、版本历史和当前写作进度都已更新。',
     });
-
-    console.log('保存生成的内容:', generatedChapters);
-    alert('内容已保存！版本历史已更新。');
   };
 
   // 恢复保存的版本
@@ -704,6 +836,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const best = hasChapter(targetChapter) ? targetChapter : getBestExistingChapterInGroup(groupStart);
 
     if (best !== null) {
+      if (generationState.isGenerating && best !== generationState.currentGeneratingChapter) {
+        pauseStreamingFollow();
+      }
       setIsEditingChapter(false);
       setChapterDraftTouched(false);
       setCurrentChapter(best);
@@ -1061,9 +1196,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                ...prev,
 	                currentGeneratingChapter: activeStreamingChapter
 	              }));
-	              // 自动切换到正在生成的小故事第一章，开始实时显示内容
-	              setCurrentChapter(activeStreamingChapter);
-	              setJumpToChapter(activeStreamingChapter.toString());
+	              // 只有处在“跟随最新输出”模式时，才自动切到正在生成的章节。
+	              if (autoFollowStreamingRef.current) {
+	                setCurrentChapter(activeStreamingChapter);
+	                setJumpToChapter(activeStreamingChapter.toString());
+	              }
 	              setGeneratedContent(''); // 清空内容，准备显示新的小故事
 	              break;
 
@@ -1077,8 +1214,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                activeStreamingChapter = streamingChapter;
 
 	                // 实时显示小故事生成过程
-	                setCurrentChapter(streamingChapter);
-	                setJumpToChapter(streamingChapter.toString());
+	                if (autoFollowStreamingRef.current) {
+	                  setCurrentChapter(streamingChapter);
+	                  setJumpToChapter(streamingChapter.toString());
+	                }
 	                setGenerationState(prev => ({
 	                  ...prev,
 	                  currentGeneratingChapter: streamingChapter
@@ -1590,8 +1729,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                    ...prev,
 	                    currentGeneratingChapter: activeStreamingChapter
 	                  }));
-	                  setCurrentChapter(activeStreamingChapter);
-	                  setJumpToChapter(activeStreamingChapter.toString());
+	                  if (autoFollowStreamingRef.current) {
+	                    setCurrentChapter(activeStreamingChapter);
+	                    setJumpToChapter(activeStreamingChapter.toString());
+	                  }
 	                  setGeneratedContent('');
 	                  break;
 
@@ -1603,8 +1744,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                      break;
 	                    }
 	                    activeStreamingChapter = streamingChapter;
-	                    setCurrentChapter(streamingChapter);
-	                    setJumpToChapter(streamingChapter.toString());
+	                    if (autoFollowStreamingRef.current) {
+	                      setCurrentChapter(streamingChapter);
+	                      setJumpToChapter(streamingChapter.toString());
+	                    }
 	                    setGenerationState(prev => ({
 	                      ...prev,
 	                      currentGeneratingChapter: streamingChapter
@@ -1937,6 +2080,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const navigateChapter = (direction: 'prev' | 'next') => {
     if (!confirmDiscardChapterEdits()) return;
+    pauseStreamingFollow();
 
     if (direction === 'prev') {
       const currentGroupStart = currentChapter;
@@ -2286,6 +2430,17 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             <div className="flex items-center space-x-3 flex-shrink-0">
               {/* 生成控制按钮 */}
               <div className="flex flex-col space-y-2">
+                {generationState.isGenerating && (!autoFollowStreaming || currentChapter !== generationState.currentGeneratingChapter) && (
+                  <button
+                    onClick={followLatestStreamingOutput}
+                    className="flex items-center justify-center space-x-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors text-sm"
+                    title="回到正在流式输出的章节，并恢复自动跟随"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                    <span className="hidden sm:inline">跟随最新</span>
+                    <span className="sm:hidden">跟随</span>
+                  </button>
+                )}
                 {hasActiveGeneration && (
                   <button
                     onClick={stopGeneration}
