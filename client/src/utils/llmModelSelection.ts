@@ -1,6 +1,7 @@
 import { LlmModelProvider, LlmModelSelection } from '../types';
 
-export const DEFAULT_LOGIC_MODEL_VALUE = 'default';
+export const DEFAULT_LOGIC_MODEL_VALUE = 'gemini-3.1-pro-preview';
+export const OFFICIAL_LOGIC_MODEL_VALUE = 'default';
 
 export const LOGIC_MODEL_OPTIONS: Array<{
   value: string;
@@ -9,6 +10,11 @@ export const LOGIC_MODEL_OPTIONS: Array<{
 }> = [
   {
     value: DEFAULT_LOGIC_MODEL_VALUE,
+    label: 'Gemini 3.1 Pro',
+    description: '智灵网关备用',
+  },
+  {
+    value: OFFICIAL_LOGIC_MODEL_VALUE,
     label: 'Gemini 官方',
     description: '保持现有主线路由',
   },
@@ -38,11 +44,6 @@ export const LOGIC_MODEL_OPTIONS: Array<{
     description: '智灵网关备用',
   },
   {
-    value: 'gemini-3.1-pro-preview',
-    label: 'Gemini 3.1 Pro',
-    description: '智灵网关备用',
-  },
-  {
     value: 'DeepSeek-V4-Flash',
     label: 'DeepSeek V4 Flash',
     description: '智灵网关备用',
@@ -63,13 +64,15 @@ export const normalizeGatewayModelValue = (value: string) => {
 };
 
 export const toLogicModelRequest = (value?: string): LlmModelSelection => {
-  if (!value || value === DEFAULT_LOGIC_MODEL_VALUE) {
+  const resolvedValue = value || DEFAULT_LOGIC_MODEL_VALUE;
+
+  if (resolvedValue === OFFICIAL_LOGIC_MODEL_VALUE) {
     return { llmModelProvider: 'default' };
   }
 
   return {
     llmModelProvider: 'gateway',
-    llmModel: normalizeGatewayModelValue(value),
+    llmModel: normalizeGatewayModelValue(resolvedValue),
   };
 };
 
@@ -101,8 +104,12 @@ export const getLogicModelRequestFromSources = (
   } | null | undefined>
 ): LlmModelSelection => {
   for (const source of sources) {
+    if (!source?.preferredLlmModelProvider && !source?.preferredLlmModel) {
+      continue;
+    }
+
     const value = getPreferredLogicModelValue(source);
-    if (value !== DEFAULT_LOGIC_MODEL_VALUE) {
+    if (value) {
       return toLogicModelRequest(value);
     }
   }

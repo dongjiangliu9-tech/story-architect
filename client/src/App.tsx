@@ -20,10 +20,14 @@ import { useAutoGeneration, type AutoGenerationDestination, type AutoGenerationP
 import {
   DEFAULT_LOGIC_MODEL_VALUE,
   LOGIC_MODEL_OPTIONS,
+  OFFICIAL_LOGIC_MODEL_VALUE,
   getPreferredLogicModelValue,
   toLogicModelRequest,
   toPreferredLogicModelFields,
 } from './utils/llmModelSelection';
+
+const LOGIC_MODEL_STORAGE_KEY = 'story-architect-logic-model';
+const LOGIC_MODEL_DEFAULT_MIGRATION_KEY = 'story-architect-logic-model-default-migrated';
 
 function BlueprintPage({
   onNavigate
@@ -40,7 +44,15 @@ function BlueprintPage({
   const [autoClearExisting, setAutoClearExisting] = useState(true);
   const [logicModelValue, setLogicModelValue] = useState(() => {
     try {
-      return localStorage.getItem('story-architect-logic-model') || DEFAULT_LOGIC_MODEL_VALUE;
+      const savedValue = localStorage.getItem(LOGIC_MODEL_STORAGE_KEY);
+      const migrated = localStorage.getItem(LOGIC_MODEL_DEFAULT_MIGRATION_KEY) === 'true';
+
+      if (savedValue === OFFICIAL_LOGIC_MODEL_VALUE && !migrated) {
+        localStorage.setItem(LOGIC_MODEL_DEFAULT_MIGRATION_KEY, 'true');
+        return DEFAULT_LOGIC_MODEL_VALUE;
+      }
+
+      return savedValue || DEFAULT_LOGIC_MODEL_VALUE;
     } catch {
       return DEFAULT_LOGIC_MODEL_VALUE;
     }
@@ -87,7 +99,8 @@ function BlueprintPage({
 
   useEffect(() => {
     try {
-      localStorage.setItem('story-architect-logic-model', logicModelValue);
+      localStorage.setItem(LOGIC_MODEL_STORAGE_KEY, logicModelValue);
+      localStorage.setItem(LOGIC_MODEL_DEFAULT_MIGRATION_KEY, 'true');
     } catch {
       // Ignore localStorage failures so model selection never blocks generation.
     }

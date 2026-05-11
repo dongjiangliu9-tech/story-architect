@@ -18,7 +18,7 @@ interface CreativeConfigSelectorProps {
   onChangeSelectedStyles: (styles: NovelStyle[]) => void;
 }
 
-const groupOrder: CreativeTagGroup[] = ['theme', 'role', 'plot'];
+const groupOrder: CreativeTagGroup[] = ['popular', 'theme', 'role', 'plot'];
 const channelOrder: CreativeChannel[] = ['male', 'female', 'tiktok'];
 
 function resolveChannel(category: NovelCategory | null): CreativeChannel {
@@ -108,7 +108,7 @@ export function CreativeConfigSelector({
                   </span>
                 ))
               ) : (
-                <span className="text-sm text-secondary-500">选择主题、角色、情节标签</span>
+                <span className="text-sm text-secondary-500">选择热门、主题、角色、情节标签</span>
               )}
               {selectedStyles.length > 9 && (
                 <span className="px-2.5 py-1 rounded-md bg-secondary-100 text-secondary-600 text-xs font-medium">
@@ -164,7 +164,7 @@ export function CreativeConfigSelector({
 
             <div className="flex flex-col md:flex-row min-h-0">
               <aside className="md:w-44 border-b md:border-b-0 md:border-r border-secondary-100 bg-secondary-50 p-4">
-                <div className="grid grid-cols-3 md:grid-cols-1 gap-2">
+                <div className="grid grid-cols-4 md:grid-cols-1 gap-2">
                   {groupOrder.map(group => {
                     const count = groupedSelected.find(item => item.group === group)?.tags.length || 0;
                     return (

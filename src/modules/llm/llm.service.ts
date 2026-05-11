@@ -274,7 +274,7 @@ export class LlmService {
       model ||
         this.configService.get<string>('GATEWAY_MODEL') ||
         this.configService.get<string>('ZHILING_GATEWAY_MODEL') ||
-        'gpt-5.5',
+        'gemini-3.1-pro-preview',
     );
 
     let lastError: unknown;

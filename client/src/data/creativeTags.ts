@@ -1,7 +1,7 @@
 import { NovelCategory, NovelStyle } from '../types';
 
 export type CreativeChannel = 'male' | 'female' | 'tiktok';
-export type CreativeTagGroup = 'theme' | 'role' | 'plot';
+export type CreativeTagGroup = 'popular' | 'theme' | 'role' | 'plot';
 
 export interface CreativeTag extends NovelStyle {
   channel: CreativeChannel;
@@ -27,6 +27,7 @@ export const creativeChannels: Record<CreativeChannel, NovelCategory> = {
 };
 
 export const creativeGroupLabels: Record<CreativeTagGroup, string> = {
+  popular: '热门标签',
   theme: '主题',
   role: '角色',
   plot: '情节',
@@ -43,16 +44,20 @@ const makeTags = (channel: CreativeChannel, group: CreativeTagGroup, names: stri
 
 export const creativeTagsByChannel: Record<CreativeChannel, Record<CreativeTagGroup, CreativeTag[]>> = {
   male: {
-    theme: makeTags('male', 'theme', [
+    popular: makeTags('male', 'popular', [
       '悬疑', '衍生', '玄幻', '都市', '历史', '奇幻仙侠', '游戏体育', '灾难',
       '种田', '穿书', '风水秘术', '全能', '空间', '都市江湖', '神医', '腹黑',
       '都市修真', '升级流', '打脸', '传统玄幻', '游戏主播', '宋朝', '绝地逃生', '副本',
-      '玄学', '西游衍生', '发家致富', '开局', '都市日常', '综漫', '断层', '武将',
+      '玄学', '西游衍生', '发家致富', '战神赘婿',
+    ]),
+    theme: makeTags('male', 'theme', [
+      '开局', '都市日常', '综漫', '断层', '武将',
       '清朝', '都市生活', '都市脑洞', '综影视', '男频衍生', '谋战', '第一人称', '赛博朋克',
       '悬疑脑洞', '悬疑灵异', '东方玄幻', '历史脑洞', '国运', '规则怪谈', '东方仙侠', '都市异能',
       '影视小说', '都市种田', '灵气复苏', '天灾', '都市高武', '玄幻脑洞', '古代', '抗战谍战',
       '搞笑轻松', '武侠', '西方奇幻', '架空', '第四天灾', '历史古代', '游戏动漫', '克苏鲁',
       '异世大陆', '异能', '轻小说', '科幻末世', '高武世界', '宝可梦', '体育', '末日求生',
+      '仕途',
     ]),
     role: makeTags('male', 'role', [
       '宫廷侯爵', '大小姐', '学霸', '赘婿', '大佬', '校花', '特工', '神探',
@@ -73,11 +78,14 @@ export const creativeTagsByChannel: Record<CreativeChannel, Record<CreativeTagGr
     ]),
   },
   female: {
-    theme: makeTags('female', 'theme', [
+    popular: makeTags('female', 'popular', [
       '现代言情', '古代言情', '悬疑', '衍生', '纯爱', '重生', '总裁', '甜宠',
       '穿越', '影视原著', '豪门总裁', '穿书', '游戏主播', '全能', '女频悬疑', '发家致富',
       '虐渣', '宠妻', '风水秘术', '空间', '家庭', '职场婚恋', '现言脑洞', '双洁',
-      '推理', '强强', '双向救赎', '追妻', '豪门世家', '现言甜宠', '古言脑洞', '独宠',
+      '推理', '强强', '双向救赎', '追妻',
+    ]),
+    theme: makeTags('female', 'theme', [
+      '豪门世家', '现言甜宠', '古言脑洞', '独宠',
       '综漫', '女频衍生', '悬疑恋爱', '悬疑脑洞', '职场商战', '虐恋情深', '综影视', '都市生活',
       '影视小说', '日久生情', '宫斗宅斗', '第一人称', '古风世情', '青春甜宠', '民国言情', '异世穿越',
       '古代', '谋战', '现代', '搞笑轻松', '幻想言情', '古言权谋', '天灾', '科幻末世',
@@ -106,6 +114,10 @@ export const creativeTagsByChannel: Record<CreativeChannel, Record<CreativeTagGr
     ]),
   },
   tiktok: {
+    popular: makeTags('tiktok', 'popular', [
+      '狼人', '吸血鬼', '黑手党', '亿万富豪', '契约婚姻', '复仇逆袭', '带球跑', '豪门继承',
+      '命定伴侣', '危险同居', '秘密孩子', '身份揭露',
+    ]),
     theme: makeTags('tiktok', 'theme', [
       '奇幻', '狼人', '吸血鬼', '黑手党', '亿万富豪', '契约婚姻', '复仇逆袭', '带球跑',
       '豪门继承', '超自然悬疑', '校园甜宠', '禁忌爱情', '王室秘恋', '家族阴谋', '暗黑浪漫',
