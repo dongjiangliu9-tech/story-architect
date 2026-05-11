@@ -83,7 +83,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const unitsPerMicroStory = 1;
   const storiesPerBatch = isMicrodrama ? 1 : 8;
   const unitsPerBatch = isMicrodrama ? 1 : 8;
-  const [writerModelProvider, setWriterModelProvider] = useState<'deepseek' | 'gemini'>('deepseek');
+  const writerModelProvider: 'deepseek' = 'deepseek';
   const [actionFirstScript, setActionFirstScript] = useState(false);
   const [targetEpisodeWords, setTargetEpisodeWords] = useState(1000);
   const [targetNovelWords, setTargetNovelWords] = useState(2100);
@@ -331,17 +331,28 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     return null;
   };
 
-  // 计算下一个需要生成的章节
-  const getNextChapterToGenerate = (): number => {
-    if (!microStoriesInOrder) return 1;
+  const getActiveGeneratedChapters = (chapters?: {[key: number]: string}): {[key: number]: string} => {
+    return chapters ?? {
+      ...(currentProject?.generatedChapters || {}),
+      ...generatedChapters,
+    };
+  };
 
-    const totalChapters = microStoriesInOrder.length * unitsPerMicroStory;
-    for (let chapter = 1; chapter <= totalChapters; chapter++) {
-      if (!generatedChapters[chapter]) {
-        return chapter;
-      }
-    }
-    return 1; // 如果所有章节都已生成，返回1（这种情况不应该发生）
+  const getGeneratedChapterNumbers = (chapters?: {[key: number]: string}): number[] => {
+    const activeChapters = getActiveGeneratedChapters(chapters);
+    return Object.keys(activeChapters)
+      .map(Number)
+      .filter(chapter => Number.isFinite(chapter) && chapter > 0 && Boolean(activeChapters[chapter]));
+  };
+
+  const getLastGeneratedChapterNumber = (chapters?: {[key: number]: string}): number => {
+    const chapterNumbers = getGeneratedChapterNumbers(chapters);
+    return chapterNumbers.length > 0 ? Math.max(...chapterNumbers) : 0;
+  };
+
+  // 计算下一个需要续写的章节：按已有正文的结尾继续，而不是回头补第一个空洞
+  const getNextChapterToGenerate = (): number => {
+    return getLastGeneratedChapterNumber() + 1;
   };
 
   // Writer页面状态持久化key
@@ -352,9 +363,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const autoFlowFlag = localStorage.getItem('story-architect-auto-flow');
     const autoFlowProjectId = localStorage.getItem('story-architect-auto-flow-project-id');
     const isCurrentAutoProject = !autoFlowProjectId || autoFlowProjectId === String(currentProject?.id || '');
+    const projectGeneratedChapterCount = Object.keys(currentProject?.generatedChapters || {}).length;
+    const restoredGeneratedChapterCount = Object.keys(generatedChaptersRef.current || {}).length;
+    const hasAnyGeneratedChapters = projectGeneratedChapterCount > 0 || restoredGeneratedChapterCount > 0;
+    const canStartWriterAutoFlow =
+      Boolean(currentProject?.autoGenerationMode) &&
+      Boolean(currentProject?.autoGenerationStarted) &&
+      !hasAnyGeneratedChapters;
+
     if (
       autoFlowFlag === 'writer' &&
       isCurrentAutoProject &&
+      canStartWriterAutoFlow &&
       !autoWriterStartedRef.current &&
       !generationState.isGenerating &&
       !isBatchGenerating &&
@@ -377,8 +397,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           generateFullCycleContent();
         }
       }, 1000);
+    } else if (autoFlowFlag === 'writer' && isCurrentAutoProject && !canStartWriterAutoFlow) {
+      console.log('检测到正文自动化标记，但当前项目不是可接管状态，已清理标记，避免进入正文页后自动续写');
+      localStorage.removeItem('story-architect-auto-flow');
+      localStorage.removeItem('story-architect-auto-flow-project-id');
     }
-  }, [currentProject?.id, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
+  }, [currentProject?.id, currentProject?.autoGenerationMode, currentProject?.autoGenerationStarted, currentProject?.generatedChapters, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
 
   // 从localStorage和项目中恢复状态
   useEffect(() => {
@@ -387,7 +411,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const explicitBatchAutoFlow =
       localStorage.getItem('story-architect-auto-flow') === 'writer-batch' &&
       localStorage.getItem('story-architect-auto-flow-project-id') === String(currentProject?.id || '');
-    const hasGeneratedChapters = Object.keys(generatedChapters).length > 0;
+    const hasGeneratedChapters =
+      Object.keys(generatedChapters).length > 0 ||
+      Object.keys(currentProject?.generatedChapters || {}).length > 0;
     const shouldAutoStart = explicitBatchAutoFlow &&
         currentProject?.autoSelectedStories &&
         !currentProject?.autoGenerationStarted &&
@@ -419,6 +445,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       // 延迟执行，确保组件完全挂载
       setTimeout(startAutoGeneration, 1000);
+    } else if (explicitBatchAutoFlow && hasGeneratedChapters) {
+      console.log('检测到批量自动化标记，但项目已有正文，已清理标记，等待用户手动选择续写位置');
+      localStorage.removeItem('story-architect-auto-flow');
+      localStorage.removeItem('story-architect-auto-flow-project-id');
     }
 
     // 在组件挂载时立即尝试恢复状态
@@ -917,19 +947,33 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       alert(`需要至少保存${storiesPerBatch}个${isMicrodrama ? '分集' : '小故事'}才能进行批量生成`);
       return;
     }
+    if (!microStoriesToUse || microStoriesToUse.length === 0) {
+      generationLockRef.current = false;
+      alert(`没有找到保存的${isMicrodrama ? '分集' : '小故事'}，请先在情节结构细化页面生成并保存${isMicrodrama ? '分集' : '小故事'}`);
+      return;
+    }
 
     setIsBatchGenerating(true);
 
     try {
       const generationContext = buildGenerationContext();
       console.log('批量生成上下文长度:', generationContext.length);
-      const batchUnitCount = expectedChapterCount ?? unitsPerBatch;
+      const requestedBatchUnitCount = expectedChapterCount ?? unitsPerBatch;
 
       // 计算起始章节
-      const existingChapters = Object.keys(generatedChapters).length;
+      const activeGeneratedChapters = getActiveGeneratedChapters();
+      const existingChapters = getGeneratedChapterNumbers(activeGeneratedChapters).length;
       const startChapter = expectedStartChapter ?? (existingChapters > 0
-        ? Math.max(...Object.keys(generatedChapters).map(Number)) + 1
+        ? getLastGeneratedChapterNumber(activeGeneratedChapters) + 1
         : 1);
+      const totalAvailableChapters = microStoriesToUse.length * unitsPerMicroStory;
+      if (startChapter > totalAvailableChapters) {
+        setIsBatchGenerating(false);
+        generationLockRef.current = false;
+        alert(`当前项目已经写到第${getLastGeneratedChapterNumber(activeGeneratedChapters)}${unitLabel}，没有可继续生成的${unitLabel}。`);
+        return;
+      }
+      const batchUnitCount = Math.min(requestedBatchUnitCount, totalAvailableChapters - startChapter + 1);
 
       console.log(`开始流式生成${batchUnitCount}${unitLabel}内容...`);
 
@@ -943,7 +987,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       // 用“已保存的最新正文”动态计算衔接参考（避免 previousChapterEnding 过期）
       const effectivePreviousEnding =
-        startChapter > 1 ? computePreviousEndingFromChapters(generatedChapters, startChapter) : '';
+        startChapter > 1 ? computePreviousEndingFromChapters(activeGeneratedChapters, startChapter) : '';
 
       // 先准备流式请求，获取requestId
       const prepareResponse = await blueprintApi.prepareChapterStream({
@@ -958,7 +1002,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	        targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	        targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
 	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
-	        generatedChapters: startChapter > 1 ? generatedChapters : undefined
+	        generatedChapters: startChapter > 1 ? activeGeneratedChapters : undefined
       });
 
       const requestId = prepareResponse.requestId;
@@ -1320,24 +1364,32 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
 
     const totalChapters = microStoriesToUse.length * unitsPerMicroStory;
-    const totalBatches = Math.ceil(totalChapters / unitsPerBatch);
+    const startChapter = getNextChapterToGenerate();
+    if (startChapter > totalChapters) {
+      generationLockRef.current = false;
+      alert(`当前项目已经写到第${getLastGeneratedChapterNumber()}${unitLabel}，没有可继续生成的${unitLabel}。`);
+      return;
+    }
 
-    console.log(`开始一键循环生成，共 ${microStoriesToUse.length} 个${isMicrodrama ? '分集' : '小故事'}，${totalChapters} 个${unitLabel}，分为 ${totalBatches} 批次`);
+    const remainingChapters = totalChapters - startChapter + 1;
+    const totalBatches = Math.ceil(remainingChapters / unitsPerBatch);
+
+    console.log(`开始一键循环生成，共 ${microStoriesToUse.length} 个${isMicrodrama ? '分集' : '小故事'}，从第${startChapter}${unitLabel}续写，剩余 ${remainingChapters} 个${unitLabel}，分为 ${totalBatches} 批次`);
 
     setIsFullCycleGenerating(true);
     setFullCycleProgress({
       current: 0,
-      total: totalChapters,
+      total: remainingChapters,
       currentBatch: 1,
       totalBatches,
-      message: '准备开始生成...'
+      message: `准备从第${startChapter}${unitLabel}继续生成...`
     });
 
     try {
       // 【关键修复】使用本地变量跟踪已生成的章节数和内容，避免依赖异步React状态
-      let totalGeneratedSoFar = 0;
+      let totalGeneratedSoFar = startChapter - 1;
       let currentBatch = 1;
-      let accumulatedChapters: {[key: number]: string} = { ...generatedChapters }; // 累积所有生成的章节
+      let accumulatedChapters: {[key: number]: string} = getActiveGeneratedChapters(); // 累积所有生成的章节
 
       // 循环生成每一批内容
       while (currentBatch <= totalBatches) {
@@ -1350,8 +1402,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         const batchEndChapter = Math.min(batchStartChapter + (unitsPerBatch - 1), totalChapters);
 
         setFullCycleProgress({
-          current: totalGeneratedSoFar,
-          total: totalChapters,
+          current: totalGeneratedSoFar - (startChapter - 1),
+          total: remainingChapters,
           currentBatch,
           totalBatches,
           message: `正在生成第${currentBatch}批 (${unitLabel} ${batchStartChapter}-${batchEndChapter})...`
@@ -1391,8 +1443,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       }
 
       setFullCycleProgress({
-        current: totalChapters,
-        total: totalChapters,
+        current: remainingChapters,
+        total: remainingChapters,
         currentBatch: totalBatches,
         totalBatches,
         message: '所有章节生成完成！'
@@ -1400,7 +1452,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       // 延迟显示完成消息
       setTimeout(() => {
-        alert(`全流程自动化生成完成！共生成 ${totalChapters} 个${unitLabel}内容。`);
+        alert(`全流程自动化生成完成！本次从第${startChapter}${unitLabel}起共生成 ${remainingChapters} 个${unitLabel}内容。`);
         setIsFullCycleGenerating(false);
         setFullCycleProgress(null);
 
@@ -2152,21 +2204,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	                <div className="flex items-center gap-1 px-2 py-1.5 bg-white/80 rounded-lg border border-secondary-200">
 	                  <span className="text-xs font-medium text-secondary-600">模型</span>
-	                  {(['deepseek', 'gemini'] as const).map((provider) => (
-	                    <button
-	                      key={provider}
-	                      type="button"
-	                      onClick={() => setWriterModelProvider(provider)}
-	                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
-	                      className={`px-2 py-1 rounded-md text-xs font-medium transition-colors disabled:cursor-not-allowed ${
-	                        writerModelProvider === provider
-	                          ? 'bg-primary-600 text-white'
-	                          : 'bg-secondary-50 text-secondary-700 hover:bg-secondary-100 disabled:text-secondary-400'
-	                      }`}
-	                    >
-	                      {provider === 'deepseek' ? 'DeepSeek' : 'Gemini'}
-	                    </button>
-	                  ))}
+	                  <span className="px-2 py-1 rounded-md text-xs font-medium bg-primary-600 text-white">
+	                    DeepSeek
+	                  </span>
 	                </div>
 
 	                {isMicrodrama && (
@@ -2367,7 +2407,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     <span className="text-sm text-secondary-600">字/{unitLabel}</span>
                   </div>
                   <p className="mt-2 text-xs text-secondary-500">
-                    生成时以约 {activeTargetWords} 字为目标；网文超过 3000 字会用 DeepSeek 自动压缩约 30%。
+                    生成时以约 {activeTargetWords} 字为目标；网文超过 3000 字会先校验小故事边界并裁剪越界内容，裁剪后仍超再用 DeepSeek 压缩约 30%。
                   </p>
                 </div>
 
@@ -2417,7 +2457,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                  <button
 	                    onClick={() => generateBatchContent()}
 	                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || isRewritingChapter || (() => {
-	                      const generatedCount = Object.keys(generatedChapters).length;
+	                      const generatedCount = getGeneratedChapterNumbers().length;
 	                      const batchIndex = Math.floor(generatedCount / unitsPerBatch); // 当前是第几批
 	                      const requiredStories = (batchIndex + 1) * storiesPerBatch;
 	                      return (currentProject?.savedMicroStories?.length || 0) < requiredStories;
@@ -2432,9 +2472,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     ) : (
                       <>
                         <PenTool className="w-6 h-6" />
-                        <span>
+	                        <span>
 	                          {(() => {
-	                            const generatedCount = Object.keys(generatedChapters).length;
+	                            const generatedCount = getGeneratedChapterNumbers().length;
 	                            if (generatedCount === 0) return isMicrodrama ? '生成第1集' : '批量生成8章';
 	                            if (generatedCount % unitsPerBatch !== 0) return `继续生成 (${generatedCount % unitsPerBatch}/${unitsPerBatch})`;
 	                            return isMicrodrama ? '继续生成下一集' : '继续生成下一批';
@@ -2826,7 +2866,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </>
                   ) : (
                     <>
-                      <p>• 每章以约 {normalizeTargetNovelWords(targetNovelWords)} 字为目标，超过 3000 字会自动压缩约 30%</p>
+                      <p>• 每章以约 {normalizeTargetNovelWords(targetNovelWords)} 字为目标；超过 3000 字会先做小故事边界校验，裁剪后仍超再自动压缩约 30%。</p>
                       <p>• 包含吸引人的章节标题</p>
                       <p>• 融入完整的故事背景</p>
                       <p>• 保持连贯的阅读体验</p>

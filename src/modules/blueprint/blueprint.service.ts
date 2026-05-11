@@ -1747,7 +1747,7 @@ ${content}
     if (currentWords <= 3000) return content;
 
     const targetWords = Math.min(2400, Math.max(2000, Math.round(currentWords * 0.7)));
-    console.log(`第${chapterNumber}章超过3000字(${currentWords}字)，启动约30%自动压缩，目标约${targetWords}字`);
+    console.log(`第${chapterNumber}章范围校验后仍超过3000字(${currentWords}字)，启动约30%自动压缩，目标约${targetWords}字`);
 
     try {
       const rewritten = await this.llmService.chatWithWriterModel([
@@ -1783,6 +1783,64 @@ ${content}
       console.error(`第${chapterNumber}章自动压缩失败，保留原文:`, error);
       return content;
     }
+  }
+
+  private async postProcessGeneratedChapter({
+    content,
+    chapterNumber,
+    context,
+    storyData,
+    nextStoryData,
+    previousEnding,
+    mode,
+  }: {
+    content: string;
+    chapterNumber: number;
+    context: string;
+    storyData?: any;
+    nextStoryData?: any;
+    previousEnding?: string;
+    mode: 'novel' | 'microdrama';
+  }): Promise<string> {
+    if (!content) return '';
+
+    const rawWords = this.getWordCount(content);
+    if (mode === 'novel' && rawWords > 3000) {
+      console.log(`第${chapterNumber}章生成后${rawWords}字，先执行小故事边界校验，裁剪越界内容后再判断是否压缩`);
+    }
+
+    const scopedContent = await this.validateAndTrimChapterScope({
+      content,
+      chapterNumber,
+      storyData,
+      nextStoryData,
+      mode,
+    });
+
+    if (mode !== 'novel' || !scopedContent) {
+      return scopedContent;
+    }
+
+    const scopedWords = this.getWordCount(scopedContent);
+    if (rawWords > 3000 && scopedWords !== rawWords) {
+      console.log(`第${chapterNumber}章边界校验后字数：${rawWords}字 -> ${scopedWords}字`);
+    }
+
+    if (scopedWords <= 3000) {
+      if (rawWords > 3000) {
+        console.log(`第${chapterNumber}章边界校验后已不超过3000字，不启动压缩`);
+      }
+      return scopedContent;
+    }
+
+    return this.enforceNovelChapterLength({
+      content: scopedContent,
+      chapterNumber,
+      context,
+      storyData,
+      nextStoryData,
+      previousEnding,
+    });
   }
 
   async generateChapter(dto: GenerateChapterDto) {
@@ -1846,27 +1904,18 @@ ${romanceLineRules}
 
         console.log(`第${currentChapterNum}${unitLabel}生成成功，长度: ${chapterResult?.length || 0}`);
 
-        // 添加到总内容中
-        let validatedChapter = chapterResult
-          ? await this.validateAndTrimChapterScope({
-              content: chapterResult,
-              chapterNumber: currentChapterNum,
-              storyData,
-              nextStoryData: dto.savedMicroStories?.[currentChapterNum],
-              mode,
-            })
-          : '';
-
-        if (mode === 'novel' && validatedChapter) {
-          validatedChapter = await this.enforceNovelChapterLength({
-            content: validatedChapter,
+        // 添加到总内容中。网文必须先做小故事边界校验/裁剪，再判断是否仍需压缩。
+        const validatedChapter = chapterResult
+          ? await this.postProcessGeneratedChapter({
+            content: chapterResult,
             chapterNumber: currentChapterNum,
             context: contextMemory,
             storyData,
             nextStoryData: dto.savedMicroStories?.[currentChapterNum],
             previousEnding,
-          });
-        }
+            mode,
+          })
+          : '';
 
         if (validatedChapter) {
           fullContent += validatedChapter + '\n\n';
@@ -2124,26 +2173,17 @@ ${romanceLineRules}
                 );
 
                 const chapterStoryIndex = chapterNum - 1;
-                let validatedChapter = chapterContent
-                  ? await this.validateAndTrimChapterScope({
-                      content: chapterContent,
-                      chapterNumber: chapterNum,
-                      storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
-                      nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
-                      mode,
-                    })
-                  : '';
-
-                if (validatedChapter) {
-                  validatedChapter = await this.enforceNovelChapterLength({
-                    content: validatedChapter,
+                const validatedChapter = chapterContent
+                  ? await this.postProcessGeneratedChapter({
+                    content: chapterContent,
                     chapterNumber: chapterNum,
                     context: storyContext,
                     storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
                     nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
                     previousEnding,
-                  });
-                }
+                    mode,
+                  })
+                  : '';
 
                 if (validatedChapter) {
                   chapters.push(validatedChapter);
