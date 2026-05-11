@@ -477,7 +477,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
       // 延迟执行，确保页面完全加载
       setTimeout(() => {
-        batchGenerateAndSaveMicroStories();
+        batchGenerateAndSaveMicroStories({ continueToWriter: true });
       }, 1000);
     }
   }, [currentProject, macroStories, setAutoFlowStep, setAutoFlowProgress]);
@@ -629,7 +629,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           microStoryOutlines: newOutlines,
           savedMicroStories: updatedSaved,
           selectedMicroStories: updatedSaved,
-          autoSelectedStories: true,
+          autoSelectedStories: false,
+          autoGenerationMode: false,
+          autoGenerationStarted: false,
         });
       }
 
@@ -642,7 +644,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   // 一键批量生成下一个3个中故事的小故事细纲并保存
-  const batchGenerateAndSaveMicroStories = async () => {
+  const batchGenerateAndSaveMicroStories = async (opts: { continueToWriter?: boolean } = {}) => {
     if (!currentProject) {
       alert('未找到当前项目');
       return;
@@ -766,23 +768,29 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       updateProject(currentProject.id, {
         savedMicroStories: sortedSavedMicroStories,
         selectedMicroStories: sortedSavedMicroStories,
-        autoSelectedStories: true,
+        autoSelectedStories: !!opts.continueToWriter,
+        autoGenerationMode: !!opts.continueToWriter,
+        autoGenerationStarted: !!opts.continueToWriter,
       });
 
       setBatchGenerationProgress({
         current: targetCount,
         total: targetCount,
-        currentStory: '完成！正在跳转到正文写作...'
+        currentStory: opts.continueToWriter ? '完成！正在跳转到正文写作...' : '完成！小故事已保存'
       });
 
-      // 设置自动化标志，让WriterPage知道需要继续自动化
-      localStorage.setItem('story-architect-auto-flow', 'writer');
+      if (opts.continueToWriter) {
+        // 只有全自动流程才设置自动正文写作标志；手动细化小故事只保存，不自动跑正文。
+        localStorage.setItem('story-architect-auto-flow', 'writer');
+        localStorage.setItem('story-architect-auto-flow-project-id', String(currentProject.id));
+        localStorage.setItem('story-architect-auto-export-json', 'true');
 
-      // 延迟跳转，让用户看到完成状态
-      setTimeout(() => {
-        console.log('情节结构细化完成，自动跳转到正文写作界面');
-        onNavigateToWriter?.();
-      }, 2000);
+        // 延迟跳转，让用户看到完成状态
+        setTimeout(() => {
+          console.log('情节结构细化完成，自动跳转到正文写作界面');
+          onNavigateToWriter?.();
+        }, 2000);
+      }
 
     } catch (error) {
       console.error('批量生成失败:', error);
@@ -869,7 +877,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     updateProject(currentProject.id, {
       savedMicroStories: updatedSaved,
       selectedMicroStories: updatedSaved,
-      autoSelectedStories: true,
+      autoSelectedStories: false,
+      autoGenerationMode: false,
+      autoGenerationStarted: false,
     });
 
     const message = hasOldVersion
@@ -1472,7 +1482,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             </div>
             <div className="flex items-center space-x-4">
               <button
-                onClick={batchGenerateAndSaveMicroStories}
+                onClick={() => batchGenerateAndSaveMicroStories()}
                 disabled={batchGenerating || macroStories.length < 3}
                 className="flex items-center space-x-2 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-purple-700 text-sm font-medium transition-colors"
                 title="根据已保存小故事数量，生成接下来的3个中故事的小故事细纲并保存"

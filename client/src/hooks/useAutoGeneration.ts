@@ -535,6 +535,7 @@ ${outline.themes}`;
       await new Promise(resolve => setTimeout(resolve, 2000));
       console.log('准备跳转到正文写作界面，项目ID:', newProject.id);
       localStorage.setItem('story-architect-auto-flow', 'writer');
+      localStorage.setItem('story-architect-auto-flow-project-id', String(newProject.id));
       localStorage.setItem('story-architect-auto-export-json', 'true');
       onComplete(newProject.id, 'writer');
 

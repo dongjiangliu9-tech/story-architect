@@ -100,6 +100,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [isFullCycleGenerating, setIsFullCycleGenerating] = useState(false);
   const [currentRequestId, setCurrentRequestId] = useState<string>('');
   const currentRequestIdRef = useRef('');
+  const activeRequestIdsRef = useRef<Set<string>>(new Set());
+  const activeEventSourcesRef = useRef<Set<EventSource>>(new Set());
+  const generationCancelledRef = useRef(false);
+  const generationLockRef = useRef(false);
+  const autoWriterStartedRef = useRef(false);
   const [fullCycleProgress, setFullCycleProgress] = useState<{
     current: number;
     total: number;
@@ -148,6 +153,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     : undefined;
 
   const microStoryCount = microStoriesInOrder?.length ?? 0;
+  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating;
   const isStreamingCurrentChapter =
     generationState.isGenerating &&
     generationState.currentGeneratingChapter === currentChapter &&
@@ -164,6 +170,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     currentRequestIdRef.current = currentRequestId;
   }, [currentRequestId]);
+
+  const registerGenerationRequest = (requestId: string, eventSource: EventSource) => {
+    generationCancelledRef.current = false;
+    activeRequestIdsRef.current.add(requestId);
+    activeEventSourcesRef.current.add(eventSource);
+    setCurrentRequestId(requestId);
+    setCurrentEventSource(eventSource);
+  };
+
+  const releaseGenerationRequest = (requestId?: string, eventSource?: EventSource) => {
+    if (requestId) activeRequestIdsRef.current.delete(requestId);
+    if (eventSource) activeEventSourcesRef.current.delete(eventSource);
+    if (!activeRequestIdsRef.current.size) setCurrentRequestId('');
+    if (!activeEventSourcesRef.current.size) setCurrentEventSource(null);
+  };
 
   const requestGenerationWakeLock = async () => {
     try {
@@ -329,9 +350,22 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   // 检查自动化流程
   useEffect(() => {
     const autoFlowFlag = localStorage.getItem('story-architect-auto-flow');
-    if (autoFlowFlag === 'writer' && microStoriesInOrder && microStoriesInOrder.length > 0) {
+    const autoFlowProjectId = localStorage.getItem('story-architect-auto-flow-project-id');
+    const isCurrentAutoProject = !autoFlowProjectId || autoFlowProjectId === String(currentProject?.id || '');
+    if (
+      autoFlowFlag === 'writer' &&
+      isCurrentAutoProject &&
+      !autoWriterStartedRef.current &&
+      !generationState.isGenerating &&
+      !isBatchGenerating &&
+      !isFullCycleGenerating &&
+      microStoriesInOrder &&
+      microStoriesInOrder.length > 0
+    ) {
       console.log('检测到自动化流程：开始自动执行一键循环生成');
+      autoWriterStartedRef.current = true;
       localStorage.removeItem('story-architect-auto-flow');
+      localStorage.removeItem('story-architect-auto-flow-project-id');
 
       // 更新自动化状态
       if (setAutoFlowStep) setAutoFlowStep('正在自动点击"一键循环生成"...');
@@ -339,20 +373,28 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       // 延迟执行，确保页面完全加载
       setTimeout(() => {
-        generateFullCycleContent();
+        if (!generationCancelledRef.current) {
+          generateFullCycleContent();
+        }
       }, 1000);
     }
-  }, [microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
+  }, [currentProject?.id, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
 
   // 从localStorage和项目中恢复状态
   useEffect(() => {
     // 检查是否为自动生成模式，如果是则自动启动章节生成
     // 只有在完全没有生成过任何章节的情况下才会自动启动，避免干扰手动操作
+    const explicitBatchAutoFlow =
+      localStorage.getItem('story-architect-auto-flow') === 'writer-batch' &&
+      localStorage.getItem('story-architect-auto-flow-project-id') === String(currentProject?.id || '');
     const hasGeneratedChapters = Object.keys(generatedChapters).length > 0;
-    const shouldAutoStart = currentProject?.autoSelectedStories &&
+    const shouldAutoStart = explicitBatchAutoFlow &&
+        currentProject?.autoSelectedStories &&
         !currentProject?.autoGenerationStarted &&
         !hasGeneratedChapters &&
         !generationState.isGenerating &&
+        !isBatchGenerating &&
+        !isFullCycleGenerating &&
         currentProject?.selectedMicroStories &&
         currentProject.selectedMicroStories.length > 0;
 
@@ -369,6 +411,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             currentProject.selectedMicroStories.length > 0) {
 
           console.log('自动启动8章批量生成...');
+          localStorage.removeItem('story-architect-auto-flow');
+          localStorage.removeItem('story-architect-auto-flow-project-id');
           generateBatchContent();
         }
       };
@@ -714,26 +758,46 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   // 终止生成
   const stopGeneration = async () => {
-    if (!generationState.isGenerating) return;
+    const hasActiveGeneration =
+      generationState.isGenerating ||
+      isBatchGenerating ||
+      isFullCycleGenerating ||
+      activeRequestIdsRef.current.size > 0 ||
+      activeEventSourcesRef.current.size > 0 ||
+      !!currentEventSource;
+    if (!hasActiveGeneration) return;
 
     const confirmed = confirm('确定要终止当前生成吗？已完成的章节会保留，未完成的章节会被丢弃。');
     if (!confirmed) return;
 
+    generationCancelledRef.current = true;
+    generationLockRef.current = false;
+    localStorage.removeItem('story-architect-auto-flow');
+    localStorage.removeItem('story-architect-auto-flow-project-id');
+    localStorage.removeItem('story-architect-auto-export-json');
+
     try {
-      const requestId = currentRequestIdRef.current || currentRequestId;
-      if (requestId) {
-        await blueprintApi.cancelGeneration(requestId);
-        console.log('已发送终止请求到后台');
+      const requestIds = Array.from(new Set([
+        ...activeRequestIdsRef.current,
+        currentRequestIdRef.current,
+        currentRequestId,
+      ].filter(Boolean)));
+      if (requestIds.length > 0) {
+        await Promise.allSettled(requestIds.map(requestId => blueprintApi.cancelGeneration(requestId)));
+        console.log('已发送终止请求到后台:', requestIds);
       } else {
         console.warn('当前没有可取消的requestId，仅关闭前端连接');
       }
 
-      // 关闭SSE连接
+      // 关闭所有已知SSE连接。全循环和批量生成可能各自持有一个连接。
+      activeEventSourcesRef.current.forEach(eventSource => eventSource.close());
+      activeEventSourcesRef.current.clear();
       if (currentEventSource) {
         currentEventSource.close();
-        setCurrentEventSource(null);
-        console.log('SSE连接已关闭');
       }
+      activeRequestIdsRef.current.clear();
+      setCurrentEventSource(null);
+      console.log('SSE连接已关闭');
     } catch (error) {
       console.error('终止生成失败:', error);
     }
@@ -750,6 +814,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     setIsFullCycleGenerating(false);
     setFullCycleProgress(null);
     setCurrentRequestId('');
+    currentRequestIdRef.current = '';
+
+    if (currentProject?.id) {
+      updateProject(currentProject.id, {
+        autoSelectedStories: false,
+        autoGenerationMode: false,
+        autoGenerationStarted: false,
+      });
+    }
 
     // 保持在当前生成位置：将当前流式内容尽可能保存到当前章节（有多少算多少）
     const activeChapter = generationState.currentGeneratingChapter ?? currentChapter;
@@ -821,7 +894,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   // 批量生成内容：小说每批8章，微短剧每次1集
   const generateBatchContent = async (expectedStartChapter?: number, expectedChapterCount?: number) => {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) {
+      console.warn('已有正文生成任务正在运行，忽略新的批量生成请求');
+      return;
+    }
+    generationLockRef.current = true;
+    generationCancelledRef.current = false;
+
     if (!currentProject) {
+      generationLockRef.current = false;
       alert('未找到当前项目');
       return;
     }
@@ -832,6 +913,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     // 如果是全流程自动生成，允许生成更少的小故事；手动生成时保持原有要求
     const isAutoFlow = expectedStartChapter !== undefined && expectedChapterCount !== undefined;
     if (!isAutoFlow && (!microStoriesToUse || microStoriesToUse.length < storiesPerBatch)) {
+      generationLockRef.current = false;
       alert(`需要至少保存${storiesPerBatch}个${isMicrodrama ? '分集' : '小故事'}才能进行批量生成`);
       return;
     }
@@ -880,12 +962,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       });
 
       const requestId = prepareResponse.requestId;
-      setCurrentRequestId(requestId);
       console.log('获取到requestId:', requestId);
 
       // 使用SSE进行流式生成
 	      const eventSource = blueprintApi.generateChapterStream(requestId);
-	      setCurrentEventSource(eventSource); // 保存SSE连接引用
+	      registerGenerationRequest(requestId, eventSource);
 
 	      let generatedChaptersData: {[key: number]: string} = {};
 	      let activeStreamingChapter = startChapter;
@@ -901,6 +982,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             sseErrorTimer = null;
           }
           const data = JSON.parse(event.data);
+          if (generationCancelledRef.current) {
+            eventSource.close();
+            releaseGenerationRequest(requestId, eventSource);
+            return;
+          }
           console.log('收到SSE消息:', data.type, data.chapter || '');
 
           switch (data.type) {
@@ -910,7 +996,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             case 'duplicate_stream':
               console.warn(data.message || '重复的流式连接已忽略');
               eventSource.close();
-              setCurrentEventSource(null);
+              releaseGenerationRequest(requestId, eventSource);
+              setIsBatchGenerating(false);
+              generationLockRef.current = false;
               break;
 
             case 'start':
@@ -995,11 +1083,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 completedChapters: []
               });
               eventSource.close();
-              setCurrentEventSource(null);
+              releaseGenerationRequest(requestId, eventSource);
               setIsBatchGenerating(false);
               setIsFullCycleGenerating(false);
               setFullCycleProgress(null);
-              setCurrentRequestId('');
+              generationLockRef.current = false;
               alert('生成已被终止');
               break;
 
@@ -1046,9 +1134,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 }
                 eventSource.close();
                 if (sseErrorTimer) clearTimeout(sseErrorTimer);
-                setCurrentEventSource(null);
-                setCurrentRequestId('');
+                releaseGenerationRequest(requestId, eventSource);
                 setIsBatchGenerating(false);
+                generationLockRef.current = false;
               } catch (error) {
                 console.error('处理完成事件时出现错误:', error);
                 // 发生错误时也要重置状态，避免界面卡死
@@ -1059,6 +1147,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   completedChapters: []
                 });
                 setIsBatchGenerating(false);
+                generationLockRef.current = false;
                 alert('生成过程中出现错误，但已保存已完成的内容');
               }
               break;
@@ -1076,15 +1165,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           console.error('SSE连接超过60秒没有恢复，停止前端等待');
           alert('生成连接中断超过60秒，请刷新页面查看已保存章节，或从下一章继续生成');
           eventSource.close();
-          setCurrentEventSource(null);
+          releaseGenerationRequest(requestId, eventSource);
           setGenerationState({
             isGenerating: false,
             currentGeneratingChapter: null,
             totalChapters: 0,
             completedChapters: []
           });
-          setCurrentRequestId('');
           setIsBatchGenerating(false);
+          generationLockRef.current = false;
         }, 60000);
       };
 
@@ -1092,6 +1181,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       console.error('批量生成章节内容失败:', error);
       alert('生成失败，请稍后重试');
       setIsBatchGenerating(false);
+      generationLockRef.current = false;
     }
   };
 
@@ -1208,7 +1298,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   // 一键循环生成所有章节内容 - 模拟用户交互方式
   const generateFullCycleContent = async () => {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) {
+      console.warn('已有正文生成任务正在运行，忽略新的一键循环生成请求');
+      return;
+    }
+    generationLockRef.current = true;
+    generationCancelledRef.current = false;
+
     if (!currentProject) {
+      generationLockRef.current = false;
       alert('未找到当前项目');
       return;
     }
@@ -1216,6 +1314,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const microStoriesToUse = microStoriesInOrder;
 
     if (!microStoriesToUse || microStoriesToUse.length === 0) {
+      generationLockRef.current = false;
       alert(`没有找到保存的${isMicrodrama ? '分集' : '小故事'}，请先在情节结构细化页面生成并保存${isMicrodrama ? '分集' : '小故事'}`);
       return;
     }
@@ -1242,6 +1341,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
       // 循环生成每一批内容
       while (currentBatch <= totalBatches) {
+        if (generationCancelledRef.current) {
+          throw new Error('生成已被终止');
+        }
+
         // 【关键】使用本地变量而非异步状态来计算批次信息
         const batchStartChapter = totalGeneratedSoFar + 1;
         const batchEndChapter = Math.min(batchStartChapter + (unitsPerBatch - 1), totalChapters);
@@ -1260,6 +1363,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         // 【关键】传入正确的起始章节、章节数量和累积的章节数据，避免函数内部依赖异步状态
         const batchChapterCount = batchEndChapter - batchStartChapter + 1;
         const batchResult = await simulateBatchGeneration(batchStartChapter, batchChapterCount, accumulatedChapters);
+        if (generationCancelledRef.current) {
+          throw new Error('生成已被终止');
+        }
 
         // 更新累积的章节数据
         accumulatedChapters = { ...batchResult };
@@ -1301,13 +1407,17 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         // 结束整个自动化流程
         if (setIsAutoFlowRunning) setIsAutoFlowRunning(false);
         if (setAutoFlowStep) setAutoFlowStep('全流程自动化生成完成！');
+        generationLockRef.current = false;
       }, 1000);
 
     } catch (error) {
       console.error('一键循环生成失败:', error);
-      alert('生成过程中出现错误，请稍后重试');
+      if (!generationCancelledRef.current) {
+        alert('生成过程中出现错误，请稍后重试');
+      }
       setIsFullCycleGenerating(false);
       setFullCycleProgress(null);
+      generationLockRef.current = false;
     }
   };
 
@@ -1368,15 +1478,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	            targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
 	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
-	          });
+          });
 
           const requestId = prepareResponse.requestId;
-          setCurrentRequestId(requestId);
           console.log('模拟用户：获取到requestId:', requestId);
 
           // 使用SSE进行流式生成
 	          const eventSource = blueprintApi.generateChapterStream(requestId);
-	          setCurrentEventSource(eventSource);
+	          registerGenerationRequest(requestId, eventSource);
 
 	          let generatedChaptersData: {[key: number]: string} = {};
 	          let activeStreamingChapter = startChapter;
@@ -1393,6 +1502,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 sseErrorTimer = null;
               }
               const data = JSON.parse(event.data);
+              if (generationCancelledRef.current) {
+                eventSource.close();
+                releaseGenerationRequest(requestId, eventSource);
+                reject(new Error('生成已被终止'));
+                return;
+              }
               console.log('模拟用户：收到SSE消息:', data.type, data.chapter || '');
 
               switch (data.type) {
@@ -1402,7 +1517,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 case 'duplicate_stream':
                   console.warn(data.message || '重复的流式连接已忽略');
                   eventSource.close();
-                  setCurrentEventSource(null);
+                  releaseGenerationRequest(requestId, eventSource);
+                  setIsBatchGenerating(false);
+                  reject(new Error('重复的流式连接已忽略'));
                   break;
 
                 case 'start':
@@ -1481,9 +1598,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     completedChapters: []
                   });
                   eventSource.close();
-                  setCurrentEventSource(null);
+                  releaseGenerationRequest(requestId, eventSource);
                   setIsBatchGenerating(false);
-                  setCurrentRequestId('');
                   reject(new Error('生成已被终止'));
                   break;
 
@@ -1533,8 +1649,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                     eventSource.close();
                     if (sseErrorTimer) clearTimeout(sseErrorTimer);
-                    setCurrentEventSource(null);
-                    setCurrentRequestId('');
+                    releaseGenerationRequest(requestId, eventSource);
                     setIsBatchGenerating(false);
 
                     // 完成这一批次的生成，返回新生成的章节数据
@@ -1566,7 +1681,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               if (Date.now() - lastSseEventAt < 60000) return;
               console.error('模拟用户：SSE连接超过60秒没有恢复');
               setIsBatchGenerating(false);
-              setCurrentRequestId('');
+              releaseGenerationRequest(requestId, eventSource);
               reject(error);
             }, 60000);
           };
@@ -1971,13 +2086,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             <div className="flex items-center space-x-3 flex-shrink-0">
               <button
                 onClick={onBack}
-                disabled={generationState.isGenerating}
+                disabled={hasActiveGeneration}
                 className={`p-2 rounded-lg transition-colors ${
-                  generationState.isGenerating
+                  hasActiveGeneration
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-secondary-100 hover:bg-secondary-200 text-secondary-600'
                 }`}
-                title={generationState.isGenerating ? '生成过程中无法返回，请等待完成或终止生成' : '返回上一页'}
+                title={hasActiveGeneration ? '生成过程中无法返回，请等待完成或终止生成' : '返回上一页'}
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -2131,7 +2246,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             <div className="flex items-center space-x-3 flex-shrink-0">
               {/* 生成控制按钮 */}
               <div className="flex flex-col space-y-2">
-                {generationState.isGenerating && (
+                {hasActiveGeneration && (
                   <button
                     onClick={stopGeneration}
                     className="flex items-center space-x-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors text-sm"
@@ -2140,7 +2255,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     <span className="sm:hidden">终止</span>
                   </button>
                 )}
-                {!generationState.isGenerating && Object.keys(generatedChapters).length > 0 && (
+                {!hasActiveGeneration && Object.keys(generatedChapters).length > 0 && (
                   <button
                     onClick={resetGeneration}
                     className="flex items-center space-x-2 px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors text-sm"
