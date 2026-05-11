@@ -18,8 +18,18 @@ export const LOGIC_MODEL_OPTIONS: Array<{
     description: '智灵网关备用',
   },
   {
-    value: 'claude-sonnet-series',
-    label: 'Claude Sonnet',
+    value: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    description: '智灵网关备用',
+  },
+  {
+    value: 'claude-opus-4-6',
+    label: 'Claude Opus 4.6',
+    description: '智灵网关备用',
+  },
+  {
+    value: 'claude-opus-4-5-20251101',
+    label: 'Claude Opus 4.5',
     description: '智灵网关备用',
   },
   {
@@ -27,7 +37,30 @@ export const LOGIC_MODEL_OPTIONS: Array<{
     label: 'Gemini 3 Pro',
     description: '智灵网关备用',
   },
+  {
+    value: 'gemini-3.1-pro-preview',
+    label: 'Gemini 3.1 Pro',
+    description: '智灵网关备用',
+  },
+  {
+    value: 'DeepSeek-V4-Flash',
+    label: 'DeepSeek V4 Flash',
+    description: '智灵网关备用',
+  },
+  {
+    value: 'DeepSeek-V4-Pro',
+    label: 'DeepSeek V4 Pro',
+    description: '智灵网关备用',
+  },
 ];
+
+const GATEWAY_MODEL_ALIASES: Record<string, string> = {
+  'claude-sonnet-series': 'claude-sonnet-4-6',
+};
+
+export const normalizeGatewayModelValue = (value: string) => {
+  return GATEWAY_MODEL_ALIASES[value] || value;
+};
 
 export const toLogicModelRequest = (value?: string): LlmModelSelection => {
   if (!value || value === DEFAULT_LOGIC_MODEL_VALUE) {
@@ -36,7 +69,7 @@ export const toLogicModelRequest = (value?: string): LlmModelSelection => {
 
   return {
     llmModelProvider: 'gateway',
-    llmModel: value,
+    llmModel: normalizeGatewayModelValue(value),
   };
 };
 
@@ -55,7 +88,7 @@ export const getPreferredLogicModelValue = (
   } | null,
 ) => {
   if (source?.preferredLlmModelProvider === 'gateway' && source.preferredLlmModel) {
-    return source.preferredLlmModel;
+    return normalizeGatewayModelValue(source.preferredLlmModel);
   }
 
   return DEFAULT_LOGIC_MODEL_VALUE;

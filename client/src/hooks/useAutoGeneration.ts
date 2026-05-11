@@ -21,9 +21,13 @@ export interface AutoGenerationStep {
 }
 
 export type AutoGenerationTarget = 'microdrama-30' | 'novel-75';
+export type AutoGenerationPauseMode = 'none' | 'density' | 'first-micro-story';
+export type AutoGenerationDestination = 'world-setting' | 'story-structure' | 'writer';
 
 export interface AutoGenerationOptions {
   target: AutoGenerationTarget;
+  pauseAfter?: AutoGenerationPauseMode;
+  clearExisting?: boolean;
 }
 
 export function useAutoGeneration() {
@@ -140,7 +144,7 @@ ${outline.themes}`;
   const startAutoGeneration = useCallback(async (
     selectedOutline: OutlineData,
     bookName: string,
-    onComplete: (projectId: number, shouldNavigateToStructure?: boolean) => void,
+    onComplete: (projectId: number, destination?: AutoGenerationDestination) => void,
     onError: (error: string) => void,
     options: AutoGenerationOptions = { target: 'microdrama-30' }
   ) => {
@@ -160,7 +164,9 @@ ${outline.themes}`;
       const expandedCharactersCacheKey = isMicrodrama ? 'microdrama-30-characters-expanded-v1' : 'novel-75-characters-expanded-v1';
 
       // 清理旧缓存
-      clearCache(bookName);
+      if (options.clearExisting !== false) {
+        clearCache(bookName);
+      }
 
       // 1. 导入故事灵感
       updateStep('import-outline', { status: 'running', message: '正在导入选中的故事灵感...' });
@@ -364,6 +370,17 @@ ${outline.themes}`;
 
       updateStep('save-project', { status: 'completed', message: '项目保存完成' });
 
+      if (options.pauseAfter === 'density') {
+        updateStep('complete', {
+          status: 'completed',
+          message: '已暂停在中故事细纲检查点，可在人设与世界观页查看、修改或清空后重新生成。'
+        });
+        setCurrentStepMessage('已暂停在中故事细纲检查点，可先查看三滑块迭代结果。');
+        await new Promise(resolve => setTimeout(resolve, 800));
+        onComplete(newProject.id, 'world-setting');
+        return;
+      }
+
       // 6. 细化全部中故事为小故事/分集细纲
       updateStep('micro-stories', { status: 'running', message: `正在细化全部中故事为${isMicrodrama ? '分集' : '小故事'}细纲...` });
       setCurrentStepMessage(`正在细化全部中故事为${isMicrodrama ? '分集' : '小故事'}细纲...`);
@@ -427,6 +444,40 @@ ${outline.themes}`;
           const microStories = parseMicroStories(microResponse.data, macroIndex, macroStory.title, macroStory.content, chapterRange.start, isMicrodrama ? '集' : '章');
           savedMicroStories = [...savedMicroStories, ...microStories];
 
+          if (options.pauseAfter === 'first-micro-story' && savedMicroStories.length > 0) {
+            savedMicroStories.sort((a, b) => {
+              const ma = Number(String(a.macroStoryId).replace('story_', ''));
+              const mb = Number(String(b.macroStoryId).replace('story_', ''));
+              if (ma !== mb) return ma - mb;
+              return a.order - b.order;
+            });
+
+            if (isMountedRef.current) {
+              updateProject(newProject.id, {
+                savedMicroStories,
+                selectedMicroStories: savedMicroStories,
+                microStoryOutlines,
+                autoSelectedStories: true,
+                autoGenerationMode: true,
+                autoGenerationStarted: false,
+              });
+            }
+
+            updateStep('micro-stories', {
+              status: 'completed',
+              progress: Math.round(((macroIndex + 1) / macroStories.length) * 100),
+              message: `已生成第一批${isMicrodrama ? '分集' : '章节'}细纲，共 ${savedMicroStories.length} 个，等待确认查看`
+            });
+            updateStep('complete', {
+              status: 'completed',
+              message: '已暂停在第一批小故事细化检查点，可在情节结构页查看、修改或清空后重新生成。'
+            });
+            setCurrentStepMessage('已暂停在第一批小故事细化检查点，可先确认细化方向。');
+            await new Promise(resolve => setTimeout(resolve, 800));
+            onComplete(newProject.id, 'story-structure');
+            return;
+          }
+
           if (!isMicrodrama && savedMicroStories.length >= targetUnitCount) {
             break;
           }
@@ -485,7 +536,7 @@ ${outline.themes}`;
       console.log('准备跳转到正文写作界面，项目ID:', newProject.id);
       localStorage.setItem('story-architect-auto-flow', 'writer');
       localStorage.setItem('story-architect-auto-export-json', 'true');
-      onComplete(newProject.id, false); // 第二个参数为false，表示跳转到writer界面
+      onComplete(newProject.id, 'writer');
 
     } catch (error) {
       console.error('自动生成失败:', error);

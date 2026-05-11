@@ -74,6 +74,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         microButton: '生成单章细纲',
         emptyHint: '点击左侧的中故事列表，选择要查看的单章小故事细纲',
       };
+  const savedUnitLabel = isMicrodrama ? '分集' : '章节细纲';
   // 用索引而不是内容字符串来选择中故事，避免内容重复/空白差异导致 indexOf 失效
   const [selectedMacroStoryIndex, setSelectedMacroStoryIndex] = useState<number | null>(null);
   const [macroStories, setMacroStories] = useState<string[]>([]);
@@ -83,6 +84,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchGenerationProgress, setBatchGenerationProgress] = useState<{current: number, total: number, currentStory: string} | null>(null);
   const [isEditingMacroStory, setIsEditingMacroStory] = useState(false);
+  const [isMacroStoryContentOpen, setIsMacroStoryContentOpen] = useState(false);
   const [macroStoryDraft, setMacroStoryDraft] = useState('');
   const [microStoryDraftsByMacro, setMicroStoryDraftsByMacro] = useState<Record<string, MicroStoryDraft[]>>({});
   const [editingMicroStory, setEditingMicroStory] = useState<{ storyKey: string; index: number } | null>(null);
@@ -93,6 +95,10 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const editingMicroStoryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedMacroStory = selectedMacroStoryIndex !== null ? macroStories[selectedMacroStoryIndex] : null;
+
+  useEffect(() => {
+    setIsMacroStoryContentOpen(false);
+  }, [selectedMacroStoryIndex]);
 
   const autoGrowTextarea = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -618,9 +624,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           existing.macroStoryId !== storyKey
         );
 
+        const updatedSaved = sortSavedMicroStoriesForChapters([...filteredSaved, ...savedMicroStories]);
         updateProject(currentProject.id, {
           microStoryOutlines: newOutlines,
-          savedMicroStories: sortSavedMicroStoriesForChapters([...filteredSaved, ...savedMicroStories])
+          savedMicroStories: updatedSaved,
+          selectedMicroStories: updatedSaved,
+          autoSelectedStories: true,
         });
       }
 
@@ -753,8 +762,11 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 	      });
 
       // 保存所有小故事到项目
+      const sortedSavedMicroStories = sortSavedMicroStoriesForChapters(allSavedMicroStories);
       updateProject(currentProject.id, {
-        savedMicroStories: sortSavedMicroStoriesForChapters(allSavedMicroStories)
+        savedMicroStories: sortedSavedMicroStories,
+        selectedMicroStories: sortedSavedMicroStories,
+        autoSelectedStories: true,
       });
 
       setBatchGenerationProgress({
@@ -854,24 +866,15 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     // 更新项目 - 先删除旧的，再添加新的
     const updatedSaved = sortSavedMicroStoriesForChapters([...filteredSaved, ...savedMicroStories]);
-    const selected = currentProject.selectedMicroStories;
-    const updatedSelected = selected
-      ? selected.map(sel => {
-          const match = savedMicroStories.find(s =>
-            s.id === sel.id || (s.macroStoryId === sel.macroStoryId && s.order === sel.order)
-          );
-          return match ? { ...sel, ...match } : sel;
-        })
-      : undefined;
-
     updateProject(currentProject.id, {
       savedMicroStories: updatedSaved,
-      ...(updatedSelected ? { selectedMicroStories: updatedSelected } : {})
+      selectedMicroStories: updatedSaved,
+      autoSelectedStories: true,
     });
 
     const message = hasOldVersion
-      ? `成功保存 ${savedMicroStories.length} 个小故事（已覆盖之前的 ${oldCount} 个小故事）！`
-      : `成功保存 ${savedMicroStories.length} 个小故事！`;
+      ? `成功保存 ${savedMicroStories.length} 个${savedUnitLabel}（已覆盖之前的 ${oldCount} 个${savedUnitLabel}），项目已更新为最新版本！`
+      : `成功保存 ${savedMicroStories.length} 个${savedUnitLabel}，项目已更新为最新版本！`;
 
     alert(message);
   };
@@ -1543,7 +1546,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     <div className="text-3xl font-bold text-primary-600 mb-2">
                       {currentProject.savedMicroStories.length}
                     </div>
-                    <div className="text-sm text-secondary-600">{isMicrodrama ? '已保存分集' : '已保存小故事'}</div>
+                    <div className="text-sm text-secondary-600">{isMicrodrama ? '已保存分集' : '已保存章节细纲'}</div>
                     <div className="text-xs text-secondary-400 mt-1">
                       {isMicrodrama
                         ? `可生成 ${currentProject.savedMicroStories.length} 集剧本正文`
@@ -1648,7 +1651,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                               {hasGenerated ? (
                                 <span className="text-xs text-green-600 flex items-center">
                                   <CheckCircle className="w-3 h-3 mr-1" />
-                                  {hasOutline ? '已生成细纲' : isMicrodrama ? '已保存分集' : '已保存小故事'}
+                                  {hasOutline ? '已生成细纲' : isMicrodrama ? '已保存分集' : '已保存章节细纲'}
                                 </span>
                               ) : canGenerate ? (
                                 <span className="text-xs text-blue-500">
@@ -1684,16 +1687,25 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             {selectedMacroStory ? (
               <div className="space-y-6">
                 {/* 选中的中故事内容 */}
-                <div className="card p-6">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="card p-4">
+                  <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                     <h3 className="text-lg font-semibold text-secondary-900">
                       {structureLabels.macro} {selectedMacroStoryIndex! + 1} 内容
                     </h3>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setIsMacroStoryContentOpen(prev => !prev)}
+                        className="flex items-center space-x-2 px-3 py-2 bg-white border border-secondary-200 hover:bg-secondary-50 text-secondary-700 rounded-lg"
+                        title={isMacroStoryContentOpen ? '收起中故事内容' : '展开中故事内容'}
+                      >
+                        <ChevronRight className={`w-4 h-4 transition-transform ${isMacroStoryContentOpen ? 'rotate-90' : ''}`} />
+                        <span>{isMacroStoryContentOpen ? '收起中故事' : '展开中故事'}</span>
+                      </button>
                       {!isEditingMacroStory ? (
                         <button
                           onClick={() => {
                             setIsEditingMacroStory(true);
+                            setIsMacroStoryContentOpen(true);
                             setMacroStoryDraft(selectedMacroStory || '');
                           }}
                           className="flex items-center space-x-2 px-3 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-lg"
@@ -1745,22 +1757,33 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                       </button>
                     </div>
                   </div>
-	                  <div className="prose prose-sm max-w-none">
-	                    {isEditingMacroStory ? (
-	                      <textarea
-                        value={macroStoryDraft}
-                        onChange={(e) => setMacroStoryDraft(e.target.value)}
-                        className="w-full min-h-[180px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-secondary-800"
-                        placeholder="在这里手动修改该中故事内容，保存后会影响小故事生成与写作引用。"
-                      />
-                    ) : (
-                      <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed">
-	                        {selectedMacroStory}
-	                      </div>
-	                    )}
-	                  </div>
-	                  {renderMacroVariantTools(selectedMacroStoryIndex!)}
-	                </div>
+
+                  {!isMacroStoryContentOpen && !isEditingMacroStory && (
+                    <div className="mt-3 text-sm text-secondary-600 line-clamp-2">
+                      {selectedMacroStory}
+                    </div>
+                  )}
+
+                  {(isMacroStoryContentOpen || isEditingMacroStory) && (
+                    <div className="mt-4 space-y-4">
+                      <div className="prose prose-sm max-w-none">
+                        {isEditingMacroStory ? (
+                          <textarea
+                            value={macroStoryDraft}
+                            onChange={(e) => setMacroStoryDraft(e.target.value)}
+                            className="w-full min-h-[180px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-secondary-800"
+                            placeholder="在这里手动修改该中故事内容，保存后会影响小故事生成与写作引用。"
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap text-secondary-700 leading-relaxed max-h-80 overflow-y-auto pr-2">
+                            {selectedMacroStory}
+                          </div>
+                        )}
+                      </div>
+                      {renderMacroVariantTools(selectedMacroStoryIndex!)}
+                    </div>
+                  )}
+                </div>
 
                 {/* 小故事细纲显示 */}
                 <div className="card p-6">
@@ -1779,7 +1802,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                         title="保存这些小故事到项目（支持手动编辑后的内容）"
                       >
                         <Plus className="w-4 h-4" />
-                        <span>{isMicrodrama ? '保存分集' : '保存小故事'}</span>
+                        <span>{isMicrodrama ? '保存分集' : '保存章节细纲'}</span>
                       </button>
                       <button
                         onClick={() => toggleExpanded(selectedMacroStoryIndex!)}

@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 // import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { Sparkles, BookOpen, Wand2, Bookmark, PenTool, FilePlus2, Save, X } from 'lucide-react';
 import { NovelCategory, NovelStyle, OutlineData } from './types';
-import { CategorySelector } from './components/CategorySelector';
-import { StyleSelector } from './components/StyleSelector';
-import { ThemeInput } from './components/ThemeInput';
+import { CreativeConfigSelector } from './components/CreativeConfigSelector';
 import { GenerateButton } from './components/GenerateButton';
 import { OutlineCard } from './components/OutlineCard';
 import { OutlineNavigator } from './components/OutlineNavigator';
@@ -18,7 +16,7 @@ import { WorldSettingsProvider } from './contexts/WorldSettingsContext';
 import { StoryStructurePage } from './pages/StoryStructurePage';
 import { blueprintApi } from './services/api';
 import { parseOutlineContent } from './utils/outlineParser';
-import { useAutoGeneration } from './hooks/useAutoGeneration';
+import { useAutoGeneration, type AutoGenerationDestination, type AutoGenerationPauseMode } from './hooks/useAutoGeneration';
 import {
   DEFAULT_LOGIC_MODEL_VALUE,
   LOGIC_MODEL_OPTIONS,
@@ -37,6 +35,9 @@ function BlueprintPage({
   const [theme, setTheme] = useState('');
   const [bookName, setBookName] = useState('');
   const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-30' | 'novel-75'>('microdrama-30');
+  const [isAutoSetupOpen, setIsAutoSetupOpen] = useState(false);
+  const [autoPauseMode, setAutoPauseMode] = useState<AutoGenerationPauseMode>('none');
+  const [autoClearExisting, setAutoClearExisting] = useState(true);
   const [logicModelValue, setLogicModelValue] = useState(() => {
     try {
       return localStorage.getItem('story-architect-logic-model') || DEFAULT_LOGIC_MODEL_VALUE;
@@ -317,7 +318,7 @@ function BlueprintPage({
     };
   };
 
-  const handleStartAutoLiteraryIteration = () => {
+  const getValidatedAutoOutline = () => {
     const outline = resolveOutlineForAutoGeneration();
     const hasOutlineContent = outline && [
       outline.title,
@@ -330,11 +331,26 @@ function BlueprintPage({
 
     if (!outline || !hasOutlineContent) {
       setError('请先选择、生成或填写一个灵感架构');
-      return;
+      return null;
     }
+
+    return outline;
+  };
+
+  const handleOpenAutoGenerationSetup = () => {
+    const outline = getValidatedAutoOutline();
+    if (!outline) return;
+    setError(null);
+    setIsAutoSetupOpen(true);
+  };
+
+  const handleStartAutoLiteraryIteration = () => {
+    const outline = getValidatedAutoOutline();
+    if (!outline) return;
 
     const resolvedBookName = bookName.trim() || outline.title.trim() || '未命名作品';
     setError(null);
+    setIsAutoSetupOpen(false);
 
     try {
       localStorage.setItem('story-architect-current-outline', JSON.stringify(createCachedOutline(outline)));
@@ -345,11 +361,15 @@ function BlueprintPage({
     startAutoGeneration(
       outline,
       resolvedBookName,
-      (_projectId, shouldNavigateToStructure) => {
-        onNavigate(shouldNavigateToStructure ? 'story-structure' : 'writer', outline, shouldNavigateToStructure);
+      (_projectId, destination: AutoGenerationDestination = 'writer') => {
+        onNavigate(destination, outline, destination === 'story-structure');
       },
       (message) => setError(message),
-      { target: autoGenerationTarget }
+      {
+        target: autoGenerationTarget,
+        pauseAfter: autoPauseMode,
+        clearExisting: autoClearExisting,
+      }
     );
   };
 
@@ -382,11 +402,11 @@ function BlueprintPage({
                 className="flex items-center space-x-2 px-3 py-1.5 bg-secondary-100 hover:bg-secondary-200 rounded-lg text-secondary-700 text-sm font-medium transition-colors"
               >
                 <Bookmark className="w-4 h-4" />
-                <span>我的保存</span>
+                <span>我的灵感</span>
               </button>
               <div className="flex items-center space-x-2 text-secondary-600">
                 <Sparkles className="w-4 h-4" />
-                <span className="text-sm">Powered by Gemini 3 Pro</span>
+                <span className="text-sm">Powered by ZeeLin</span>
               </div>
             </div>
           </div>
@@ -404,20 +424,27 @@ function BlueprintPage({
               </div>
 
               <div className="space-y-6">
-                <CategorySelector
+                <CreativeConfigSelector
                   selectedCategory={selectedCategory}
-                  onSelectCategory={setSelectedCategory}
-                />
-
-                <StyleSelector
                   selectedStyles={selectedStyles}
+                  onSelectCategory={setSelectedCategory}
                   onChangeSelectedStyles={setSelectedStyles}
                 />
 
-                <ThemeInput
-                  value={theme}
-                  onChange={setTheme}
-                />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-secondary-700">
+                    核心主题
+                  </label>
+                  <textarea
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                    placeholder="写一个自定义创意方向，比如：被退婚的落魄少爷绑定废品回收系统，在都市修真世界逆袭成神"
+                    className="w-full min-h-[96px] px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                  />
+                  <p className="text-xs text-secondary-500">
+                    会和频道、主题/角色/情节标签一起发送给 AI
+                  </p>
+                </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-secondary-700">
@@ -504,7 +531,7 @@ function BlueprintPage({
                 </div>
 
                 <button
-                  onClick={handleStartAutoLiteraryIteration}
+                  onClick={handleOpenAutoGenerationSetup}
                   disabled={!hasOutlineForAutoGeneration || isGenerating || isAutoGenerating}
                   className={`w-full py-4 px-6 rounded-xl font-semibold text-lg transition-all duration-300 shadow-lg flex items-center justify-center space-x-3 ${
                     !hasOutlineForAutoGeneration || isGenerating || isAutoGenerating
@@ -713,6 +740,128 @@ function BlueprintPage({
         onClose={() => setIsSavedPanelOpen(false)}
         onLoadOutline={handleLoadSavedOutline}
       />
+
+      {isAutoSetupOpen && (
+        <div className="fixed inset-0 z-[80] bg-secondary-950/50 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-2xl bg-white rounded-xl shadow-2xl border border-secondary-200 overflow-hidden">
+            <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-secondary-100">
+              <div>
+                <h3 className="text-lg font-semibold text-secondary-900">启动 AI 自动迭代</h3>
+                <p className="mt-1 text-sm text-secondary-600">
+                  第一次使用软件，可以先进入人设与世界观，熟悉完整创作流程。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAutoSetupOpen(false)}
+                className="p-2 rounded-lg text-secondary-500 hover:bg-secondary-100 hover:text-secondary-800"
+                aria-label="关闭"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {([
+                  { value: 'microdrama-30' as const, label: '30集微短剧', note: '默认单集约1000字' },
+                  { value: 'novel-75' as const, label: '75章网文', note: '5个中故事，每个拆15章' },
+                ]).map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setAutoGenerationTarget(option.value)}
+                    className={`text-left p-4 rounded-lg border transition-colors ${
+                      autoGenerationTarget === option.value
+                        ? 'border-primary-500 bg-primary-50 text-primary-900'
+                        : 'border-secondary-200 bg-white text-secondary-800 hover:bg-secondary-50'
+                    }`}
+                  >
+                    <span className="block font-semibold">{option.label}</span>
+                    <span className="mt-1 block text-xs text-secondary-500">{option.note}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-secondary-900">运行方式</h4>
+                  <p className="mt-1 text-xs text-secondary-500">
+                    选择中途暂停后，系统会保存当前项目并跳到对应页面，方便确认、清空重生成或直接参与修改。
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {([
+                    { value: 'none' as const, label: '跑到最后', note: '自动完成设定、小故事、正文写作和导出' },
+                    { value: 'density' as const, label: '停在中故事迭代后', note: '三滑块第一次迭代完成后，进入人设与世界观查看中故事' },
+                    { value: 'first-micro-story' as const, label: '停在第一批小故事后', note: '生成第一批剧集/章节细纲后，进入情节结构细化查看' },
+                  ]).map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setAutoPauseMode(option.value)}
+                      className={`text-left px-4 py-3 rounded-lg border transition-colors ${
+                        autoPauseMode === option.value
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-secondary-200 bg-white hover:bg-secondary-50'
+                      }`}
+                    >
+                      <span className="block text-sm font-medium text-secondary-900">{option.label}</span>
+                      <span className="mt-1 block text-xs text-secondary-500">{option.note}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-lg border border-secondary-200 bg-secondary-50 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={autoClearExisting}
+                  onChange={(e) => setAutoClearExisting(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-secondary-900">开始前清除本书自动化缓存，重新生成</span>
+                  <span className="mt-1 block text-xs text-secondary-500">
+                    取消勾选会优先复用24小时内缓存，适合从上次结果继续检查。
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-5 bg-secondary-50 border-t border-secondary-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAutoSetupOpen(false);
+                  handleEnterWorldSetting();
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-secondary-200 text-secondary-800 text-sm font-medium hover:bg-secondary-100"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>进入人设与世界观</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAutoSetupOpen(false)}
+                  className="px-4 py-2.5 rounded-lg bg-white border border-secondary-200 text-secondary-700 text-sm font-medium hover:bg-secondary-100"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartAutoLiteraryIteration}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 shadow-sm"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>开始自动迭代</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 一键自动生成进度条 */}
       <AutoGenerationProgress

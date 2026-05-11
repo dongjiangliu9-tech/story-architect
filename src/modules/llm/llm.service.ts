@@ -208,6 +208,13 @@ export class LlmService {
     return Array.from(new Set(candidates));
   }
 
+  private normalizeGatewayModel(model: string): string {
+    const aliases: Record<string, string> = {
+      'claude-sonnet-series': 'claude-sonnet-4-6',
+    };
+    return aliases[model] || model;
+  }
+
   private getConfigNumber(name: string, fallback: number): number {
     const rawValue = this.configService.get<string>(name);
     const parsed = Number(rawValue);
@@ -263,11 +270,12 @@ export class LlmService {
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     model?: string,
   ) {
-    const targetModel =
+    const targetModel = this.normalizeGatewayModel(
       model ||
-      this.configService.get<string>('GATEWAY_MODEL') ||
-      this.configService.get<string>('ZHILING_GATEWAY_MODEL') ||
-      'gpt-5.5';
+        this.configService.get<string>('GATEWAY_MODEL') ||
+        this.configService.get<string>('ZHILING_GATEWAY_MODEL') ||
+        'gpt-5.5',
+    );
 
     let lastError: unknown;
     const maxAttempts = this.getConfigNumber('GATEWAY_MAX_ATTEMPTS', 2);

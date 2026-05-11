@@ -74,7 +74,7 @@ DEEPSEEK_USE_PROXY=false
 DEEPSEEK_API_KEY=your_deepseek_api_key_here                          # Deepseek官网API密钥
 WRITER_MODEL=deepseek-v4-pro                                           # 写作模型 (Deepseek官网)
 
-# Zhiling Gateway fallback (首页可切换备用模型，额度仍走 Gemini 计数)
+# Zhiling Gateway fallback (首页可切换备用模型：gpt-5.5 / claude-sonnet-4-6 / claude-opus-4-6 / gemini-3-pro-preview / gemini-3.1-pro-preview / DeepSeek-V4-Flash / DeepSeek-V4-Pro，额度仍走 Gemini 计数)
 GATEWAY_API_KEY=your_zhiling_gateway_token_here
 GATEWAY_BASE_URL=https://getways-jumu.zeelin.cn/v1
 GATEWAY_TIMEOUT_MS=180000

@@ -40,6 +40,18 @@ ${outline.hook}
 ${outline.themes}`;
 }
 
+function hasMeaningfulOutline(outline?: OutlineData | null): outline is OutlineData {
+  if (!outline) return false;
+  return [
+    outline.logline,
+    outline.characters,
+    outline.world,
+    outline.hook,
+    outline.themes,
+    outline.rawContent,
+  ].some(value => Boolean((value || '').trim()));
+}
+
 /**
  * 清理Markdown格式符号，使内容更美观
  */
@@ -190,7 +202,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         resultTitle: '情节细纲结果',
         emptyTitle: '尚未生成情节细纲',
         emptyActionText: '手动填写情节细纲',
-      };
+	      };
+
+  const activeInspirationOutline = hasMeaningfulOutline(selectedOutline)
+    ? selectedOutline
+    : hasMeaningfulOutline(currentProject?.outline)
+      ? currentProject!.outline
+      : null;
+  const canUseAIGeneration = Boolean(activeInspirationOutline);
 
   // 初始化项目名称 - 优先使用selectedOutline的标题
   useEffect(() => {
@@ -290,14 +309,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   }, [selectedOutline, currentProject]);
 
   const handleGenerateWorldSetting = async () => {
-    if (!selectedOutline) {
+    if (!activeInspirationOutline) {
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
 
     setIsGeneratingWorldSetting(true);
     try {
-      const outlineData = formatOutlineData(selectedOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
 
       const response = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
@@ -321,14 +340,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   };
 
   const handleGenerateCharacters = async () => {
-    if (!selectedOutline) {
+    if (!activeInspirationOutline) {
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
 
     setIsGeneratingCharacters(true);
     try {
-      const outlineData = formatOutlineData(selectedOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
 
       const response = await blueprintApi.generateCharacters({
         ...getLogicModelRequest(),
@@ -349,7 +368,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   };
 
   const handleSupplementWorldSetting = async () => {
-    if (!selectedOutline) {
+    if (!activeInspirationOutline) {
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
@@ -366,7 +385,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsSupplementingWorldSetting(true);
     try {
-      const outlineData = formatOutlineData(selectedOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
       const response = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -401,7 +420,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   };
 
   const handleSupplementCharacters = async () => {
-    if (!selectedOutline) {
+    if (!activeInspirationOutline) {
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
@@ -418,7 +437,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsSupplementingCharacters(true);
     try {
-      const outlineData = formatOutlineData(selectedOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
       const response = await blueprintApi.generateCharacters({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -453,14 +472,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   };
 
   const handleGenerateOutline = async () => {
-    if (!selectedOutline) {
+    if (!activeInspirationOutline) {
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
 
     setIsGeneratingOutline(true);
     try {
-      const outlineData = formatOutlineData(selectedOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
 
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
@@ -500,7 +519,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   };
 
   const handleRegenerateOutlineWithSuggestion = async () => {
-    if (!selectedOutline && !currentProject?.outline) {
+    if (!activeInspirationOutline) {
       alert('未找到故事大纲，请返回第一步重新选择或加载项目');
       return;
     }
@@ -518,7 +537,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsRegeneratingOutlineWithSuggestion(true);
     try {
-      const outlineData = formatOutlineData(selectedOutline || currentProject!.outline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -575,7 +594,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   );
 
   const handleTuneDetailedOutlineDensity = async () => {
-    if (!selectedOutline && !currentProject?.outline) {
+    if (!activeInspirationOutline) {
       alert('未找到故事大纲，请返回第一步重新选择或加载项目');
       return;
     }
@@ -597,7 +616,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         }
       });
 
-      const outlineData = formatOutlineData(selectedOutline || currentProject!.outline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -883,7 +902,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   // 一键批量生成世界观、人物、情节设定
   const handleBatchGenerate = async () => {
-    if (!selectedOutline) {
+    if (!activeInspirationOutline) {
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
@@ -903,7 +922,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     try {
       // 第一步：生成世界观基础设定
-      const outlineData = formatOutlineData(selectedOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline);
       const worldResponse = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -972,7 +991,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           ...getPreferredLogicModelFields(),
         });
       } else {
-        const newProject = createProject(bookName.trim(), selectedOutline, {
+        const newProject = createProject(bookName.trim(), activeInspirationOutline, {
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
           detailedOutline: outlineResponse.data,
@@ -1026,9 +1045,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
             </div>
           </div>
 
-          <button
-            onClick={handleTuneDetailedOutlineDensity}
-            disabled={densityTuningLoading || !hasActiveDensityTuning}
+	          <button
+	            onClick={handleTuneDetailedOutlineDensity}
+	            disabled={densityTuningLoading || !hasActiveDensityTuning || !canUseAIGeneration}
             className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
             title="把当前完整情节细纲和滑块建议发送给AI，重写所有中故事"
           >
@@ -1049,10 +1068,10 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
               <div key={key} className="rounded-lg border border-secondary-200 bg-secondary-50/70 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={enabledDensityTunings[key]}
-                      disabled={densityTuningLoading || currentLevel >= DENSITY_TUNING_MAX_LEVEL}
+	                    <input
+	                      type="checkbox"
+	                      checked={enabledDensityTunings[key]}
+	                      disabled={densityTuningLoading || currentLevel >= DENSITY_TUNING_MAX_LEVEL || !canUseAIGeneration}
                       onChange={(e) => setDensityTuningEnabled(key, e.target.checked)}
                       className="w-4 h-4 text-primary-600 rounded border-secondary-300 focus:ring-primary-500"
                     />
@@ -1070,8 +1089,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                   min={currentLevel}
                   max={nextLevel}
                   step={1}
-                  value={draftLevel}
-                  disabled={!isEnabled || densityTuningLoading}
+	                  value={draftLevel}
+	                  disabled={!isEnabled || densityTuningLoading || !canUseAIGeneration}
                   onChange={(e) => setDensityDraftLevel(key, Number(e.target.value))}
                   className="w-full accent-primary-600 disabled:opacity-40 mt-3"
                 />
@@ -1184,7 +1203,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
               <div className="flex items-center space-x-2 text-secondary-600">
                 <Sparkles className="w-4 h-4" />
-                <span className="text-sm">Powered by Gemini 3 Pro</span>
+                <span className="text-sm">Powered by ZeeLin</span>
               </div>
             </div>
           </div>
@@ -1195,61 +1214,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* 左侧配置面板 */}
           <div className="lg:col-span-4 space-y-6">
-            {/* 一键生成按钮 */}
-            {selectedOutline && bookName.trim() && (
-              <div className="card p-6 bg-gradient-to-r from-purple-50 to-primary-50 border-2 border-purple-200">
-                <div className="text-center">
-                  <div className="inline-flex items-center space-x-3 mb-4">
-                    <div className="p-3 bg-purple-100 rounded-full">
-                      <Sparkles className="w-6 h-6 text-purple-600" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-secondary-900">一键生成完整设定</h2>
-                      <p className="text-sm text-secondary-600">自动生成世界观+人物+情节</p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleBatchGenerate}
-                    disabled={batchGenerating}
-                    className="w-full bg-gradient-to-r from-purple-600 to-primary-600 hover:from-purple-700 hover:to-primary-700 text-white py-4 px-6 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mb-4"
-                  >
-                    {batchGenerating ? (
-                      <div className="flex items-center justify-center space-x-3">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        <span>生成中...</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center space-x-3">
-                        <Wand2 className="w-6 h-6" />
-                        <span>一键生成全部设定</span>
-                        <Sparkles className="w-5 h-5" />
-                      </div>
-                    )}
-                  </button>
-
-                  {/* 进度显示 */}
-                  {batchGenerationProgress && (
-                    <div className="text-center">
-                      <div className="flex items-center justify-center space-x-2 mb-2">
-                        <span className="text-sm font-medium text-secondary-700">
-                          {batchGenerationProgress.current}/{batchGenerationProgress.total}
-                        </span>
-                        <span className="text-sm text-secondary-600">
-                          {batchGenerationProgress.message}
-                        </span>
-                      </div>
-                      <div className="w-full bg-secondary-200 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-purple-600 to-primary-600 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${(batchGenerationProgress.current / batchGenerationProgress.total) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="text-xs text-secondary-500 mt-4">
-                    💡 AI将按顺序生成完整的世界观体系、人物设定和情节框架
+            {!canUseAIGeneration && (
+              <div className="card p-5 border-amber-200 bg-amber-50 text-amber-800">
+                <div className="flex items-start gap-3">
+                  <FileText className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="text-sm font-semibold">未引用灵感架构</div>
+                    <p className="mt-1 text-xs leading-relaxed">
+                      当前项目没有可供 AI 参考的灵感架构，左侧 AI 生成入口已停用。你仍然可以在右侧手动填写世界观、人物和情节细纲。
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1265,24 +1238,26 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <div className="rounded-lg border border-secondary-200 bg-secondary-50 p-4">
                   <div className="text-sm font-medium text-secondary-900 mb-3">升级体系选项</div>
                   <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => setNeedsUpgradeSystem(true)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                        needsUpgradeSystem
-                          ? 'bg-primary-600 text-white shadow-sm'
-                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
-                      }`}
-                    >
+	                    <button
+	                      onClick={() => setNeedsUpgradeSystem(true)}
+	                      disabled={!canUseAIGeneration}
+	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+	                        needsUpgradeSystem
+	                          ? 'bg-primary-600 text-white shadow-sm'
+	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                    >
                       需要升级体系
                     </button>
-                    <button
-                      onClick={() => setNeedsUpgradeSystem(false)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                        !needsUpgradeSystem
-                          ? 'bg-primary-600 text-white shadow-sm'
-                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
-                      }`}
-                    >
+	                    <button
+	                      onClick={() => setNeedsUpgradeSystem(false)}
+	                      disabled={!canUseAIGeneration}
+	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+	                        !needsUpgradeSystem
+	                          ? 'bg-primary-600 text-white shadow-sm'
+	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                    >
                       不需要升级体系
                     </button>
                   </div>
@@ -1290,11 +1265,11 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     都市、现代、现实、豪门、职场、校园等题材，建议关闭修炼升级体系，改走现实向世界观模板。
                   </p>
                 </div>
-                <button
-                  onClick={handleGenerateWorldSetting}
-                  disabled={isGeneratingWorldSetting}
-                  className="w-full btn btn-primary py-3 disabled:opacity-50"
-                >
+	                <button
+	                  onClick={handleGenerateWorldSetting}
+	                  disabled={isGeneratingWorldSetting || !canUseAIGeneration}
+	                  className="w-full btn btn-primary py-3 disabled:opacity-50"
+	                >
                   {isGeneratingWorldSetting ? '生成中...' : '生成世界观设定'}
                 </button>
                 <p className="text-xs text-secondary-600">
@@ -1315,12 +1290,13 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
               <div className="space-y-4">
                 <label className="flex items-start gap-3 rounded-lg border border-secondary-200 bg-secondary-50 px-3 py-3 text-sm text-secondary-700">
-                  <input
-                    type="checkbox"
-                    checked={useEnglishNames}
-                    onChange={(e) => setUseEnglishNames(e.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
-                  />
+	                  <input
+	                    type="checkbox"
+	                    checked={useEnglishNames}
+	                    onChange={(e) => setUseEnglishNames(e.target.checked)}
+	                    disabled={!canUseAIGeneration}
+	                    className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+	                  />
                   <span>
                     <span className="font-medium text-secondary-900">生成英文人物</span>
                     <span className="mt-1 block text-xs text-secondary-600">
@@ -1329,13 +1305,13 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                   </span>
                 </label>
 
-                <button
-                  onClick={handleGenerateCharacters}
-                  disabled={isGeneratingCharacters || !worldSettingGenerated}
-                  className={`w-full py-3 disabled:opacity-50 ${
-                    worldSettingGenerated
-                      ? 'btn btn-primary'
-                      : 'btn btn-secondary cursor-not-allowed bg-secondary-300 hover:bg-secondary-300'
+	                <button
+	                  onClick={handleGenerateCharacters}
+	                  disabled={isGeneratingCharacters || !worldSettingGenerated || !canUseAIGeneration}
+	                  className={`w-full py-3 disabled:opacity-50 ${
+	                    worldSettingGenerated && canUseAIGeneration
+	                      ? 'btn btn-primary'
+	                      : 'btn btn-secondary cursor-not-allowed bg-secondary-300 hover:bg-secondary-300'
                   }`}
                 >
                   {isGeneratingCharacters ? '生成中...' : '生成人物设定'}
@@ -1360,24 +1336,26 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <div className="rounded-lg border border-secondary-200 bg-secondary-50 p-4">
                   <div className="text-sm font-medium text-secondary-900 mb-3">生成模式</div>
                   <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => setOutlineMode('novel')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                        outlineMode === 'novel'
-                          ? 'bg-primary-600 text-white shadow-sm'
-                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
-                      }`}
-                    >
+	                    <button
+	                      onClick={() => setOutlineMode('novel')}
+	                      disabled={!canUseAIGeneration}
+	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+	                        outlineMode === 'novel'
+	                          ? 'bg-primary-600 text-white shadow-sm'
+	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                    >
                       网文情节细纲
                     </button>
-                    <button
-                      onClick={() => setOutlineMode('microdrama')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                        outlineMode === 'microdrama'
-                          ? 'bg-primary-600 text-white shadow-sm'
-                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
-                      }`}
-                    >
+	                    <button
+	                      onClick={() => setOutlineMode('microdrama')}
+	                      disabled={!canUseAIGeneration}
+	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+	                        outlineMode === 'microdrama'
+	                          ? 'bg-primary-600 text-white shadow-sm'
+	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                    >
                       微短剧大纲
                     </button>
                   </div>
@@ -1386,28 +1364,30 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <div className="text-xs font-medium text-secondary-700 mb-2">集数规格</div>
                       <div className="grid grid-cols-4 gap-2">
                         {([15, 30, 60, 100] as const).map((count) => (
-                          <button
-                            key={count}
-                            onClick={() => setMicrodramaEpisodeCount(count)}
-                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                              microdramaEpisodeCount === count
-                                ? 'bg-primary-100 text-primary-700 border border-primary-300'
-                                : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
-                            }`}
-                          >
+	                          <button
+	                            key={count}
+	                            onClick={() => setMicrodramaEpisodeCount(count)}
+	                            disabled={!canUseAIGeneration}
+	                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+	                              microdramaEpisodeCount === count
+	                                ? 'bg-primary-100 text-primary-700 border border-primary-300'
+	                                : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                            } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                          >
                             {count}集
                           </button>
                         ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setReduceSensitiveContent(prev => !prev)}
-                        className={`w-full rounded-lg border px-4 py-3 text-left transition-all ${
-                          reduceSensitiveContent
-                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                            : 'border-secondary-200 bg-white text-secondary-700 hover:border-emerald-300'
-                        }`}
-                      >
+	                      <button
+	                        type="button"
+	                        onClick={() => setReduceSensitiveContent(prev => !prev)}
+	                        disabled={!canUseAIGeneration}
+	                        className={`w-full rounded-lg border px-4 py-3 text-left transition-all ${
+	                          reduceSensitiveContent
+	                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+	                            : 'border-secondary-200 bg-white text-secondary-700 hover:border-emerald-300'
+	                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                      >
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <div className="text-sm font-semibold">降低审核风险</div>
@@ -1427,13 +1407,13 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={handleGenerateOutline}
-                  disabled={isGeneratingOutline || !charactersGenerated}
-                  className={`w-full py-3 disabled:opacity-50 ${
-                    charactersGenerated
-                      ? 'btn btn-primary'
-                      : 'btn btn-secondary cursor-not-allowed bg-secondary-300 hover:bg-secondary-300'
+	                <button
+	                  onClick={handleGenerateOutline}
+	                  disabled={isGeneratingOutline || !charactersGenerated || !canUseAIGeneration}
+	                  className={`w-full py-3 disabled:opacity-50 ${
+	                    charactersGenerated && canUseAIGeneration
+	                      ? 'btn btn-primary'
+	                      : 'btn btn-secondary cursor-not-allowed bg-secondary-300 hover:bg-secondary-300'
                   }`}
                 >
                   {isGeneratingOutline ? '生成中...' : outlineModeMeta.buttonText}
@@ -1447,6 +1427,64 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 </div>
               </div>
             </div>
+
+            {canUseAIGeneration && bookName.trim() && (
+              <div className="card p-6 bg-gradient-to-r from-purple-50 to-primary-50 border-2 border-purple-200">
+                <div className="text-center">
+                  <div className="inline-flex items-center space-x-3 mb-4">
+                    <div className="p-3 bg-purple-100 rounded-full">
+                      <Sparkles className="w-6 h-6 text-purple-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-secondary-900">一键生成完整设定</h2>
+                      <p className="text-sm text-secondary-600">自动生成世界观+人物+情节</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleBatchGenerate}
+                    disabled={batchGenerating || !canUseAIGeneration}
+                    className="w-full bg-gradient-to-r from-purple-600 to-primary-600 hover:from-purple-700 hover:to-primary-700 text-white py-4 px-6 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mb-4"
+                  >
+                    {batchGenerating ? (
+                      <div className="flex items-center justify-center space-x-3">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>生成中...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center space-x-3">
+                        <Wand2 className="w-6 h-6" />
+                        <span>一键生成全部设定</span>
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                    )}
+                  </button>
+
+                  {batchGenerationProgress && (
+                    <div className="text-center">
+                      <div className="flex items-center justify-center space-x-2 mb-2">
+                        <span className="text-sm font-medium text-secondary-700">
+                          {batchGenerationProgress.current}/{batchGenerationProgress.total}
+                        </span>
+                        <span className="text-sm text-secondary-600">
+                          {batchGenerationProgress.message}
+                        </span>
+                      </div>
+                      <div className="w-full bg-secondary-200 rounded-full h-2">
+                        <div
+                          className="bg-gradient-to-r from-purple-600 to-primary-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${(batchGenerationProgress.current / batchGenerationProgress.total) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-secondary-500 mt-4">
+                    AI将按顺序生成完整的世界观体系、人物设定和情节框架
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 前往界面三的按钮 */}
             {outline && (
@@ -1557,9 +1595,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                               <div className="text-sm font-medium text-primary-900">按批注补充世界观</div>
                               <div className="text-xs text-primary-700 mt-1">AI会基于当前正文补充内容，并插入到合适位置。</div>
                             </div>
-                            <button
-                              onClick={handleSupplementWorldSetting}
-                              disabled={isSupplementingWorldSetting || !supplementNotes.world.trim()}
+	                            <button
+	                              onClick={handleSupplementWorldSetting}
+	                              disabled={isSupplementingWorldSetting || !supplementNotes.world.trim() || !canUseAIGeneration}
                               className="inline-flex items-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
                             >
                               {isSupplementingWorldSetting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -1595,9 +1633,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         尚未生成世界观基础设定
                       </h3>
-                      <p className="text-secondary-600 mb-4">
-                        你可以点击下方按钮手动填写，或先走AI生成流程
-                      </p>
+	                      <p className="text-secondary-600 mb-4">
+	                        {canUseAIGeneration ? '你可以点击下方按钮手动填写，或先走AI生成流程' : '当前未引用灵感架构，只能手动填写'}
+	                      </p>
                       <button
                         onClick={() => startEditSection('world')}
                         className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
@@ -1659,9 +1697,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                               <div className="text-sm font-medium text-primary-900">按批注补充人物设定</div>
                               <div className="text-xs text-primary-700 mt-1">AI会基于当前人设补充角色、关系或状态，并插入到合适位置。</div>
                             </div>
-                            <button
-                              onClick={handleSupplementCharacters}
-                              disabled={isSupplementingCharacters || !supplementNotes.characters.trim()}
+	                            <button
+	                              onClick={handleSupplementCharacters}
+	                              disabled={isSupplementingCharacters || !supplementNotes.characters.trim() || !canUseAIGeneration}
                               className="inline-flex items-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
                             >
                               {isSupplementingCharacters ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -1697,9 +1735,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         尚未生成人物设定
                       </h3>
-                      <p className="text-secondary-600 mb-4">
-                        你可以点击下方按钮手动填写，或先走AI生成流程
-                      </p>
+	                      <p className="text-secondary-600 mb-4">
+	                        {canUseAIGeneration ? '你可以点击下方按钮手动填写，或先走AI生成流程' : '当前未引用灵感架构，只能手动填写'}
+	                      </p>
                       <button
                         onClick={() => startEditSection('characters')}
                         className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
@@ -1778,9 +1816,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                                   }}
                                 />
                               </label>
-                              <button
-                                onClick={handleRegenerateOutlineWithSuggestion}
-                                disabled={isRegeneratingOutlineWithSuggestion || !outlineRevisionSuggestion.trim()}
+	                              <button
+	                                onClick={handleRegenerateOutlineWithSuggestion}
+	                                disabled={isRegeneratingOutlineWithSuggestion || !outlineRevisionSuggestion.trim() || !canUseAIGeneration}
                                 className="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
                               >
                                 {isRegeneratingOutlineWithSuggestion ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -1818,9 +1856,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         {outlineModeMeta.emptyTitle}
                       </h3>
-                      <p className="text-secondary-600 mb-4">
-                        你可以点击下方按钮手动填写，或先走AI生成流程
-                      </p>
+	                      <p className="text-secondary-600 mb-4">
+	                        {canUseAIGeneration ? '你可以点击下方按钮手动填写，或先走AI生成流程' : '当前未引用灵感架构，只能手动填写'}
+	                      </p>
                       <button
                         onClick={() => startEditSection('outline')}
                         className="inline-flex items-center space-x-2 px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md text-sm"
