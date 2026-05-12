@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, BookOpen, Sparkles, FileText, Layers, ChevronRight, CheckCircle, Plus, RefreshCw, Eye, EyeOff, PenTool, Save, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Sparkles, FileText, Layers, ChevronRight, CheckCircle, Plus, RefreshCw, Eye, EyeOff, PenTool, Save, X, Trash2 } from 'lucide-react';
 import { useWorldSettings, SavedMicroStory, sortSavedMicroStoriesForChapters } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
 import { getLogicModelRequestFromSources } from '../utils/llmModelSelection';
@@ -23,7 +23,15 @@ function cleanMicroStoryContent(content: string): string {
     .trim();
 }
 
-type MicroStoryDraft = { title: string; content: string };
+function extractChapterNumberFromDraft(draft: MicroStoryDraft): number | null {
+  const text = `${draft.title || ''}\n${draft.content || ''}`;
+  const match = text.match(/第\s*(\d{1,4})\s*[章节集]/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+type MicroStoryDraft = { title: string; content: string; order?: number };
 type MicroStoryVariantState = {
   loading: boolean;
   note: string;
@@ -224,7 +232,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const buildMicroStoryDraftsFromOutline = (outlineContent: string): MicroStoryDraft[] => {
     return parseMicroStoriesFromOutline(outlineContent).map((c, idx) => ({
       title: getMicroStoryDefaultTitle(idx + 1),
-      content: cleanMicroStoryContent(c)
+      content: cleanMicroStoryContent(c),
+      order: idx,
     }));
   };
 
@@ -252,7 +261,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       if (body) {
         variants.push({
           title: title || `方案${getChineseNumber(i + 1)}`,
-          content: cleanMicroStoryContent(body)
+          content: cleanMicroStoryContent(body),
+          order: i,
         });
       }
     }
@@ -288,7 +298,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         const body = section.slice(itemStart, itemEnd).replace(/^\s*内容[:：]\s*/m, '').trim();
         stories.push({
           title: title || getMicroStoryDefaultTitle(selectedIndex + 1),
-          content: cleanMicroStoryContent(body)
+          content: cleanMicroStoryContent(body),
+          order: selectedIndex,
         });
       });
 
@@ -408,7 +419,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           ...prev,
           [storyKey]: savedForThisMacro.map((s, idx) => ({
             title: (s.title || getMicroStoryDefaultTitle(idx + 1)).trim(),
-            content: s.content ?? ''
+            content: s.content ?? '',
+            order: s.order,
           }))
         };
       }
@@ -556,7 +568,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       return parseMicrodramaRangeFromMacroStory(storyIndex);
     }
 
-    const chaptersPerMacroStory = isMicrodrama ? 10 : 20;
+    const chaptersPerMacroStory = isMicrodrama ? 10 : 15;
     const startChapter = storyIndex * chaptersPerMacroStory + 1;
     const endChapter = (storyIndex + 1) * chaptersPerMacroStory;
     return { startChapter, endChapter };
@@ -826,7 +838,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     // 1) 优先保存“人工编辑草稿”（保证你修改后点保存就生效）
     let storyDraftsToSave: MicroStoryDraft[] | null = null;
-    if (drafts && drafts.length > 0) {
+    if (drafts !== undefined) {
       storyDraftsToSave = drafts;
 	    } else if (outlineContent) {
 	      // 2) 兼容旧流程：没有草稿时，从 microStoryOutlines 解析并保存
@@ -849,17 +861,25 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     // 创建保存的小故事数据（尽量复用旧id/createdAt，避免引用失效）
     const savedMicroStories: SavedMicroStory[] = storyDraftsToSave.map((draft, index) => {
-      const prev = existingByOrder.get(index);
+      const parsedChapterNumber = extractChapterNumberFromDraft(draft);
+      const inferredOrderFromChapter =
+        parsedChapterNumber !== null &&
+        parsedChapterNumber >= chapterRange.startChapter &&
+        parsedChapterNumber <= chapterRange.endChapter
+          ? parsedChapterNumber - chapterRange.startChapter
+          : undefined;
+      const stableOrder = inferredOrderFromChapter ?? draft.order ?? index;
+      const prev = existingByOrder.get(stableOrder) || existingByOrder.get(index);
       return {
-        id: prev?.id || `${storyKey}_micro_${index}_${Date.now()}`,
+        id: prev?.id || `${storyKey}_micro_${stableOrder}_${Date.now()}`,
         title: (draft.title || (isMicrodrama
-          ? `第${chapterRange.startChapter + index}集`
-          : `第${chapterRange.startChapter + index}章`)).trim(),
+          ? `第${chapterRange.startChapter + stableOrder}集`
+          : `第${chapterRange.startChapter + stableOrder}章`)).trim(),
         content: draft.content ?? '',
         macroStoryId: storyKey,
         macroStoryTitle: `中故事 ${storyIndex + 1}`,
         macroStoryContent: macroStory,
-        order: index,
+        order: stableOrder,
         createdAt: prev?.createdAt || nowIso
       };
     });
@@ -949,6 +969,78 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         : (macroStories[macroIndex] || '');
     saveMicroStories(macroIndex, macroContentToUse);
     setEditingMicroStory(null);
+  };
+
+  const deleteSavedMicroStory = (macroIndex: number, microIndex: number, storyId: string) => {
+    if (!currentProject) return;
+    const storyKey = `story_${macroIndex}`;
+    const confirmed = confirm(
+      `确定删除这个${savedUnitLabel}吗？删除后不会重排其他标题，正文写作会按剩余章节顺序继续。`
+    );
+    if (!confirmed) return;
+
+    const updatedSaved = sortSavedMicroStoriesForChapters(
+      (currentProject.savedMicroStories || []).filter(story => story.id !== storyId)
+    );
+    const updatedSelected = sortSavedMicroStoriesForChapters(
+      (currentProject.selectedMicroStories || currentProject.savedMicroStories || []).filter(story => story.id !== storyId)
+    );
+
+    updateProject(currentProject.id, {
+      savedMicroStories: updatedSaved,
+      selectedMicroStories: updatedSelected,
+      autoSelectedStories: false,
+      autoGenerationMode: false,
+      autoGenerationStarted: false,
+    });
+
+    setSelectedMicroStoryIndexesByMacro(prev => {
+      const current = prev[storyKey] || [];
+      return {
+        ...prev,
+        [storyKey]: current
+          .filter(index => index !== microIndex)
+          .map(index => index > microIndex ? index - 1 : index),
+      };
+    });
+
+    setMicroStoryDraftsByMacro(prev => {
+      if (!prev[storyKey]) return prev;
+      const next = { ...prev };
+      delete next[storyKey];
+      return next;
+    });
+
+    if (editingMicroStory?.storyKey === storyKey && editingMicroStory.index === microIndex) {
+      setEditingMicroStory(null);
+    }
+  };
+
+  const deleteDraftMicroStory = (macroIndex: number, microIndex: number, drafts: MicroStoryDraft[]) => {
+    const storyKey = `story_${macroIndex}`;
+    const confirmed = confirm(
+      `确定删除这个${savedUnitLabel}吗？删除后不会重排其他标题，保存后正文写作会按剩余章节顺序继续。`
+    );
+    if (!confirmed) return;
+
+    const nextDrafts = drafts.filter((_draft, index) => index !== microIndex);
+    setMicroStoryDraftsByMacro(prev => ({
+      ...prev,
+      [storyKey]: nextDrafts,
+    }));
+    setSelectedMicroStoryIndexesByMacro(prev => {
+      const current = prev[storyKey] || [];
+      return {
+        ...prev,
+        [storyKey]: current
+          .filter(index => index !== microIndex)
+          .map(index => index > microIndex ? index - 1 : index),
+      };
+    });
+
+    if (editingMicroStory?.storyKey === storyKey && editingMicroStory.index === microIndex) {
+      setEditingMicroStory(null);
+    }
   };
 
   const generateMacroStoryVariants = async (macroIndex: number) => {
@@ -1148,7 +1240,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     const nextDrafts = [...allDrafts];
     nextDrafts[microIndex] = {
       title: variant.title || getMicroStoryDefaultTitle(microIndex + 1),
-      content: variant.content || ''
+      content: variant.content || '',
+      order: allDrafts[microIndex]?.order ?? variant.order ?? microIndex,
     };
 
     setMicroStoryDraftsByMacro(prev => ({
@@ -1335,7 +1428,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       if (!replacement) return;
       nextDrafts[microIndex] = {
         title: replacement.title || getMicroStoryDefaultTitle(microIndex + 1),
-        content: replacement.content || ''
+        content: replacement.content || '',
+        order: allDrafts[microIndex]?.order ?? replacement.order ?? microIndex,
       };
     });
 
@@ -1853,10 +1947,11 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 	                      .sort((a, b) => a.order - b.order);
 
 	                    if (savedForThisMacro.length > 0 && (!outlineContent || !(microStoryDraftsByMacro[storyKey]?.length > 0))) {
-	                      const drafts = microStoryDraftsByMacro[storyKey] || [];
-	                      const allDrafts = savedForThisMacro.map((s, idx) => drafts[idx] || {
+	                      const drafts = microStoryDraftsByMacro[storyKey];
+	                      const allDrafts = savedForThisMacro.map((s, idx) => drafts?.[idx] || {
 	                        title: s.title || getMicroStoryDefaultTitle(idx + 1),
-	                        content: s.content || ''
+	                        content: s.content || '',
+	                        order: s.order,
 	                      });
 	                      return (
 	                        <div className="space-y-4">
@@ -1922,7 +2017,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                                 const next = [...(prev[storyKey] || [])];
                                                 next[microIndex] = {
                                                   title: (s.title || getMicroStoryDefaultTitle(microIndex + 1)).trim(),
-                                                  content: s.content || ''
+                                                  content: s.content || '',
+                                                  order: s.order,
                                                 };
                                                 return { ...prev, [storyKey]: next };
                                               });
@@ -1949,7 +2045,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                                   ...prev,
                                                   [storyKey]: (prev[storyKey] || []).map((d, i) => i === microIndex ? {
                                                     title: (s.title || getMicroStoryDefaultTitle(microIndex + 1)).trim(),
-                                                    content: s.content || ''
+                                                    content: s.content || '',
+                                                    order: s.order,
                                                   } : d)
                                                 }));
                                               }}
@@ -1960,6 +2057,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                             </button>
                                           </>
                                         )}
+                                        <button
+                                          onClick={() => deleteSavedMicroStory(storyIndex, microIndex, s.id)}
+                                          disabled={isEditing}
+                                          className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md disabled:text-secondary-300 disabled:hover:bg-transparent"
+                                          title={`删除该${savedUnitLabel}`}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
                                       </div>
                                     </div>
 
@@ -2011,7 +2116,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                       );
                     }
 
-	                    const drafts = microStoryDraftsByMacro[storyKey]?.length
+	                    const drafts = microStoryDraftsByMacro[storyKey] !== undefined
 	                      ? microStoryDraftsByMacro[storyKey]
 	                      : buildMicroStoryDraftsFromOutline(outlineContent);
 
@@ -2078,10 +2183,10 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                           }}
                                           className="px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
                                           title="编辑该小故事"
-                                        >
-                                          编辑
-                                        </button>
-                                      ) : (
+                                          >
+                                            编辑
+                                          </button>
+                                        ) : (
                                         <>
                                           <button
                                             onClick={() => saveEditedMicroStory(storyIndex, microIndex)}
@@ -2099,11 +2204,19 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                                             title="取消编辑"
                                           >
                                             取消
-                                          </button>
-                                        </>
-                                      )}
+                                            </button>
+                                          </>
+                                        )}
+                                        <button
+                                          onClick={() => deleteDraftMicroStory(storyIndex, microIndex, drafts)}
+                                          disabled={isEditing}
+                                          className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md disabled:text-secondary-300 disabled:hover:bg-transparent"
+                                          title={`删除该${savedUnitLabel}`}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
 
                                   {!isEditing ? (
                                     <div className={`text-sm text-secondary-700 leading-relaxed whitespace-pre-wrap ${

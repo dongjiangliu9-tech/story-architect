@@ -17,8 +17,8 @@ interface ActivationStore {
 
 @Injectable()
 export class ActivationQuotaService {
-  private readonly geminiLimit = Number(process.env.ACTIVATION_GEMINI_LIMIT || 100);
-  private readonly deepseekLimit = Number(process.env.ACTIVATION_DEEPSEEK_LIMIT || 200);
+  private readonly geminiLimit = Number(process.env.ACTIVATION_GEMINI_LIMIT || 300);
+  private readonly deepseekLimit = Number(process.env.ACTIVATION_DEEPSEEK_LIMIT || 300);
   private readonly storePath =
     process.env.ACTIVATION_STORE_PATH ||
     path.join(process.cwd(), 'data', 'activation-usage.json');

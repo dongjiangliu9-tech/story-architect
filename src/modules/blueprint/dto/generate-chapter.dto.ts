@@ -23,6 +23,14 @@ export class GenerateChapterDto {
   @IsOptional()
   generatedChapters?: { [key: number]: string }; // 已生成的章节内容（可选）
 
+  @IsNumber()
+  @IsOptional()
+  nextExistingChapterNumber?: number; // 后一章已生成时，用于补空白章节的衔接参考
+
+  @IsString()
+  @IsOptional()
+  nextExistingChapterContent?: string; // 后一章已生成内容节选（可选）
+
   @IsString()
   @IsOptional()
   @IsIn(['novel', 'microdrama'])

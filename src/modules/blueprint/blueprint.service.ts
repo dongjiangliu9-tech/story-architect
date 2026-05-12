@@ -1454,7 +1454,7 @@ ${romanceLineRules}
 4. 必须兼顾上下中故事连续性：承接前文已经发生的结果，不提前消耗后文核心爆点。
 5. ${mode === 'microdrama'
           ? '按爆款微短剧中故事设计：必须承接当前中故事已标注的对应集数，内部每集都要有惊艳开场、快节奏推进、打压、高潮、反转、打脸和最后一集黑场钩子；每一集的详细剧情都要展开到可继续拆成单集细纲；女频内容要强化爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯和情感误会，但不得越过当前关系阶段；结尾必须追加「阶段状态小结」。'
-          : '按小说中故事设计：默认能继续拆成20个单章小故事；首个中故事以生死为局开头，后续中故事以重大危局开头，内部要有完整目标、阻碍、升级、高燃点/爽点释放、阶段高潮、结尾扣子和阶段收束；详细剧情必须写到可继续拆成单章细纲的程度。'}
+          : '按小说中故事设计：默认能继续拆成15个单章小故事；首个中故事以生死为局开头，后续中故事以重大危局开头，内部要有完整目标、阻碍、升级、高燃点/爽点释放、阶段高潮、结尾扣子和阶段收束；详细剧情必须写到可继续拆成单章细纲的程度。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础。
 7. 当前中故事开头必须精准承接【上一个中故事】结尾的结果、主角状态、关系变化、当前压力与“目标方向”；如果上一个中故事为空，则按本作品开局逻辑处理。
 8. 当前中故事结尾必须把主角推进到一个清晰的新阶段，并留下可递交给下一中故事的目标方向；如果【下一个中故事】已存在，严禁改写它已经建立的开头前提，严禁提前消耗它的核心爆点，只能把结尾目标自然对齐到它的开局。
@@ -1952,6 +1952,8 @@ ${romanceLineRules}
     _chapterPosition: 'first' | 'second' | 'single' = 'single',
     _storyStartChapter?: number,
     _storyEndChapter?: number,
+    nextExistingChapterNumber?: number,
+    nextExistingChapterContent?: string,
   ): string {
     const previousLastSentence = previousEnding ? this.extractLastSentence(previousEnding) : '';
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
@@ -1959,12 +1961,16 @@ ${romanceLineRules}
     const normalizedTargetWords = this.normalizeNovelTargetWords(targetNovelWords);
     const minTargetWords = Math.max(700, Math.round(normalizedTargetWords * 0.92));
     const maxTargetWords = Math.min(3000, Math.round(normalizedTargetWords * 1.08));
+    const nextExistingReference = nextExistingChapterContent
+      ? `后一章已生成内容开头（只作为本章结尾衔接参考，绝对不要复写后一章）：\n第${nextExistingChapterNumber || chapterNumber + 1}章开头节选：\n${nextExistingChapterContent}\n\n`
+      : '';
 
     return `${context}
 
 请基于以上完整的故事背景信息，生成第${chapterNumber}章的内容。
 
 ${previousEnding ? `上一章结尾内容（作为衔接参考）：\n${previousEnding}\n\n${previousLastSentence ? `上一章最后一句（必须在本章开头紧接续写）：\n${previousLastSentence}\n\n` : ''}` : ''}
+${nextExistingReference}
 
 感情线硬规则：
 ${romanceLineRules}
@@ -1977,6 +1983,7 @@ ${romanceLineRules}
 - 如果当前剧情范围与之前生成的内容有冲突，以当前剧情范围为准。
 - 剧情边界优先于字数：一旦本章在当前小故事中的任务已经完成，必须立刻自然收束并停在钩子上，禁止为了凑字数继续写下一章、下一小故事或新增无关桥段。
 - 本章必须完成当前章节细纲内的核心冲突推进，并在结尾留下下一章钩子；只留钩子，不要开始解决钩子。
+- 如果提供了“后一章已生成内容开头”，本章结尾必须自然停在能承接后一章开头的位置；只搭桥，不要提前写后一章已经发生的具体内容。
 - ${this.getPlanningLeakRule()}
 
 生成要求：
@@ -1990,6 +1997,7 @@ ${romanceLineRules}
 8. 章节结尾要为下一章留好铺垫，并自然融入悬念钩子，制造期待感，拉动读者继续阅读的欲望。
 9. 钩子要融入正文叙述中，作为故事发展的自然延伸，不要在文章结尾单独添加说明性句子。
 10. 衔接要求：如果提供了“上一章结尾内容”，本章开头必须从该结尾自然续写（同一时空/同一动作/同一对话延续），不要用回顾式总结重述上一章；除非上一章结尾明确切换场景，否则开头至少连续推进300-500字后再转场或跳时。
+11. 反向衔接要求：如果后一章已经生成，本章结尾要给后一章开头留出合理入口，但不得复制、概述或提前解决后一章内容。
 
 请直接输出章节内容，格式如下：
 第${chapterNumber}章 [章节标题]
@@ -2139,6 +2147,11 @@ ${romanceLineRules}
                   chapterNum,
                   previousEnding,
                   dto.targetNovelWords,
+                  'single',
+                  undefined,
+                  undefined,
+                  storyIndex === loopCount - 1 ? dto.nextExistingChapterNumber : undefined,
+                  storyIndex === loopCount - 1 ? dto.nextExistingChapterContent : undefined,
                 );
                 let chapterContent = '';
                 let isFirstChunk = true;

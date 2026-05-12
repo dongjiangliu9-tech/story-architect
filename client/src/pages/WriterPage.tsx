@@ -1,7 +1,7 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react';
-import { sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
+import { getMacroStoryIndexFromId, SavedMicroStory, sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
 
 interface WriterPageProps {
@@ -70,6 +70,58 @@ function computePreviousEndingFromChapters(
   return extractChapterEnding(chapters[last] || '');
 }
 
+function extractChapterOpening(content: string, linesCount: number = 8): string {
+  if (!content) return '';
+  const lines = content
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+  return lines.slice(0, linesCount).join('\n');
+}
+
+function getSavedMicroStoryChapterNumber(story: SavedMicroStory | undefined, fallback: number): number {
+  const text = `${story?.title || ''}\n${story?.content || ''}`;
+  const matches = [...text.matchAll(/第\s*(\d{1,4})\s*[章节集]/g)]
+    .map(match => Number(match[1]))
+    .filter(value => Number.isFinite(value) && value > 0);
+  return matches[0] || fallback;
+}
+
+function getFallbackChapterNumberForStory(story: SavedMicroStory | undefined, index: number): number {
+  if (!story) return index + 1;
+  const macroIndex = getMacroStoryIndexFromId(story.macroStoryId);
+  const order = Number(story.order);
+  if (Number.isFinite(macroIndex) && macroIndex < Number.MAX_SAFE_INTEGER && Number.isFinite(order) && order >= 0) {
+    return macroIndex * 15 + order + 1;
+  }
+  return index + 1;
+}
+
+function buildChapterStoryEntries(stories: SavedMicroStory[] | undefined): Array<{
+  story: SavedMicroStory;
+  chapterNumber: number;
+  originalIndex: number;
+}> {
+  return (stories || [])
+    .map((story, index) => ({
+      story,
+      chapterNumber: getSavedMicroStoryChapterNumber(story, getFallbackChapterNumberForStory(story, index)),
+      originalIndex: index,
+    }))
+    .sort((a, b) => (
+      a.chapterNumber - b.chapterNumber ||
+      a.originalIndex - b.originalIndex
+    ));
+}
+
+function buildChapterAlignedStories(entries: Array<{ story: SavedMicroStory; chapterNumber: number }>): Array<SavedMicroStory | undefined> {
+  const aligned: Array<SavedMicroStory | undefined> = [];
+  entries.forEach(({ story, chapterNumber }) => {
+    aligned[chapterNumber - 1] = story;
+  });
+  return aligned;
+}
+
 function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentProject']): 'novel' | 'microdrama' {
   if (!project) return 'novel';
   return project.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
@@ -101,6 +153,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const generatedChaptersRef = useRef<{[key: number]: string}>({});
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [isFullCycleGenerating, setIsFullCycleGenerating] = useState(false);
+  const [isSegmentGenerating, setIsSegmentGenerating] = useState(false);
+  const [parallelLaneCount, setParallelLaneCount] = useState(5);
   const [currentRequestId, setCurrentRequestId] = useState<string>('');
   const currentRequestIdRef = useRef('');
   const activeRequestIdsRef = useRef<Set<string>>(new Set());
@@ -120,6 +174,20 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     message: string;
     currentChapter?: number;
     currentChapterWords?: number;
+  } | null>(null);
+  const [segmentProgress, setSegmentProgress] = useState<{
+    lanes: Array<{
+      id: number;
+      start: number;
+      end: number;
+      current: number | null;
+      completed: number;
+      total: number;
+      status: 'pending' | 'running' | 'completed' | 'failed';
+    }>;
+    completed: number;
+    total: number;
+    message: string;
   } | null>(null);
   const [generationState, setGenerationState] = useState<{
     isGenerating: boolean;
@@ -160,7 +228,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     : undefined;
 
   const microStoryCount = microStoriesInOrder?.length ?? 0;
-  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating;
+  const chapterStoryEntries = buildChapterStoryEntries(microStoriesInOrder);
+  const chapterStoryMap = new Map(chapterStoryEntries.map(entry => [entry.chapterNumber, entry.story] as const));
+  const availableChapterNumbers = chapterStoryEntries.map(entry => entry.chapterNumber);
+  const availableChapterNumberSet = new Set(availableChapterNumbers);
+  const maxAvailableChapter = availableChapterNumbers.length > 0 ? Math.max(...availableChapterNumbers) : 0;
+  const alignedMicroStoriesForWriting = buildChapterAlignedStories(chapterStoryEntries);
+  const getMicroStoryForChapter = (chapterNumber: number) => chapterStoryMap.get(chapterNumber);
+  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating;
   const isStreamingCurrentChapter =
     generationState.isGenerating &&
     generationState.currentGeneratingChapter === currentChapter &&
@@ -300,7 +375,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   useEffect(() => {
-    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter;
+    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter;
     if (shouldKeepAwake) {
       void requestGenerationWakeLock();
       void startNoSleepVideoFallback();
@@ -323,7 +398,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       void releaseGenerationWakeLock();
       stopNoSleepVideoFallback();
     };
-  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isRewritingChapter]);
+  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, isRewritingChapter]);
 
   const visibleChapterContent = isEditingChapter
     ? chapterDraft
@@ -370,8 +445,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     return chapterNumbers.length > 0 ? Math.max(...chapterNumbers) : 0;
   };
 
-  // 计算下一个需要续写的章节：按已有正文的结尾继续，而不是回头补第一个空洞
+  // 计算下一个需要续写的章节：按真实章节号继续，允许小故事被删除后出现章节缺口。
   const getNextChapterToGenerate = (): number => {
+    if (!isMicrodrama && availableChapterNumbers.length > 0) {
+      const activeChapters = getActiveGeneratedChapters();
+      const lastGenerated = getLastGeneratedChapterNumber(activeChapters);
+      return availableChapterNumbers.find(chapter => chapter > lastGenerated && !activeChapters[chapter]) || (lastGenerated + 1);
+    }
     return getLastGeneratedChapterNumber() + 1;
   };
 
@@ -436,6 +516,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       !generationState.isGenerating &&
       !isBatchGenerating &&
       !isFullCycleGenerating &&
+      !isSegmentGenerating &&
       microStoriesInOrder &&
       microStoriesInOrder.length > 0
     ) {
@@ -450,14 +531,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       // 延迟执行，确保页面完全加载
       setTimeout(() => {
         if (!generationCancelledRef.current) {
-          generateFullCycleContent();
+          if (isMicrodrama) {
+            generateFullCycleContent();
+          } else {
+            generateSegmentParallelContent({ skipConfirm: true, requestedLaneCount: 5 });
+          }
         }
       }, 1000);
     } else if (autoFlowFlag === 'writer' && (!canStartWriterAutoFlow || autoFlowProjectId === String(currentProject?.id || ''))) {
       console.log('检测到不可用或过期的正文自动化标记，已清理，避免进入正文页后自动续写');
       clearWriterAutoFlowFlags();
     }
-  }, [currentProject?.id, currentProject?.autoGenerationMode, currentProject?.autoGenerationStarted, currentProject?.generatedChapters, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
+  }, [currentProject?.id, currentProject?.autoGenerationMode, currentProject?.autoGenerationStarted, currentProject?.generatedChapters, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
 
   // 从localStorage和项目中恢复状态
   useEffect(() => {
@@ -913,6 +998,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       generationState.isGenerating ||
       isBatchGenerating ||
       isFullCycleGenerating ||
+      isSegmentGenerating ||
       activeRequestIdsRef.current.size > 0 ||
       activeEventSourcesRef.current.size > 0 ||
       !!currentEventSource;
@@ -962,7 +1048,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     // 关键：同步退出所有“生成中”UI状态，恢复章节编辑入口
     setIsBatchGenerating(false);
     setIsFullCycleGenerating(false);
+    setIsSegmentGenerating(false);
     setFullCycleProgress(null);
+    setSegmentProgress(null);
     setCurrentRequestId('');
     currentRequestIdRef.current = '';
 
@@ -1029,7 +1117,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     // 初始化/更新总单元数（网文每个小故事 1 章；微短剧每个小故事 1 集）
     if (!microStoryCount) return;
-    const calculatedTotalChapters = Math.floor(microStoryCount * unitsPerMicroStory);
+    const calculatedTotalChapters = isMicrodrama
+      ? Math.floor(microStoryCount * unitsPerMicroStory)
+      : (maxAvailableChapter || Math.floor(microStoryCount * unitsPerMicroStory));
     setTotalChapters(calculatedTotalChapters);
 
     // 不要在这里强制重置 currentChapter（否则会导致“保存/更新”后无法跳转）
@@ -1039,12 +1129,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       if (calculatedTotalChapters > 0 && prev > calculatedTotalChapters) return 1;
       return prev;
     });
-  }, [microStoryCount, unitsPerMicroStory]);
+  }, [isMicrodrama, maxAvailableChapter, microStoryCount, unitsPerMicroStory]);
 
 
   // 批量生成内容：小说每批8章，微短剧每次1集
   const generateBatchContent = async (expectedStartChapter?: number, expectedChapterCount?: number) => {
-    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating) {
       console.warn('已有正文生成任务正在运行，忽略新的批量生成请求');
       return;
     }
@@ -1058,7 +1148,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
 
     // 优先使用已选择的小故事，否则使用所有保存的小故事
-    const microStoriesToUse = currentProject.selectedMicroStories || microStoriesInOrder;
+    const microStoriesToUse = isMicrodrama
+      ? (currentProject.selectedMicroStories || microStoriesInOrder)
+      : alignedMicroStoriesForWriting;
 
     // 如果是全流程自动生成，允许生成更少的小故事；手动生成时保持原有要求
     const isAutoFlow = expectedStartChapter !== undefined && expectedChapterCount !== undefined;
@@ -1366,7 +1458,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       return;
     }
 
-    const totalChapters = microStoriesToUse.length * unitsPerMicroStory;
+    const totalChapters = isMicrodrama
+      ? microStoriesToUse.length * unitsPerMicroStory
+      : maxAvailableChapter;
 
     // 检查起始章节是否有效
     if (startChapter < 1 || startChapter > totalChapters) {
@@ -1466,7 +1560,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   // 一键循环生成所有章节内容 - 模拟用户交互方式
   const generateFullCycleContent = async () => {
-    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating) {
+    if (!isMicrodrama) {
+      await generateSegmentParallelContent({ requestedLaneCount: parallelLaneCount });
+      return;
+    }
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating) {
       console.warn('已有正文生成任务正在运行，忽略新的一键循环生成请求');
       return;
     }
@@ -1487,7 +1585,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       return;
     }
 
-    const totalChapters = microStoriesToUse.length * unitsPerMicroStory;
+    const totalChapters = isMicrodrama
+      ? microStoriesToUse.length * unitsPerMicroStory
+      : maxAvailableChapter;
     const startChapter = getNextChapterToGenerate();
     if (startChapter > totalChapters) {
       generationLockRef.current = false;
@@ -1597,6 +1697,437 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   };
 
+  const buildSegmentLanes = (
+    totalChapters: number,
+    laneCount: number,
+    chapters: {[key: number]: string},
+    availableChapters: Set<number> = new Set(Array.from({ length: totalChapters }, (_unused, offset) => offset + 1)),
+  ) => {
+    const segmentSize = 15;
+    const possibleLaneCount = Math.ceil(totalChapters / segmentSize);
+    const normalizedLaneCount = Math.min(Math.max(1, laneCount), Math.max(1, possibleLaneCount));
+
+    return Array.from({ length: normalizedLaneCount }, (_, index) => {
+      const start = index * segmentSize + 1;
+      const end = Math.min(totalChapters, start + segmentSize - 1);
+      const remaining = Array.from({ length: end - start + 1 }, (_unused, offset) => start + offset)
+        .filter(chapter => availableChapters.has(chapter) && !chapters[chapter]);
+
+      return {
+        id: index + 1,
+        start,
+        end,
+        current: null as number | null,
+        completed: 0,
+        total: remaining.length,
+        status: remaining.length > 0 ? 'pending' as const : 'completed' as const,
+      };
+    });
+  };
+
+  const getSegmentAvailableRanges = (
+    start: number,
+    end: number,
+    chapters: {[key: number]: string},
+  ): Array<{ start: number; end: number; total: number }> => {
+    const numbers = availableChapterNumbers
+      .filter(chapter => chapter >= start && chapter <= end && !chapters[chapter])
+      .sort((a, b) => a - b);
+    const ranges: Array<{ start: number; end: number; total: number }> = [];
+    numbers.forEach(chapter => {
+      const last = ranges[ranges.length - 1];
+      if (last && chapter === last.end + 1) {
+        last.end = chapter;
+        last.total += 1;
+      } else {
+        ranges.push({ start: chapter, end: chapter, total: 1 });
+      }
+    });
+    return ranges;
+  };
+
+  const updateSegmentLaneProgress = (
+    laneId: number,
+    patch: Partial<{
+      current: number | null;
+      completed: number;
+      status: 'pending' | 'running' | 'completed' | 'failed';
+    }>,
+    message?: string,
+  ) => {
+    setSegmentProgress(prev => {
+      if (!prev) return prev;
+      const lanes = prev.lanes.map(lane => (
+        lane.id === laneId ? { ...lane, ...patch } : lane
+      ));
+      const completed = lanes.reduce((sum, lane) => sum + lane.completed, 0);
+      return {
+        ...prev,
+        lanes,
+        completed,
+        message: message || prev.message,
+      };
+    });
+  };
+
+  const generateChapterRangeForSegment = async (
+    startChapter: number,
+    segmentEndChapter: number,
+    laneChapters: {[key: number]: string},
+    callbacks?: {
+      onChapterStart?: (chapterNumber: number) => void;
+      onChapterComplete?: (chapterNumber: number, content: string) => void;
+    },
+  ): Promise<{[key: number]: string}> => {
+    if (!currentProject) throw new Error('未找到当前项目');
+    const currentStoryData = getMicroStoryForChapter(startChapter);
+    if (!currentStoryData) {
+      throw new Error(`第${startChapter}${unitLabel}缺少对应小故事细纲`);
+    }
+
+    const unitCount = Math.max(1, segmentEndChapter - startChapter + 1);
+    const effectivePreviousEnding =
+      startChapter > 1 ? computePreviousEndingFromChapters(laneChapters, startChapter) : '';
+    const nextExistingContent = laneChapters[segmentEndChapter + 1]
+      ? extractChapterOpening(laneChapters[segmentEndChapter + 1])
+      : '';
+    const nextStoryData = getMicroStoryForChapter(segmentEndChapter + 1);
+    const nextStoryBridge = nextStoryData
+      ? `\n\n【下一段入口参考】\n第${segmentEndChapter + 1}${unitLabel}将进入：${nextStoryData.title}\n${String(nextStoryData.content || '').substring(0, 500)}\n\n当前线程只需要在第${segmentEndChapter}${unitLabel}结尾搭好承接入口，不能开始写第${segmentEndChapter + 1}${unitLabel}的具体事件。`
+      : '';
+    const generationContext = buildGenerationContext(startChapter, unitCount);
+
+    const prepareResponse = await blueprintApi.prepareChapterStream({
+      context: `${generationContext}
+
+【15章线程并行生成边界】
+当前并行线程固定只负责第${startChapter}-${segmentEndChapter}${unitLabel}，共${unitCount}${unitLabel}。必须按顺序生成这一段内的每一章；生成到第${segmentEndChapter}${unitLabel}后立刻停止，绝对不要继续生成第${segmentEndChapter + 1}${unitLabel}，也不要跨到其他线程。${nextStoryBridge}`,
+      chapterNumber: startChapter,
+      unitCount,
+      previousEnding: effectivePreviousEnding || undefined,
+      savedMicroStories: alignedMicroStoriesForWriting,
+      mode: writerMode,
+      writerModelProvider,
+      targetNovelWords: normalizeTargetNovelWords(targetNovelWords),
+      nextExistingChapterNumber: nextExistingContent ? segmentEndChapter + 1 : undefined,
+      nextExistingChapterContent: nextExistingContent || undefined,
+      generatedChapters: undefined,
+    });
+
+    const requestId = prepareResponse.requestId;
+    const eventSource = blueprintApi.generateChapterStream(requestId);
+    registerGenerationRequest(requestId, eventSource);
+
+    return new Promise((resolve, reject) => {
+      const completedChaptersData: {[key: number]: string} = {};
+      let lastSseEventAt = Date.now();
+      let settled = false;
+      let sseErrorTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (sseErrorTimer) clearTimeout(sseErrorTimer);
+        eventSource.close();
+        releaseGenerationRequest(requestId, eventSource);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          lastSseEventAt = Date.now();
+          if (sseErrorTimer) {
+            clearTimeout(sseErrorTimer);
+            sseErrorTimer = null;
+          }
+
+          const data = JSON.parse(event.data);
+          if (generationCancelledRef.current) {
+            cleanup();
+            if (!settled) {
+              settled = true;
+              reject(new Error('生成已被终止'));
+            }
+            return;
+          }
+
+          switch (data.type) {
+            case 'ping':
+            case 'start':
+            case 'story_complete':
+              break;
+
+            case 'story_start': {
+              const startedChapter = Number(data.chapter || data.chapters?.[0]);
+              if (Number.isFinite(startedChapter)) {
+                callbacks?.onChapterStart?.(startedChapter);
+              }
+              break;
+            }
+
+            case 'story_chunk':
+              if (data.chapter === currentChapterRef.current && data.content) {
+                setGeneratedContent(cleanWriterContent(data.content));
+              }
+              break;
+
+            case 'chapter_complete':
+              if (data.chapter >= startChapter && data.chapter <= segmentEndChapter && data.content) {
+                const chapterNumber = Number(data.chapter);
+                const cleanedContent = cleanWriterContent(data.content);
+                completedChaptersData[chapterNumber] = cleanedContent;
+                callbacks?.onChapterComplete?.(chapterNumber, cleanedContent);
+              }
+              break;
+
+            case 'cancelled':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                reject(new Error('生成已被终止'));
+              }
+              break;
+
+            case 'story_error':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                reject(new Error(data.error || `第${startChapter}-${segmentEndChapter}${unitLabel}生成失败`));
+              }
+              break;
+
+            case 'complete':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                if (Object.keys(completedChaptersData).length > 0) {
+                  resolve(completedChaptersData);
+                } else {
+                  reject(new Error(`第${startChapter}-${segmentEndChapter}${unitLabel}生成结果为空`));
+                }
+              }
+              break;
+          }
+        } catch (error) {
+          cleanup();
+          if (!settled) {
+            settled = true;
+            reject(error);
+          }
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        if (sseErrorTimer) clearTimeout(sseErrorTimer);
+        sseErrorTimer = setTimeout(() => {
+          if (Date.now() - lastSseEventAt < 60000) return;
+          cleanup();
+          if (!settled) {
+            settled = true;
+            reject(error instanceof Error ? error : new Error(`第${startChapter}-${segmentEndChapter}${unitLabel}连接中断`));
+          }
+        }, 60000);
+      };
+    });
+  };
+
+  const generateSegmentParallelContent = async (opts: { skipConfirm?: boolean; requestedLaneCount?: number } = {}) => {
+    if (isMicrodrama) {
+      alert('15章线程并行生成目前只用于网文正文，微短剧继续使用单集生成。');
+      return;
+    }
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating) {
+      console.warn('已有正文生成任务正在运行，忽略新的15章线程并行生成请求');
+      return;
+    }
+    if (!currentProject) {
+      alert('未找到当前项目');
+      return;
+    }
+    const microStoriesToUse = microStoriesInOrder;
+    if (!microStoriesToUse || microStoriesToUse.length === 0) {
+      alert('没有找到保存的小故事，请先在情节结构细化页面生成并保存小故事');
+      return;
+    }
+
+    const totalChapters = maxAvailableChapter;
+    const initialChapters = getActiveGeneratedChapters();
+    const requestedLaneCount = opts.requestedLaneCount || parallelLaneCount;
+    const lanes = buildSegmentLanes(totalChapters, requestedLaneCount, initialChapters, availableChapterNumberSet);
+    const remainingTotal = lanes.reduce((sum, lane) => sum + lane.total, 0);
+    if (remainingTotal <= 0) {
+      alert('所有章节都已生成完毕。');
+      return;
+    }
+
+    if (!opts.skipConfirm) {
+      const confirmed = confirm(
+        `将启动${lanes.length}条15章线程并行静默生成，共补写 ${remainingTotal} 章。\n\n每条线程只负责自己的15章范围，例如1-15写完后不会越界写16章。确定继续吗？`
+      );
+      if (!confirmed) return;
+    }
+
+    generationLockRef.current = true;
+    generationCancelledRef.current = false;
+    pauseStreamingFollow();
+    setIsSegmentGenerating(true);
+    setSegmentProgress({
+      lanes,
+      completed: 0,
+      total: remainingTotal,
+      message: `正在启动${lanes.length}条15章线程并行生成...`,
+    });
+    setGenerationState({
+      isGenerating: true,
+      currentGeneratingChapter: null,
+      totalChapters: remainingTotal,
+      completedChapters: [],
+    });
+
+    try {
+      const laneWorkers = lanes.map(async (lane) => {
+        try {
+          if (lane.total <= 0) return;
+          if (generationCancelledRef.current) throw new Error('生成已被终止');
+
+          const chaptersForContinuity = {
+            ...getActiveGeneratedChapters(),
+            ...generatedChaptersRef.current,
+          };
+          const ranges = getSegmentAvailableRanges(lane.start, lane.end, chaptersForContinuity);
+          if (ranges.length === 0) {
+            updateSegmentLaneProgress(lane.id, {
+              current: null,
+              completed: 0,
+              status: 'completed',
+            }, `第${lane.id}条线程无需补写`);
+            return;
+          }
+
+          updateSegmentLaneProgress(lane.id, {
+            current: ranges[0].start,
+            status: 'running',
+            completed: 0,
+          }, `第${lane.id}条线程正在生成第${ranges[0].start}-${ranges[0].end}${unitLabel}`);
+
+          const laneGenerated: {[key: number]: string} = {};
+          let laneCompleted = 0;
+          const committedChapters = new Set<number>();
+          for (const range of ranges) {
+            if (generationCancelledRef.current) throw new Error('生成已被终止');
+            const latestChaptersForContinuity = {
+              ...getActiveGeneratedChapters(),
+              ...generatedChaptersRef.current,
+              ...laneGenerated,
+            };
+            updateSegmentLaneProgress(lane.id, {
+              current: range.start,
+              status: 'running',
+              completed: laneCompleted,
+            }, `第${lane.id}条线程正在生成第${range.start}-${range.end}${unitLabel}`);
+            const commitSegmentChapter = (chapterNumber: number, content: string) => {
+              if (committedChapters.has(chapterNumber)) return;
+              committedChapters.add(chapterNumber);
+              laneGenerated[chapterNumber] = content;
+              laneCompleted = Object.keys(laneGenerated).length;
+              const updatedChapters = persistGeneratedChapters({ [chapterNumber]: content });
+              generatedChaptersRef.current = updatedChapters;
+              setGenerationState(prev => ({
+                ...prev,
+                completedChapters: prev.completedChapters.includes(chapterNumber)
+                  ? prev.completedChapters
+                  : [...prev.completedChapters, chapterNumber],
+              }));
+              if (chapterNumber === currentChapterRef.current) {
+                setGeneratedContent(content);
+              }
+              const nextChapterInRange = availableChapterNumbers.find(chapter =>
+                chapter > chapterNumber &&
+                chapter <= range.end &&
+                !committedChapters.has(chapter)
+              );
+              updateSegmentLaneProgress(lane.id, {
+                current: nextChapterInRange || chapterNumber,
+                completed: laneCompleted,
+                status: 'running',
+              }, `第${lane.id}条线程已完成第${chapterNumber}${unitLabel}`);
+            };
+            const generatedRange = await generateChapterRangeForSegment(
+              range.start,
+              range.end,
+              latestChaptersForContinuity,
+              {
+                onChapterStart: (chapterNumber) => {
+                  updateSegmentLaneProgress(lane.id, {
+                    current: chapterNumber,
+                    completed: laneCompleted,
+                    status: 'running',
+                  }, `第${lane.id}条线程正在生成第${chapterNumber}${unitLabel}`);
+                },
+                onChapterComplete: commitSegmentChapter,
+              },
+            );
+            Object.entries(generatedRange).forEach(([chapterNumberText, content]) => {
+              commitSegmentChapter(Number(chapterNumberText), content);
+            });
+            updateSegmentLaneProgress(lane.id, {
+              current: range.end,
+              completed: laneCompleted,
+              status: 'running',
+            }, `第${lane.id}条线程已完成第${range.start}-${range.end}${unitLabel}`);
+          }
+
+          const generatedNumbers = Object.keys(laneGenerated).map(Number).sort((a, b) => a - b);
+
+          if (laneGenerated[currentChapterRef.current]) {
+            setGeneratedContent(laneGenerated[currentChapterRef.current]);
+          }
+
+          updateSegmentLaneProgress(lane.id, {
+            current: null,
+            completed: generatedNumbers.length,
+            status: 'completed',
+          }, `第${lane.id}条线程已完成（${lane.start}-${lane.end}）`);
+        } catch (error) {
+          updateSegmentLaneProgress(lane.id, {
+            current: null,
+            status: 'failed',
+          }, `第${lane.id}条线程中断，已完成章节已保存`);
+          throw error;
+        }
+      });
+
+      await Promise.all(laneWorkers);
+      if (generationCancelledRef.current) throw new Error('生成已被终止');
+
+      const finalChapters = getActiveGeneratedChapters(generatedChaptersRef.current);
+      await simulateSaveContent(finalChapters);
+      setSegmentProgress(prev => prev ? {
+        ...prev,
+        completed: remainingTotal,
+        message: `15章线程并行生成完成，共补写 ${remainingTotal} 章。`,
+      } : prev);
+      alert(`15章线程并行生成完成，共补写 ${remainingTotal} 章。`);
+    } catch (error) {
+      console.error('15章线程并行生成失败:', error);
+      if (!generationCancelledRef.current) {
+        setSegmentProgress(prev => prev ? {
+          ...prev,
+          message: '15章线程并行生成中断，已完成章节已保存，可再次点击继续补空白章节。',
+        } : prev);
+        alert('15章线程并行生成中断，已完成章节已保存，可再次点击继续补空白章节。');
+      }
+    } finally {
+      setIsSegmentGenerating(false);
+      setIsBatchGenerating(false);
+      setIsFullCycleGenerating(false);
+      setGenerationState({
+        isGenerating: false,
+        currentGeneratingChapter: null,
+        totalChapters: 0,
+        completedChapters: [],
+      });
+      generationLockRef.current = false;
+    }
+  };
+
   // 模拟批量生成的函数 - 支持可变数量的章节生成
   // 【关键修复】添加expectedStartChapter和expectedChapterCount参数，避免依赖异步状态
   const simulateBatchGeneration = async (expectedStartChapter?: number, expectedChapterCount?: number, allGeneratedChapters?: {[key: number]: string}): Promise<{[key: number]: string}> => {
@@ -1608,7 +2139,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           return;
         }
 
-        const microStoriesToUse = currentProject.selectedMicroStories || microStoriesInOrder;
+        const microStoriesToUse = isMicrodrama
+          ? (currentProject.selectedMicroStories || microStoriesInOrder)
+          : alignedMicroStoriesForWriting;
 
         if (!microStoriesToUse || microStoriesToUse.length < storiesPerBatch) {
           reject(new Error(`需要至少保存${storiesPerBatch}个${isMicrodrama ? '分集' : '小故事'}才能进行批量生成`));
@@ -1981,7 +2514,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   };
 
-  const buildGenerationContext = (currentBatchStartChapter?: number): string => {
+  const buildGenerationContext = (currentBatchStartChapter?: number, contextUnitCount = unitsPerBatch): string => {
     if (!currentProject) return '';
 
     let context = `=== ${currentProject.bookName} - 完整故事架构背景 ===\n\n`;
@@ -2024,19 +2557,19 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     // 当前批次相关的小故事/分集细纲
     if (microStoriesInOrder && microStoriesInOrder.length > 0) {
       const startChapter = currentBatchStartChapter || 1;
-      const batchIndex = Math.floor((startChapter - 1) / unitsPerBatch);
-      const startStoryIndex = batchIndex * storiesPerBatch;
-      const relevantStories = microStoriesInOrder.slice(startStoryIndex, startStoryIndex + storiesPerBatch);
+      const unitsInContext = Math.max(1, contextUnitCount);
+      const endChapter = startChapter + unitsInContext - 1;
+      const relevantStories = chapterStoryEntries.filter(entry =>
+        entry.chapterNumber >= startChapter && entry.chapterNumber <= endChapter
+      );
 
       if (relevantStories.length > 0) {
         context += `【本批次${isMicrodrama ? '分集' : '小故事'}细纲】\n`;
-        relevantStories.forEach((story, index) => {
-          const globalIndex = startStoryIndex + index;
-          const chapterOffset = globalIndex * unitsPerMicroStory;
+        relevantStories.forEach(({ story, chapterNumber }, index) => {
           const rangeText = isMicrodrama
-            ? `第${chapterOffset + 1}集`
-            : `第${chapterOffset + 1}章`;
-          context += `${isMicrodrama ? '分集' : '小故事'}${globalIndex + 1}（${rangeText}）：\n`;
+            ? `第${chapterNumber}集`
+            : `第${chapterNumber}章`;
+          context += `${isMicrodrama ? '分集' : '小故事'}${index + 1}（${rangeText}）：\n`;
           context += `标题：${story.title}\n`;
           context += `内容：${story.content}\n\n`;
         });
@@ -2045,14 +2578,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     // 特别强调当前章节/当前集对应的剧情边界
     if (microStoriesInOrder && microStoriesInOrder.length > 0) {
-      const currentStoryIndex = currentChapter - 1;
-      const currentStory = microStoriesInOrder[currentStoryIndex];
+      const currentStoryChapter = currentBatchStartChapter || currentChapter;
+      const currentStory = getMicroStoryForChapter(currentStoryChapter);
 
       if (currentStory) {
         context += `【当前${unitLabel === '集' ? '单集' : '章节'}剧情边界参考】\n`;
         context += isMicrodrama
-          ? `当前集：第${currentChapter}集\n`
-          : `章节：第${currentChapter}章\n`;
+          ? `当前集：第${currentStoryChapter}集\n`
+          : `章节：第${currentStoryChapter}章\n`;
         context += `对应${isMicrodrama ? '分集' : '小故事'}：${currentStory.title}\n`;
         context += `${isMicrodrama ? '分集' : '小故事'}详细内容：${currentStory.content}\n`;
         context += `所属中故事：${currentStory.macroStoryTitle}\n\n`;
@@ -2125,7 +2658,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   const startEditChapter = () => {
-    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter) return;
     pendingEditScrollYRef.current = window.scrollY;
     setIsEditingChapter(true);
     setChapterDraft(generatedChapters[currentChapter] ?? generatedContent ?? '');
@@ -2141,7 +2674,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const clearCurrentChapter = () => {
     if (!currentProject) return;
-    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter) return;
 
     const currentContent = visibleChapterContent;
     if (!currentContent) {
@@ -2170,7 +2703,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const rewriteCurrentChapterLength = async () => {
     if (!currentProject) return;
-    if (isEditingChapter || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter) return;
+    if (isEditingChapter || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter) return;
 
     const currentContent = visibleChapterContent;
     if (!currentContent) {
@@ -2182,8 +2715,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       return;
     }
 
-    const chapterIndex = currentChapter - 1;
-    const storyData = microStoriesInOrder?.[chapterIndex];
+    const storyData = getMicroStoryForChapter(currentChapter);
     const directionText = rewritePercent > 0 ? '膨胀' : '压缩';
     const confirmed = confirm(
       `将把第${currentChapter}${unitLabel}按当前内容重新${directionText} ${Math.abs(rewritePercent)}%，目标约 ${rewriteTargetWords} 字。\n\n重写结果会覆盖当前${unitLabel}正文，确定继续吗？`
@@ -2313,7 +2845,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/70 rounded-lg border border-secondary-200">
                   <BookOpen className="w-4 h-4 text-primary-600" />
                   <div className="text-sm font-medium text-secondary-800">
-                    {generationState.isGenerating ? (
+                    {isSegmentGenerating ? (
+                      <>
+                        <span>15章线程</span>
+                        <div className="flex items-center ml-2">
+                          <div className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse"></div>
+                          <span className="ml-1 text-xs text-cyan-700 font-medium">静默生成中</span>
+                        </div>
+                      </>
+                    ) : generationState.isGenerating ? (
                       <>
                         <span>{getUnitRangeDisplay(generationState.currentGeneratingChapter || 1)}</span>
                         <span className="ml-2 text-orange-600 font-bold">
@@ -2356,7 +2896,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                  <button
 	                    type="button"
 	                    onClick={() => setActionFirstScript(prev => !prev)}
-	                    disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter}
+	                    disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter}
 	                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:cursor-not-allowed ${
 	                      actionFirstScript
 	                        ? 'bg-emerald-600 border-emerald-600 text-white'
@@ -2429,7 +2969,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             <div className="flex items-center space-x-3 flex-shrink-0">
               {/* 生成控制按钮 */}
               <div className="flex flex-col space-y-2">
-                {generationState.isGenerating && (!autoFollowStreaming || currentChapter !== generationState.currentGeneratingChapter) && (
+                {generationState.isGenerating && generationState.currentGeneratingChapter && (!autoFollowStreaming || currentChapter !== generationState.currentGeneratingChapter) && (
                   <button
                     onClick={followLatestStreamingOutput}
                     className="flex items-center justify-center space-x-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors text-sm"
@@ -2529,7 +3069,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   </div>
                   <div className="text-sm text-secondary-500 mt-1">
                     已生成: {Object.keys(generatedChapters).length} {unitLabel}
-                    {generationState.isGenerating && (
+                    {generationState.isGenerating && !isSegmentGenerating && (
                       <span className="ml-2 text-orange-600">
                         (第{generationState.currentGeneratingChapter}{unitLabel}进行中...)
                       </span>
@@ -2555,7 +3095,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           setTargetNovelWords(normalizeTargetNovelWords(e.target.value));
                         }
                       }}
-                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating}
+                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating}
                       className="w-28 px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
                     />
                     <span className="text-sm text-secondary-600">字/{unitLabel}</span>
@@ -2610,7 +3150,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
 	                  <button
 	                    onClick={() => generateBatchContent()}
-	                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || isRewritingChapter || (() => {
+	                    disabled={isBatchGenerating || isGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter || (() => {
 	                      const generatedCount = getGeneratedChapterNumbers().length;
 	                      const batchIndex = Math.floor(generatedCount / unitsPerBatch); // 当前是第几批
 	                      const requiredStories = (batchIndex + 1) * storiesPerBatch;
@@ -2642,13 +3182,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                   <button
                     onClick={generateFullCycleContent}
-                    disabled={isGenerating || isBatchGenerating || isFullCycleGenerating || isRewritingChapter || !currentProject?.savedMicroStories?.length}
+                    disabled={isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter || !currentProject?.savedMicroStories?.length}
                     className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-lg font-semibold transition-all duration-200 disabled:cursor-not-allowed"
                   >
-                    {isFullCycleGenerating ? (
+                    {isFullCycleGenerating || isSegmentGenerating ? (
                       <>
                         <RefreshCw className="w-6 h-6 animate-spin" />
-                        <span>循环生成中...</span>
+                        <span>{isMicrodrama ? '循环生成中...' : '并行生成中...'}</span>
                       </>
                     ) : (
                       <>
@@ -2657,12 +3197,50 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                           {microStoriesInOrder?.length
                             ? isMicrodrama
                               ? `一键循环生成 (${microStoriesInOrder.length}集剧本正文)`
-                              : `一键循环生成 (${microStoriesInOrder.length}个小故事 → ${microStoriesInOrder.length}章)`
+                              : `一键并行生成 (${microStoriesInOrder.length}个小故事，最高第${maxAvailableChapter}章)`
                             : '一键循环生成'}
                         </span>
                       </>
                     )}
                   </button>
+
+                  {!isMicrodrama && (
+                    <div className="p-3 bg-white/80 border border-secondary-200 rounded-lg space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-secondary-900">15章线程并行生成</div>
+                          <div className="text-xs text-secondary-500 mt-1">每条线程写15章，75章可一次开5线程跑完</div>
+                        </div>
+                        <select
+                          value={parallelLaneCount}
+                          onChange={(event) => setParallelLaneCount(Number(event.target.value))}
+                          disabled={hasActiveGeneration || isRewritingChapter}
+                          className="px-2 py-1.5 border border-secondary-300 rounded-lg text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                          title="选择并行线程数量"
+                        >
+                          <option value={5}>5线程</option>
+                          <option value={10}>10线程</option>
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => generateSegmentParallelContent()}
+                        disabled={isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter || !currentProject?.savedMicroStories?.length}
+                        className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-slate-700 to-cyan-700 hover:from-slate-800 hover:to-cyan-800 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-lg font-semibold transition-all duration-200 disabled:cursor-not-allowed"
+                      >
+                        {isSegmentGenerating ? (
+                          <>
+                            <RefreshCw className="w-6 h-6 animate-spin" />
+                            <span>线程并行中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-6 h-6" />
+                            <span>{parallelLaneCount}线程并行生成</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
 
                   {/* 一键循环生成进度显示 */}
                   {fullCycleProgress && (
@@ -2711,6 +3289,54 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     </div>
                   )}
 
+                  {segmentProgress && (
+                    <div className="mt-4 p-4 bg-gradient-to-r from-slate-50 to-cyan-50 rounded-lg border border-cyan-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-cyan-500 rounded-full animate-pulse"></div>
+                          <span className="text-sm font-medium text-cyan-800">
+                            {segmentProgress.completed}/{segmentProgress.total} 章
+                          </span>
+                        </div>
+                        <span className="text-xs text-cyan-700">{segmentProgress.lanes.length}线程并行</span>
+                      </div>
+
+                      <div className="w-full bg-cyan-100 rounded-full h-2 mb-3">
+                        <div
+                          className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${segmentProgress.total ? (segmentProgress.completed / segmentProgress.total) * 100 : 0}%` }}
+                        ></div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {segmentProgress.lanes.map(lane => (
+                          <div key={lane.id} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="font-medium text-secondary-700">
+                              {lane.id}线程 {lane.start}-{lane.end}
+                            </span>
+                            <span className={
+                              lane.status === 'failed'
+                                ? 'text-red-600'
+                                : lane.status === 'completed'
+                                  ? 'text-emerald-700'
+                                  : 'text-cyan-700'
+                            }>
+                              {lane.status === 'completed'
+                                ? '完成'
+                                : lane.current
+                                  ? `第${lane.current}章`
+                                  : '等待'} · {lane.completed}/{lane.total}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 text-xs text-cyan-700 text-center">
+                        {segmentProgress.message}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 <div className="p-4 bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200 rounded-lg">
@@ -2747,6 +3373,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         generationState.isGenerating ||
                         isBatchGenerating ||
                         isFullCycleGenerating ||
+                        isSegmentGenerating ||
                         isRewritingChapter
                       }
                       className="w-full accent-sky-600"
@@ -2769,6 +3396,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                             generationState.isGenerating ||
                             isBatchGenerating ||
                             isFullCycleGenerating ||
+                            isSegmentGenerating ||
                             isRewritingChapter
                           }
                           className="px-2 py-1 bg-white hover:bg-sky-100 disabled:bg-gray-100 disabled:text-gray-400 border border-sky-200 text-sky-800 rounded text-xs font-medium"
@@ -2786,6 +3414,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         generationState.isGenerating ||
                         isBatchGenerating ||
                         isFullCycleGenerating ||
+                        isSegmentGenerating ||
                         isRewritingChapter ||
                         rewritePercent === 0
                       }
@@ -2856,6 +3485,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                          generationState.isGenerating ||
 	                          isBatchGenerating ||
 	                          isFullCycleGenerating ||
+                            isSegmentGenerating ||
 	                          isRewritingChapter ||
 		                          !visibleChapterContent
 	                        }
@@ -2986,7 +3616,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                 {(() => {
                   const chapterIndex = currentChapter - 1;
-                  const currentMicroStory = microStoriesInOrder?.[chapterIndex];
+                  const currentMicroStory = isMicrodrama
+                    ? microStoriesInOrder?.[chapterIndex]
+                    : getMicroStoryForChapter(currentChapter);
 
                   if (currentMicroStory) {
                     return (
@@ -3060,6 +3692,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                         generationState.isGenerating ||
                         isBatchGenerating ||
                         isFullCycleGenerating ||
+                        isSegmentGenerating ||
                         isRewritingChapter ||
 	                        !visibleChapterContent
                       }

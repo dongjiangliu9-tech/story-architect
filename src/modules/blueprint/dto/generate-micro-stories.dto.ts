@@ -10,7 +10,7 @@ export class GenerateMicroStoriesDto extends LogicModelSelectionDto {
   storyIndex: string; // 中故事序号（如"一"、"二"、"三"）
 
   @IsString()
-  chapterRange?: string; // 章节范围（如"1-20"、"21-40"）
+  chapterRange?: string; // 章节范围（如"1-15"、"16-30"）
 
   @IsString()
   @IsOptional()

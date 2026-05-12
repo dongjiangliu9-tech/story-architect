@@ -260,6 +260,8 @@ export interface GenerateChapterDto {
   previousEnding?: string;
   savedMicroStories?: any[];
   generatedChapters?: { [key: number]: string };
+  nextExistingChapterNumber?: number;
+  nextExistingChapterContent?: string;
   mode?: 'novel' | 'microdrama';
   writerModelProvider?: 'deepseek' | 'gemini';
   actionFirstScript?: boolean;
