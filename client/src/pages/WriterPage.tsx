@@ -185,6 +185,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       total: number;
       status: 'pending' | 'running' | 'completed' | 'failed';
     }>;
+    requestedLaneCount: number;
     completed: number;
     total: number;
     message: string;
@@ -1959,7 +1960,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     if (!opts.skipConfirm) {
       const confirmed = confirm(
-        `将启动${lanes.length}条15章线程并行静默生成，共补写 ${remainingTotal} 章。\n\n每条线程只负责自己的15章范围，例如1-15写完后不会越界写16章。确定继续吗？`
+        `将按${requestedLaneCount}线程并行静默生成，当前拆成${lanes.length}个15章区段，共补写 ${remainingTotal} 章。\n\n每个区段只负责自己的15章范围，例如1-15写完后不会越界写16章。确定继续吗？`
       );
       if (!confirmed) return;
     }
@@ -1970,9 +1971,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     setIsSegmentGenerating(true);
     setSegmentProgress({
       lanes,
+      requestedLaneCount,
       completed: 0,
       total: remainingTotal,
-      message: `正在启动${lanes.length}条15章线程并行生成...`,
+      message: `正在启动${requestedLaneCount}线程并行生成，当前拆成${lanes.length}个15章区段...`,
     });
     setGenerationState({
       isGenerating: true,
@@ -2094,17 +2096,28 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         }
       });
 
-      await Promise.all(laneWorkers);
+      const laneResults = await Promise.allSettled(laneWorkers);
       if (generationCancelledRef.current) throw new Error('生成已被终止');
 
       const finalChapters = getActiveGeneratedChapters(generatedChaptersRef.current);
       await simulateSaveContent(finalChapters);
+      const failedCount = laneResults.filter(result => result.status === 'rejected').length;
+      const completedNow = getGeneratedChapterNumbers(finalChapters).filter(chapter =>
+        availableChapterNumberSet.has(chapter)
+      ).length;
+      const progressMessage = failedCount > 0
+        ? `${requestedLaneCount}线程并行生成已保存已完成章节；${failedCount}个区段中断，可再次点击继续补空白章节。`
+        : `${requestedLaneCount}线程并行生成完成，共补写 ${remainingTotal} 章。`;
       setSegmentProgress(prev => prev ? {
         ...prev,
-        completed: remainingTotal,
-        message: `15章线程并行生成完成，共补写 ${remainingTotal} 章。`,
+        completed: Math.min(prev.total, Math.max(prev.completed, completedNow)),
+        message: progressMessage,
       } : prev);
-      alert(`15章线程并行生成完成，共补写 ${remainingTotal} 章。`);
+      if (failedCount > 0) {
+        alert(`${requestedLaneCount}线程并行生成部分区段中断，已完成章节已保存。再次点击会继续补空白章节。`);
+      } else {
+        alert(`${requestedLaneCount}线程并行生成完成，共补写 ${remainingTotal} 章。`);
+      }
     } catch (error) {
       console.error('15章线程并行生成失败:', error);
       if (!generationCancelledRef.current) {
@@ -3298,7 +3311,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                             {segmentProgress.completed}/{segmentProgress.total} 章
                           </span>
                         </div>
-                        <span className="text-xs text-cyan-700">{segmentProgress.lanes.length}线程并行</span>
+                        <span className="text-xs text-cyan-700">
+                          {segmentProgress.requestedLaneCount}线程并行
+                          {segmentProgress.lanes.length !== segmentProgress.requestedLaneCount
+                            ? ` · ${segmentProgress.lanes.length}个区段`
+                            : ''}
+                        </span>
                       </div>
 
                       <div className="w-full bg-cyan-100 rounded-full h-2 mb-3">
