@@ -198,15 +198,78 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     return raw ? (safeParseJson(raw) as WriterStateSnapshot) : null;
   };
 
+  const stripProjectForCloud = (project: WorldSettingsProject): WorldSettingsProject => {
+    const { generatedChapters: _generatedChapters, savedVersions: _savedVersions, ...rest } = project;
+    return rest as WorldSettingsProject;
+  };
+
+  const stripWriterStateForCloud = (writerState: WriterStateSnapshot | null): WriterStateSnapshot | null => {
+    if (!writerState) return null;
+    const { generatedChapters: _generatedChapters, ...rest } = writerState;
+    return rest;
+  };
+
+  const getChangedChapters = (
+    previousChapters: { [key: number]: string } | undefined,
+    nextChapters: { [key: number]: string } | undefined,
+  ) => {
+    const changed: Record<string, string> = {};
+    const deleted: string[] = [];
+    const previous = previousChapters || {};
+    const next = nextChapters || {};
+
+    for (const [chapter, content] of Object.entries(next)) {
+      if (previous[Number(chapter)] !== content) {
+        changed[String(chapter)] = content;
+      }
+    }
+
+    for (const chapter of Object.keys(previous)) {
+      if (!(chapter in next)) {
+        deleted.push(chapter);
+      }
+    }
+
+    return { changed, deleted };
+  };
+
+  const syncProjectChaptersToCloud = (
+    projectId: number,
+    previousChapters: { [key: number]: string } | undefined,
+    nextChapters: { [key: number]: string } | undefined,
+    opts?: { replace?: boolean },
+  ) => {
+    if (!cloudProjectApi.hasActivationCode()) return;
+
+    if (opts?.replace) {
+      const chapters = Object.fromEntries(
+        Object.entries(nextChapters || {}).map(([chapter, content]) => [String(chapter), content])
+      );
+      cloudProjectApi.saveProjectChapters(projectId, { chapters, replace: true }).catch(error => {
+        console.warn('同步云端章节失败:', error);
+      });
+      return;
+    }
+
+    const { changed, deleted } = getChangedChapters(previousChapters, nextChapters);
+    if (Object.keys(changed).length === 0 && deleted.length === 0) return;
+    cloudProjectApi.saveProjectChapters(projectId, {
+      chapters: changed,
+      deletedChapters: deleted,
+    }).catch(error => {
+      console.warn('同步云端章节失败:', error);
+    });
+  };
+
   const buildCloudBundle = (projectsToSave: WorldSettingsProject[]): CloudProjectsBundle => {
     const writerStateByProjectId: Record<string, WriterStateSnapshot | null> = {};
     for (const project of projectsToSave) {
-      writerStateByProjectId[String(project.id)] = readWriterStateForProject(project.id);
+      writerStateByProjectId[String(project.id)] = stripWriterStateForCloud(readWriterStateForProject(project.id));
     }
     return {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       updatedAt: new Date().toISOString(),
-      projects: projectsToSave,
+      projects: projectsToSave.map(stripProjectForCloud),
       localState: {
         writerStateByProjectId,
       },
@@ -316,6 +379,12 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     for (const rawProject of cloudBundle.projects || []) {
       const cloudProject = normalizeProject(rawProject);
       if (!cloudProject) continue;
+      const cloudChapters = cloudBundle.localState?.generatedChaptersByProjectId?.[String(cloudProject.id)];
+      if (cloudChapters && Object.keys(cloudChapters).length > 0) {
+        cloudProject.generatedChapters = Object.fromEntries(
+          Object.entries(cloudChapters).map(([chapter, content]) => [Number(chapter), content])
+        );
+      }
       cloudById.set(cloudProject.id, cloudProject);
 
       const localProject = byId.get(cloudProject.id);
@@ -327,8 +396,11 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       }
 
       const writerState = cloudBundle.localState?.writerStateByProjectId?.[String(cloudProject.id)] as WriterStateSnapshot | null | undefined;
+      const writerStateWithChapters = writerState && cloudProject.generatedChapters
+        ? { ...writerState, generatedChapters: cloudProject.generatedChapters }
+        : writerState;
       if (writerState && !localStorage.getItem(`writer-state-${cloudProject.id}`)) {
-        restoreLocalStateForProject(cloudProject.id, writerState);
+        restoreLocalStateForProject(cloudProject.id, writerStateWithChapters);
       }
     }
 
@@ -403,14 +475,29 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     const updatedAt = new Date().toISOString();
 
     setProjects(prevProjects => {
+      const previousProject = prevProjects.find(project => project.id === projectId);
       const updatedProjects = prevProjects.map(project =>
         project.id === projectId
           ? { ...project, ...updates, updatedAt }
           : project
       );
+      const nextProject = updatedProjects.find(project => project.id === projectId);
+      const cloudMetadataKeys = Object.keys(updates).filter(key =>
+        key !== 'generatedChapters' && key !== 'savedVersions'
+      );
 
       saveToStorage(updatedProjects);
-      syncProjectsToCloud(updatedProjects);
+      if (cloudMetadataKeys.length > 0) {
+        syncProjectsToCloud(updatedProjects);
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'generatedChapters')) {
+        syncProjectChaptersToCloud(
+          projectId,
+          previousProject?.generatedChapters,
+          nextProject?.generatedChapters,
+          { replace: updates.generatedChapters === undefined },
+        );
+      }
       return updatedProjects;
     });
 
@@ -449,6 +536,7 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       setProjects(updatedProjects);
       saveToStorage(updatedProjects);
       syncProjectsToCloud(updatedProjects);
+      syncProjectChaptersToCloud(projectId, undefined, {}, { replace: true });
 
       // 同步更新当前项目引用
       if (currentProject?.id === projectId) {
@@ -483,6 +571,9 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       setProjects(updatedProjects);
       saveToStorage(updatedProjects);
       syncProjectsToCloud(updatedProjects);
+      for (const project of projects) {
+        syncProjectChaptersToCloud(project.id, undefined, {}, { replace: true });
+      }
 
       // 同步更新当前项目引用
       if (currentProject) {

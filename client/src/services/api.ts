@@ -376,6 +376,7 @@ export interface CloudProjectsBundle {
   projects: any[];
   localState?: {
     writerStateByProjectId?: Record<string, any>;
+    generatedChaptersByProjectId?: Record<string, Record<string, string>>;
   };
 }
 
@@ -409,6 +410,21 @@ export const cloudProjectApi = {
     const response = await api.post<CloudProjectsBundle>(
       `/cloud/projects/${encodeURIComponent(String(project?.id || ''))}`,
       { project, writerState },
+      { headers },
+    );
+    return response.data;
+  },
+
+  saveProjectChapters: async (
+    projectId: number | string,
+    data: { chapters?: Record<string, string>; deletedChapters?: Array<string | number>; replace?: boolean },
+    promptIfMissing = false,
+  ): Promise<CloudProjectsBundle | null> => {
+    const headers = buildActivationHeaders(promptIfMissing);
+    if (!headers) return null;
+    const response = await api.post<CloudProjectsBundle>(
+      `/cloud/projects/${encodeURIComponent(String(projectId))}/chapters`,
+      data,
       { headers },
     );
     return response.data;

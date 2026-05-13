@@ -34,6 +34,16 @@ export class CloudProjectsController {
     return this.cloudProjectsService.upsertProject(code, body.project, body.writerState);
   }
 
+  @Post(':id/chapters')
+  saveProjectChapters(
+    @Param('id') id: string,
+    @Body() body: { chapters?: Record<string, string>; deletedChapters?: Array<string | number>; replace?: boolean },
+    @Headers('x-activation-code') activationCode?: string,
+  ) {
+    const code = this.activationQuotaService.validateForUserData(activationCode);
+    return this.cloudProjectsService.saveProjectChapters(code, id, body);
+  }
+
   @Delete(':id')
   deleteProject(
     @Param('id') id: string,

@@ -927,6 +927,27 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     return confirm(`你有未保存的正文修改，确定要丢弃并离开当前${unitLabel}吗？`);
   };
 
+  const handleBackWithSaveGuard = () => {
+    if (hasActiveGeneration) return;
+
+    const savedCurrentContent = generatedChapters[currentChapter] || '';
+    const currentVisibleContent = (visibleChapterContent || '').trim();
+    const hasUnsavedEdit = isEditingChapter && chapterDraftTouched;
+    const hasUnpersistedVisibleContent = currentVisibleContent && currentVisibleContent !== savedCurrentContent.trim();
+
+    if (hasUnsavedEdit || hasUnpersistedVisibleContent) {
+      const confirmed = confirm(
+        `当前第${currentChapter}${unitLabel}可能还有未保存内容。\n\n确定已经保存好，再返回上一页吗？`
+      );
+      if (!confirmed) return;
+    } else {
+      const confirmed = confirm('返回上一页前，请确认当前项目内容已经保存。确定返回吗？');
+      if (!confirmed) return;
+    }
+
+    onBack();
+  };
+
   const jumpToChapterGroup = () => {
     if (!confirmDiscardChapterEdits()) return;
     const targetChapter = parseInt(jumpToChapter);
@@ -3208,7 +3229,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             {/* 左侧：返回和标题 */}
             <div className="flex items-center space-x-3 flex-shrink-0">
               <button
-                onClick={onBack}
+                onClick={handleBackWithSaveGuard}
                 disabled={hasActiveGeneration}
                 className={`p-2 rounded-lg transition-colors ${
                   hasActiveGeneration
