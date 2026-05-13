@@ -79,7 +79,7 @@ export class LlmService {
         ) || 'https://getways-jumu.zeelin.cn/v1',
       ...(gatewayHttpAgent ? { httpAgent: gatewayHttpAgent } : {}),
       timeout: 300000,
-      maxRetries: 1,
+      maxRetries: 0,
       defaultHeaders: {
         Connection: 'keep-alive',
       },
