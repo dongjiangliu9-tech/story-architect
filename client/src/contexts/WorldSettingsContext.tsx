@@ -93,6 +93,7 @@ export interface WorldSettingsProject {
   preferredLlmModel?: string;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
   microStoryOutlines?: {[key: string]: string}; // 中故事ID -> 小故事细纲内容
+  microStoryEpisodeCount?: 15 | 30 | 60 | 100; // 当前小故事/分集细纲是按多少集微短剧生成的
   savedMicroStories?: SavedMicroStory[]; // 保存的小故事列表
   selectedMicroStories?: SavedMicroStory[]; // 已选择用于生成的小故事
   generatedChapters?: {[key: number]: string}; // 生成的章节内容

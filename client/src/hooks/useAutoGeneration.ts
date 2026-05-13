@@ -122,6 +122,13 @@ export function useAutoGeneration() {
     setSteps(initialSteps);
   }, []);
 
+  const sortGeneratedMicroStories = (stories: any[]) => [...stories].sort((a, b) => {
+    const ma = Number(String(a.macroStoryId).replace('story_', ''));
+    const mb = Number(String(b.macroStoryId).replace('story_', ''));
+    if (ma !== mb) return ma - mb;
+    return Number(a.order || 0) - Number(b.order || 0);
+  });
+
   const formatOutlineData = (outline: OutlineData): string => {
     return `### ${outline.title}
 ${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
@@ -151,6 +158,8 @@ ${outline.themes}`;
   ) => {
     setIsAutoGenerating(true);
     initializeSteps();
+    let lastSafeDestination: AutoGenerationDestination = 'world-setting';
+    let autoProject: ReturnType<typeof createProject> | null = null;
 
     try {
       const targetMode = options.target === 'novel-75' ? 'novel' : 'microdrama';
@@ -181,6 +190,18 @@ ${outline.themes}`;
       const outlineData = formatOutlineData(selectedOutline);
       const logicModelRequest = getLogicModelRequestFromSources(selectedOutline);
       const preferredLogicModelFields = toPreferredLogicModelFields(logicModelRequest.llmModel);
+      autoProject = createProject(bookName, selectedOutline, {
+        detailedOutlineMode: targetMode,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent: true,
+        autoGenerationMode: true,
+        autoGenerationStarted: false,
+        ...preferredLogicModelFields,
+      });
+      const persistAutoProject = (updates: Parameters<typeof updateProject>[1]) => {
+        if (!isMountedRef.current || !autoProject) return;
+        updateProject(autoProject.id, updates);
+      };
 
       // 2. 生成世界观基础设定
       updateStep('generate-world', { status: 'running', message: '正在生成世界观基础设定...' });
@@ -199,6 +220,12 @@ ${outline.themes}`;
         setCachedData(bookName, 'world-setting', worldResponse.data);
         updateStep('generate-world', { status: 'completed', message: '世界观基础设定生成完成' });
       }
+      persistAutoProject({
+        worldSetting: worldResponse.data,
+        detailedOutlineMode: targetMode,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent: true,
+      });
 
       const cachedExpandedWorld = getCachedData(bookName, expandedWorldCacheKey);
       if (isMicrodrama) {
@@ -222,6 +249,9 @@ ${outline.themes}`;
         setCachedData(bookName, expandedWorldCacheKey, worldResponse.data);
         updateStep('generate-world', { status: 'completed', message: '世界观扩充完成：已补充势力与副本' });
       }
+      persistAutoProject({
+        worldSetting: worldResponse.data,
+      });
 
       // 3. 生成人物设定
       updateStep('generate-characters', { status: 'running', message: '正在生成人物设定...' });
@@ -241,6 +271,10 @@ ${outline.themes}`;
         setCachedData(bookName, 'characters', charactersResponse.data);
         updateStep('generate-characters', { status: 'completed', message: '人物设定生成完成' });
       }
+      persistAutoProject({
+        worldSetting: worldResponse.data,
+        characters: charactersResponse.data,
+      });
 
       const cachedExpandedCharacters = getCachedData(bookName, expandedCharactersCacheKey);
       if (isMicrodrama) {
@@ -265,6 +299,10 @@ ${outline.themes}`;
         setCachedData(bookName, expandedCharactersCacheKey, charactersResponse.data);
         updateStep('generate-characters', { status: 'completed', message: '人物设定扩充完成：已补充阶段出场角色' });
       }
+      persistAutoProject({
+        worldSetting: worldResponse.data,
+        characters: charactersResponse.data,
+      });
 
       // 4. 生成情节细纲
       updateStep('generate-outline', { status: 'running', message: '正在生成情节细纲...' });
@@ -290,6 +328,14 @@ ${outline.themes}`;
         setCachedData(bookName, outlineCacheKey, outlineResponse.data);
         updateStep('generate-outline', { status: 'completed', message: `${targetLabel}情节细纲生成完成` });
       }
+      persistAutoProject({
+        worldSetting: worldResponse.data,
+        characters: charactersResponse.data,
+        detailedOutline: outlineResponse.data,
+        detailedOutlineMode: targetMode,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent: true,
+      });
 
       updateStep('density-iterate', { status: 'running', message: '正在进行单轮三密度滑块迭代...' });
       setCurrentStepMessage('正在进行单轮三密度滑块迭代...');
@@ -359,12 +405,21 @@ ${outline.themes}`;
       outlineResponse = { data: detailedOutline };
       setCachedData(bookName, finalOutlineCacheKey, detailedOutline);
       updateStep('density-iterate', { status: 'completed', progress: 100, message: '单轮密度迭代完成，采用高强度结果' });
+      persistAutoProject({
+        worldSetting: worldResponse.data,
+        characters: charactersResponse.data,
+        detailedOutline: outlineResponse.data,
+        detailedOutlineMode: targetMode,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+        densityTuningLevels: currentDensityLevels,
+        reduceSensitiveContent: true,
+      });
 
       // 5. 保存项目
       updateStep('save-project', { status: 'running', message: '正在保存项目...' });
       setCurrentStepMessage('正在保存项目...');
 
-      const newProject = createProject(bookName, selectedOutline, {
+      persistAutoProject({
         worldSetting: worldResponse.data,
         characters: charactersResponse.data,
         detailedOutline: outlineResponse.data,
@@ -374,6 +429,9 @@ ${outline.themes}`;
         reduceSensitiveContent: true,
         ...preferredLogicModelFields,
       });
+      const newProject = autoProject;
+      if (!newProject) throw new Error('自动项目初始化失败');
+      lastSafeDestination = 'world-setting';
 
       updateStep('save-project', { status: 'completed', message: '项目保存完成' });
 
@@ -389,6 +447,7 @@ ${outline.themes}`;
       }
 
       // 6. 细化全部中故事为小故事/分集细纲
+      lastSafeDestination = 'story-structure';
       updateStep('micro-stories', { status: 'running', message: `正在细化全部中故事为${isMicrodrama ? '分集' : '小故事'}细纲...` });
       setCurrentStepMessage(`正在细化全部中故事为${isMicrodrama ? '分集' : '小故事'}细纲...`);
 
@@ -450,6 +509,18 @@ ${outline.themes}`;
           microStoryOutlines[`story_${macroIndex}`] = microResponse.data;
           const microStories = parseMicroStories(microResponse.data, macroIndex, macroStory.title, macroStory.content, chapterRange.start, isMicrodrama ? '集' : '章');
           savedMicroStories = [...savedMicroStories, ...microStories];
+          if (isMountedRef.current) {
+            const sortedPartial = sortGeneratedMicroStories(savedMicroStories);
+            updateProject(newProject.id, {
+              microStoryOutlines,
+              savedMicroStories: sortedPartial,
+              selectedMicroStories: sortedPartial,
+              microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+              autoSelectedStories: true,
+              autoGenerationMode: true,
+              autoGenerationStarted: false,
+            });
+          }
 
           if (options.pauseAfter === 'first-micro-story' && savedMicroStories.length > 0) {
             savedMicroStories.sort((a, b) => {
@@ -464,6 +535,7 @@ ${outline.themes}`;
                 savedMicroStories,
                 selectedMicroStories: savedMicroStories,
                 microStoryOutlines,
+                microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
                 autoSelectedStories: true,
                 autoGenerationMode: true,
                 autoGenerationStarted: false,
@@ -520,6 +592,7 @@ ${outline.themes}`;
             savedMicroStories,
             selectedMicroStories: savedMicroStories,
             microStoryOutlines,
+            microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
             autoSelectedStories: true,
             autoGenerationMode: true,
             autoGenerationStarted: true,
@@ -551,13 +624,23 @@ ${outline.themes}`;
     } catch (error) {
       console.error('自动生成失败:', error);
       const errorStep = steps.find(step => step.status === 'running');
+      const message = error instanceof Error ? error.message : '自动生成失败';
       if (errorStep) {
         updateStep(errorStep.id, {
           status: 'error',
-          message: error instanceof Error ? error.message : '生成失败'
+          message
         });
       }
-      onError(error instanceof Error ? error.message : '自动生成失败');
+      if (autoProject) {
+        updateProject(autoProject.id, {
+          autoGenerationMode: false,
+          autoGenerationStarted: false,
+        });
+        onError(`${message}\n\n已保存本次自动生成中已经完成的内容，可从当前项目继续手动生成或重试。`);
+        onComplete(autoProject.id, lastSafeDestination);
+      } else {
+        onError(message);
+      }
     } finally {
       setIsAutoGenerating(false);
     }

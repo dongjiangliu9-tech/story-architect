@@ -132,8 +132,18 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         micro: '单章小故事细纲',
         microButton: '生成单章细纲',
         emptyHint: '点击左侧的中故事列表，选择要查看的单章小故事细纲',
-      };
+  };
   const savedUnitLabel = isMicrodrama ? '分集' : isLiterature ? '小节细纲' : '章节细纲';
+  const projectMicroStoryEpisodeCount = currentProject?.microStoryEpisodeCount;
+  const projectHasMicroStoryData = Boolean(
+    currentProject?.savedMicroStories?.length ||
+    Object.keys(currentProject?.microStoryOutlines || {}).length
+  );
+  const legacyMicroStoryCount = currentProject?.savedMicroStories?.length || 0;
+  const hasMicrodramaEpisodeCountMismatch = isMicrodrama && projectHasMicroStoryData && (
+    (projectMicroStoryEpisodeCount !== undefined && projectMicroStoryEpisodeCount !== microdramaEpisodeCount) ||
+    (projectMicroStoryEpisodeCount === undefined && microdramaEpisodeCount > 15 && legacyMicroStoryCount > 0 && legacyMicroStoryCount <= 15)
+  );
   // 用索引而不是内容字符串来选择中故事，避免内容重复/空白差异导致 indexOf 失效
   const [selectedMacroStoryIndex, setSelectedMacroStoryIndex] = useState<number | null>(null);
   const [macroStories, setMacroStories] = useState<string[]>([]);
@@ -649,8 +659,35 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     return !!microStoryOutlines[prevStoryKey] || hasSavedMicroStoriesFor(prevStoryKey);
   };
 
+  const clearMicroStoriesForLatestEpisodeCount = () => {
+    if (!currentProject) return;
+    const confirmed = confirm(
+      `当前项目的人设与世界观页已选定为 ${microdramaEpisodeCount} 集微短剧。\n\n如果这里还残留旧规格的分集细纲，继续生成可能会沿用旧容量。是否清空当前所有分集细纲，按 ${microdramaEpisodeCount} 集重新生成？`
+    );
+    if (!confirmed) return;
+
+    setMicroStoryOutlines({});
+    setMicroStoryDraftsByMacro({});
+    setSelectedMicroStoryIndexesByMacro({});
+    setEditingMicroStory(null);
+    setExpandedStories({});
+    updateProject(currentProject.id, {
+      microStoryOutlines: {},
+      savedMicroStories: [],
+      selectedMicroStories: [],
+      microStoryEpisodeCount: microdramaEpisodeCount,
+      autoSelectedStories: false,
+      autoGenerationMode: false,
+      autoGenerationStarted: false,
+    });
+  };
+
   // 生成小故事细纲
   const generateMicroStories = async (storyIndex: number, macroStory: string) => {
+    if (hasMicrodramaEpisodeCountMismatch) {
+      alert(`当前分集细纲规格与 ${microdramaEpisodeCount} 集设置不一致。请先清空旧分集，再按最新集数重新生成。`);
+      return;
+    }
     // 检查是否可以生成
     if (!canGenerateStory(storyIndex)) {
       alert('请先按顺序生成前面的中故事');
@@ -706,6 +743,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           microStoryOutlines: newOutlines,
           savedMicroStories: updatedSaved,
           selectedMicroStories: updatedSaved,
+          microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
           autoSelectedStories: false,
           autoGenerationMode: false,
           autoGenerationStarted: false,
@@ -724,6 +762,11 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const batchGenerateAndSaveMicroStories = async (opts: { continueToWriter?: boolean } = {}) => {
     if (!currentProject) {
       alert('未找到当前项目');
+      return;
+    }
+
+    if (hasMicrodramaEpisodeCountMismatch) {
+      alert(`当前分集细纲规格与 ${microdramaEpisodeCount} 集设置不一致。请先清空旧分集，再按最新集数重新生成。`);
       return;
     }
 
@@ -790,7 +833,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
           // 保存到项目
           updateProject(currentProject.id, {
-            microStoryOutlines: generatedOutlines
+            microStoryOutlines: generatedOutlines,
+            microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
           });
         }
 
@@ -824,6 +868,17 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           );
 
           allSavedMicroStories = [...filteredSaved, ...savedMicroStories];
+
+          const sortedPartialSaved = sortSavedMicroStoriesForChapters(allSavedMicroStories);
+          updateProject(currentProject.id, {
+            microStoryOutlines: generatedOutlines,
+            savedMicroStories: sortedPartialSaved,
+            selectedMicroStories: sortedPartialSaved,
+            microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+            autoSelectedStories: !!opts.continueToWriter,
+            autoGenerationMode: !!opts.continueToWriter,
+            autoGenerationStarted: false,
+          });
         }
       }
 
@@ -842,6 +897,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       updateProject(currentProject.id, {
         savedMicroStories: sortedSavedMicroStories,
         selectedMicroStories: sortedSavedMicroStories,
+        microStoryOutlines: generatedOutlines,
+        microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         autoSelectedStories: !!opts.continueToWriter,
         autoGenerationMode: !!opts.continueToWriter,
         autoGenerationStarted: !!opts.continueToWriter,
@@ -870,7 +927,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     } catch (error) {
       console.error('批量生成失败:', error);
-      alert('批量生成过程中出现错误，请稍后重试');
+      alert('批量生成过程中出现错误。已经生成并保存的分集/小故事不会丢失，可稍后继续生成下一批。');
     } finally {
       setBatchGenerating(false);
       setBatchGenerationProgress(null);
@@ -959,6 +1016,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     updateProject(currentProject.id, {
       savedMicroStories: updatedSaved,
       selectedMicroStories: updatedSaved,
+      microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
       autoSelectedStories: false,
       autoGenerationMode: false,
       autoGenerationStarted: false,
@@ -1692,6 +1750,26 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        {hasMicrodramaEpisodeCountMismatch && (
+          <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="font-semibold">分集细纲规格可能不一致</div>
+                <div className="text-sm leading-relaxed">
+                  人设与世界观页当前选定为 {microdramaEpisodeCount} 集微短剧，但这里存在旧规格的分集细纲。继续生成前建议清空旧分集，按最新集数重新生成。
+                </div>
+              </div>
+              <button
+                onClick={clearMicroStoriesForLatestEpisodeCount}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium"
+              >
+                <Trash2 className="w-4 h-4" />
+                清空分集并按{microdramaEpisodeCount}集重来
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* 正文写作入口 */}
         {currentProject?.savedMicroStories && currentProject.savedMicroStories.length > 0 && (
           <div className="mb-8">
