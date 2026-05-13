@@ -4,6 +4,8 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import OpenAI from 'openai';
 import { AI_MODELS, API_CONFIG } from '../../common/constants';
 
+type LlmConcurrencyBucket = 'gemini' | 'deepseek' | 'gateway';
+
 @Injectable()
 export class LlmService {
   private logicApiKey: string;
@@ -12,6 +14,16 @@ export class LlmService {
   private logicClient: OpenAI; // Gemini 官方 OpenAI 兼容客户端
   private deepseekClient: OpenAI; // Deepseek 官网 API 客户端
   private gatewayClient: OpenAI; // 智灵网关 OpenAI 兼容客户端
+  private readonly activeLlmCalls: Record<LlmConcurrencyBucket, number> = {
+    gemini: 0,
+    deepseek: 0,
+    gateway: 0,
+  };
+  private readonly llmQueues: Record<LlmConcurrencyBucket, Array<() => void>> = {
+    gemini: [],
+    deepseek: [],
+    gateway: [],
+  };
 
   constructor(private configService: ConfigService) {
     this.logicHttpAgent = this.getLogicProxyAgent();
@@ -221,6 +233,84 @@ export class LlmService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   }
 
+  private getConcurrencyLimit(bucket: LlmConcurrencyBucket): number {
+    const defaults: Record<LlmConcurrencyBucket, number> = {
+      gemini: 2,
+      deepseek: 6,
+      gateway: 2,
+    };
+    return this.getConfigNumber(`LLM_${bucket.toUpperCase()}_CONCURRENCY`, defaults[bucket]);
+  }
+
+  private getQueueTimeoutMs(): number {
+    return this.getConfigNumber('LLM_QUEUE_TIMEOUT_MS', 15 * 60 * 1000);
+  }
+
+  private acquireLlmSlot(bucket: LlmConcurrencyBucket, label: string): Promise<() => void> {
+    const limit = this.getConcurrencyLimit(bucket);
+    const queueTimeoutMs = this.getQueueTimeoutMs();
+    const requestId = `${bucket}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+
+      const release = () => {
+        this.activeLlmCalls[bucket] = Math.max(0, this.activeLlmCalls[bucket] - 1);
+        const next = this.llmQueues[bucket].shift();
+        if (next) setImmediate(next);
+      };
+
+      const tryAcquire = () => {
+        if (settled) return;
+        if (this.activeLlmCalls[bucket] >= limit) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        this.activeLlmCalls[bucket] += 1;
+        console.log(
+          `[LLM_QUEUE] acquired bucket=${bucket}, label=${label}, active=${this.activeLlmCalls[bucket]}/${limit}, queued=${this.llmQueues[bucket].length}, request=${requestId}`,
+        );
+        resolve(release);
+      };
+
+      timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const queue = this.llmQueues[bucket];
+        const index = queue.indexOf(tryAcquire);
+        if (index >= 0) queue.splice(index, 1);
+        reject(new Error(`AI ${label} 排队超过 ${Math.round(queueTimeoutMs / 1000)} 秒，请稍后重试`));
+      }, queueTimeoutMs);
+
+      if (this.activeLlmCalls[bucket] < limit) {
+        tryAcquire();
+        return;
+      }
+
+      this.llmQueues[bucket].push(tryAcquire);
+      console.warn(
+        `[LLM_QUEUE] queued bucket=${bucket}, label=${label}, active=${this.activeLlmCalls[bucket]}/${limit}, queued=${this.llmQueues[bucket].length}, request=${requestId}`,
+      );
+    });
+  }
+
+  private async withLlmSlot<T>(
+    bucket: LlmConcurrencyBucket,
+    label: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const release = await this.acquireLlmSlot(bucket, label);
+    try {
+      return await action();
+    } finally {
+      release();
+      const limit = this.getConcurrencyLimit(bucket);
+      console.log(
+        `[LLM_QUEUE] released bucket=${bucket}, label=${label}, active=${this.activeLlmCalls[bucket]}/${limit}, queued=${this.llmQueues[bucket].length}`,
+      );
+    }
+  }
+
   private getLogicMaxAttempts(modelIndex: number): number {
     if (modelIndex === 0) {
       return this.getConfigNumber('GEMINI_PRIMARY_MAX_ATTEMPTS', 1);
@@ -277,6 +367,7 @@ export class LlmService {
         'gemini-3.1-pro-preview',
     );
 
+    return this.withLlmSlot('gateway', targetModel, async () => {
     let lastError: unknown;
     const maxAttempts = this.getConfigNumber('GATEWAY_MAX_ATTEMPTS', 2);
     const requestTimeoutMs = this.getConfigNumber('GATEWAY_TIMEOUT_MS', 180000);
@@ -344,6 +435,7 @@ export class LlmService {
 
     console.error('[LLM] 网关模型不可用:', targetModel, lastError);
     throw new Error(`AI 网关模型 ${targetModel} 当前不可用，请稍后重试`);
+    });
   }
 
   async chat(
@@ -360,6 +452,7 @@ export class LlmService {
     const candidateModels = isDeepseek
       ? [targetModel]
       : this.getLogicModelCandidates(targetModel);
+    return this.withLlmSlot(isDeepseek ? 'deepseek' : 'gemini', targetModel, async () => {
     let lastError: unknown;
 
     for (let modelIndex = 0; modelIndex < candidateModels.length; modelIndex++) {
@@ -451,6 +544,7 @@ export class LlmService {
     const triedModels = candidateModels.join(' -> ');
     console.error('[LLM] 所有候选模型均不可用:', triedModels, lastError);
     throw new Error(`Gemini 当前高负载，已尝试 ${triedModels}，请稍后重试`);
+    });
   }
 
   private isDeepseekModel(model: string): boolean {
@@ -492,6 +586,7 @@ export class LlmService {
       return;
     }
 
+    return this.withLlmSlot('deepseek', this.getWriterModel(), async () => {
     try {
       const model = this.getWriterModel();
       const stream = await this.deepseekClient.chat.completions.create({
@@ -516,6 +611,7 @@ export class LlmService {
       console.error('Deepseek写作API流式调用失败:', error);
       throw new Error('Deepseek写作服务暂时不可用，请稍后重试');
     }
+    });
   }
 
   async chatWithWriterModel(
@@ -526,6 +622,7 @@ export class LlmService {
       return this.chat(messages);
     }
 
+    return this.withLlmSlot('deepseek', this.getWriterModel(), async () => {
     try {
       const model = this.getWriterModel();
       const completion = await this.deepseekClient.chat.completions.create({
@@ -540,5 +637,6 @@ export class LlmService {
       console.error('Deepseek写作API调用失败:', error);
       throw new Error('Deepseek写作服务暂时不可用，请稍后重试');
     }
+    });
   }
 }
