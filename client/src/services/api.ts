@@ -68,8 +68,25 @@ function removeActivationBadge() {
   document.getElementById(ACTIVATION_BADGE_ID)?.remove();
 }
 
+function maskActivationCode(code: string): string {
+  const normalized = normalizeActivationCode(code);
+  if (!normalized) return '未输入';
+  if (normalized.length <= 6) return normalized;
+  return `${normalized.slice(0, 4)}****${normalized.slice(-4)}`;
+}
+
+function escapeHtml(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function renderActivationBadge(status: ActivationStatusResponse) {
   if (typeof document === 'undefined' || !status.enabled) return;
+  const code = normalizeActivationCode(status.code || readStoredActivationCode());
 
   let badge = document.getElementById(ACTIVATION_BADGE_ID);
   if (!badge) {
@@ -95,9 +112,31 @@ function renderActivationBadge(status: ActivationStatusResponse) {
     <div style="font-weight: 700; color: ${status.disabled ? '#b91c1c' : '#1d4ed8'};">
       激活码余额${status.disabled ? '（已熔断）' : ''}
     </div>
+    <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+      <span>当前：${escapeHtml(maskActivationCode(code))}</span>
+      <button
+        type="button"
+        data-activation-action="show-code"
+        style="border: 0; border-radius: 6px; padding: 1px 6px; cursor: pointer; color: #1d4ed8; background: #dbeafe; font-size: 11px;"
+      >查看</button>
+    </div>
     <div>Gemini：${status.gemini.remaining}/${status.gemini.limit}</div>
     <div>DeepSeek V4：${status.deepseek.remaining}/${status.deepseek.limit}</div>
   `;
+  badge.onclick = async (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('[data-activation-action="show-code"]')) return;
+    if (!code) {
+      window.alert('当前浏览器还没有保存激活码。');
+      return;
+    }
+    try {
+      await navigator.clipboard?.writeText(code);
+      window.alert(`当前激活码：${code}\n\n已复制到剪贴板。`);
+    } catch {
+      window.alert(`当前激活码：${code}`);
+    }
+  };
 }
 
 async function refreshActivationStatus() {
