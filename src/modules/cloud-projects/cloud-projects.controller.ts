@@ -17,11 +17,20 @@ export class CloudProjectsController {
 
   @Post('sync')
   syncProjects(
-    @Body() body: { schemaVersion?: number; projects?: unknown[]; localState?: { writerStateByProjectId?: Record<string, unknown> } },
+    @Body() body: { schemaVersion?: number; projects?: unknown[]; savedOutlines?: unknown[]; localState?: { writerStateByProjectId?: Record<string, unknown> } },
     @Headers('x-activation-code') activationCode?: string,
   ) {
     const code = this.activationQuotaService.validateForUserData(activationCode);
     return this.cloudProjectsService.saveProjects(code, body);
+  }
+
+  @Post('outlines/sync')
+  syncOutlines(
+    @Body() body: { savedOutlines?: unknown[] },
+    @Headers('x-activation-code') activationCode?: string,
+  ) {
+    const code = this.activationQuotaService.validateForUserData(activationCode);
+    return this.cloudProjectsService.saveOutlines(code, body.savedOutlines || []);
   }
 
   @Post(':id')

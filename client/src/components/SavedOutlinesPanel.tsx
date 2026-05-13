@@ -1,5 +1,6 @@
 // React import not needed with jsx: "react-jsx"
-import { Bookmark, Download, Trash2, Calendar, FileText } from 'lucide-react';
+import { useState } from 'react';
+import { Bookmark, Download, Trash2, Calendar, FileText, RefreshCw, UploadCloud } from 'lucide-react';
 import { useSavedOutlines } from '../contexts/SavedOutlinesContext';
 import { OutlineData } from '../types';
 
@@ -10,13 +11,41 @@ interface SavedOutlinesPanelProps {
 }
 
 export function SavedOutlinesPanel({ isOpen, onClose, onLoadOutline }: SavedOutlinesPanelProps) {
-  const { savedOutlines, removeSavedOutline, exportAllSaved } = useSavedOutlines();
+  const { savedOutlines, removeSavedOutline, exportAllSaved, pullCloudOutlines, syncSavedOutlinesToCloud } = useSavedOutlines();
+  const [isPullingCloud, setIsPullingCloud] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
 
   if (!isOpen) return null;
 
   const handleLoadOutline = (outline: OutlineData) => {
     onLoadOutline(outline);
     onClose();
+  };
+
+  const handlePullCloudOutlines = async () => {
+    setIsPullingCloud(true);
+    try {
+      const result = await pullCloudOutlines(true);
+      alert(`云端灵感架构已拉取：当前共有 ${result.total} 条。`);
+    } catch (error) {
+      console.error('拉取云端灵感架构失败:', error);
+      alert('拉取云端灵感架构失败，请确认激活码和网络后重试。');
+    } finally {
+      setIsPullingCloud(false);
+    }
+  };
+
+  const handleSyncCloudOutlines = async () => {
+    setIsSyncingCloud(true);
+    try {
+      const ok = await syncSavedOutlinesToCloud(true);
+      alert(ok ? '已同步到云端。' : '未完成同步，请确认激活码后重试。');
+    } catch (error) {
+      console.error('同步云端灵感架构失败:', error);
+      alert('同步云端灵感架构失败，请稍后重试。');
+    } finally {
+      setIsSyncingCloud(false);
+    }
   };
 
   return (
@@ -35,6 +64,26 @@ export function SavedOutlinesPanel({ isOpen, onClose, onLoadOutline }: SavedOutl
               </div>
             </div>
             <div className="flex items-center space-x-2">
+              <button
+                onClick={handlePullCloudOutlines}
+                disabled={isPullingCloud}
+                className="flex items-center space-x-2 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-primary-400 rounded-lg text-sm font-medium transition-colors"
+                title="按当前激活码从云端拉回保存的灵感架构"
+              >
+                <RefreshCw className={`w-4 h-4 ${isPullingCloud ? 'animate-spin' : ''}`} />
+                <span>{isPullingCloud ? '拉取中' : '拉取云端'}</span>
+              </button>
+              {savedOutlines.length > 0 && (
+                <button
+                  onClick={handleSyncCloudOutlines}
+                  disabled={isSyncingCloud}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-primary-500 hover:bg-primary-400 disabled:bg-primary-400 rounded-lg text-sm font-medium transition-colors"
+                  title="把当前浏览器保存的灵感架构同步到云端"
+                >
+                  <UploadCloud className={`w-4 h-4 ${isSyncingCloud ? 'animate-pulse' : ''}`} />
+                  <span>{isSyncingCloud ? '同步中' : '同步云端'}</span>
+                </button>
+              )}
               {savedOutlines.length > 0 && (
                 <button
                   onClick={exportAllSaved}

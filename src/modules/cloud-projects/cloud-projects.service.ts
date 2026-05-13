@@ -7,6 +7,7 @@ export interface CloudProjectsBundle {
   schemaVersion: number;
   updatedAt: string;
   projects: unknown[];
+  savedOutlines?: unknown[];
   localState?: {
     writerStateByProjectId?: Record<string, unknown>;
     generatedChaptersByProjectId?: Record<string, Record<string, string>>;
@@ -28,6 +29,14 @@ export class CloudProjectsService {
     const normalized = this.normalizeBundle(bundle, existing);
     this.saveBundle(activationCode, normalized);
     return normalized;
+  }
+
+  saveOutlines(activationCode: string, savedOutlines: unknown[]): CloudProjectsBundle {
+    const bundle = this.loadBundle(activationCode);
+    bundle.savedOutlines = Array.isArray(savedOutlines) ? savedOutlines : [];
+    bundle.updatedAt = new Date().toISOString();
+    this.saveBundle(activationCode, bundle);
+    return bundle;
   }
 
   upsertProject(
@@ -138,6 +147,11 @@ export class CloudProjectsService {
       schemaVersion: Number(bundle.schemaVersion || 1),
       updatedAt: new Date().toISOString(),
       projects: projects.map(project => this.stripLargeProjectFields(project)),
+      savedOutlines: Array.isArray(bundle.savedOutlines)
+        ? bundle.savedOutlines
+        : Array.isArray(existing?.savedOutlines)
+          ? existing.savedOutlines
+          : [],
       localState: {
         writerStateByProjectId: this.isObject(writerStateByProjectId)
           ? Object.fromEntries(Object.entries(writerStateByProjectId).map(([projectId, writerState]) => [
@@ -170,6 +184,7 @@ export class CloudProjectsService {
         schemaVersion: Number(parsed.schemaVersion || 1),
         updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
         projects: projects.map(project => this.stripLargeProjectFields(project)),
+        savedOutlines: Array.isArray(parsed.savedOutlines) ? parsed.savedOutlines : [],
         localState: {
           writerStateByProjectId: this.isObject(writerStateByProjectId)
             ? Object.fromEntries(Object.entries(writerStateByProjectId).map(([projectId, writerState]) => [
@@ -185,6 +200,7 @@ export class CloudProjectsService {
         schemaVersion: 1,
         updatedAt: new Date().toISOString(),
         projects: [],
+        savedOutlines: [],
         localState: {
           writerStateByProjectId: {},
           generatedChaptersByProjectId: {},

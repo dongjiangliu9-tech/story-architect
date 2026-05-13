@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { cloudProjectApi } from '../services/api';
 import { OutlineData } from '../types';
 
 const SAVED_OUTLINES_KEY = 'story-architect-saved-outlines';
@@ -11,6 +12,8 @@ interface SavedOutlinesContextType {
   isOutlineSaved: (outline: OutlineData) => boolean;
   exportOutline: (outline: OutlineData) => void;
   exportAllSaved: () => void;
+  pullCloudOutlines: (promptIfMissing?: boolean) => Promise<{ imported: number; total: number }>;
+  syncSavedOutlinesToCloud: (promptIfMissing?: boolean) => Promise<boolean>;
 }
 
 const SavedOutlinesContext = createContext<SavedOutlinesContextType | undefined>(undefined);
@@ -44,6 +47,69 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const getOutlineKey = (outline: OutlineData) => {
+    if (outline.id) return `id:${outline.id}`;
+    return [
+      'content',
+      outline.title || '',
+      outline.logline || '',
+      outline.characters || '',
+    ].join('|');
+  };
+
+  const getOutlineSavedTime = (outline: OutlineData) => {
+    const time = Date.parse(outline.savedAt || '');
+    return Number.isFinite(time) ? time : 0;
+  };
+
+  const mergeOutlines = (localOutlines: OutlineData[], cloudOutlines: unknown[]) => {
+    const merged = new Map<string, OutlineData>();
+    let imported = 0;
+
+    for (const outline of localOutlines) {
+      merged.set(getOutlineKey(outline), outline);
+    }
+
+    for (const rawOutline of cloudOutlines) {
+      if (!rawOutline || typeof rawOutline !== 'object') continue;
+      const outline = rawOutline as OutlineData;
+      if (!outline.title || !outline.logline) continue;
+      const key = getOutlineKey(outline);
+      const existing = merged.get(key);
+      if (!existing || getOutlineSavedTime(outline) >= getOutlineSavedTime(existing)) {
+        if (!existing) imported += 1;
+        merged.set(key, outline);
+      }
+    }
+
+    const outlines = Array.from(merged.values()).sort((a, b) => getOutlineSavedTime(b) - getOutlineSavedTime(a));
+    return { outlines, imported };
+  };
+
+  const syncOutlinesToCloud = async (outlines: OutlineData[], promptIfMissing = false) => {
+    try {
+      const result = await cloudProjectApi.syncOutlines(outlines, promptIfMissing);
+      return !!result;
+    } catch (error) {
+      console.warn('同步云端灵感架构失败:', error);
+      return false;
+    }
+  };
+
+  const pullCloudOutlines = async (promptIfMissing = true) => {
+    const bundle = await cloudProjectApi.fetchProjects(promptIfMissing);
+    if (!bundle) return { imported: 0, total: savedOutlines.length };
+    const merged = mergeOutlines(savedOutlines, bundle.savedOutlines || []);
+    setSavedOutlines(merged.outlines);
+    saveToStorage(merged.outlines);
+    if (merged.imported > 0) {
+      void syncOutlinesToCloud(merged.outlines);
+    }
+    return { imported: merged.imported, total: merged.outlines.length };
+  };
+
+  const syncSavedOutlinesToCloud = async (promptIfMissing = true) => syncOutlinesToCloud(savedOutlines, promptIfMissing);
+
   // 保存大纲
   const saveOutline = (outline: OutlineData) => {
     const newOutline = {
@@ -62,6 +128,7 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
 
     // 再更新状态
     setSavedOutlines(updatedOutlines);
+    void syncOutlinesToCloud(updatedOutlines);
 
     // 验证存储是否成功
     setTimeout(() => {
@@ -99,6 +166,7 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
 
     setSavedOutlines(updatedOutlines);
     saveToStorage(updatedOutlines);
+    void syncOutlinesToCloud(updatedOutlines);
     return true;
   };
 
@@ -107,6 +175,7 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
     const updatedOutlines = savedOutlines.filter(outline => outline.id !== id);
     setSavedOutlines(updatedOutlines);
     saveToStorage(updatedOutlines);
+    void syncOutlinesToCloud(updatedOutlines);
   };
 
   // 检查大纲是否已保存
@@ -155,6 +224,8 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
       isOutlineSaved,
       exportOutline,
       exportAllSaved,
+      pullCloudOutlines,
+      syncSavedOutlinesToCloud,
     }}>
       {children}
     </SavedOutlinesContext.Provider>

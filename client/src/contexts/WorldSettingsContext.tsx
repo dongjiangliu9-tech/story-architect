@@ -151,6 +151,8 @@ interface WorldSettingsContextType {
   exportProject: (project: WorldSettingsProject) => void;
   exportAllProjects: () => void;
   importFromJsonText: (jsonText: string) => { imported: number; skipped: number; currentProjectId?: number };
+  pullCloudProjects: (promptIfMissing?: boolean) => Promise<{ imported: number; total: number }>;
+  syncProjectToCloud: (projectId: number, opts?: { chapters?: { [key: number]: string } }) => Promise<boolean>;
   // 清理“已生成小说正文”相关缓存（保留世界观/人物/大纲/小故事等设定）
   clearNovelCacheForProject: (projectId: number) => void;
   clearNovelCacheForAllProjects: () => void;
@@ -417,27 +419,64 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  const loadCloudProjects = (promptIfMissing = false) => {
-    cloudProjectApi.fetchProjects(promptIfMissing)
-      .then(bundle => {
-        if (!bundle) return;
-        setProjects(prevProjects => {
-          const merged = mergeCloudProjects(prevProjects, bundle);
-          if (merged.shouldSyncCloud) {
-            syncProjectsToCloud(merged.projects);
-          }
-          if (!merged.changed) return prevProjects;
-          saveToStorage(merged.projects);
-          setCurrentProject(prevCurrent => {
-            if (!prevCurrent) return prevCurrent;
-            return merged.projects.find(project => project.id === prevCurrent.id) || prevCurrent;
-          });
-          return merged.projects;
-        });
-      })
-      .catch(error => {
-        console.warn('加载云端项目失败:', error);
+  const pullCloudProjects = async (promptIfMissing = true) => {
+    const bundle = await cloudProjectApi.fetchProjects(promptIfMissing);
+    if (!bundle) return { imported: 0, total: projects.length };
+
+    let result = { imported: 0, total: projects.length };
+    setProjects(prevProjects => {
+      const merged = mergeCloudProjects(prevProjects, bundle);
+      result = {
+        imported: Math.max(0, merged.projects.length - prevProjects.length),
+        total: merged.projects.length,
+      };
+      if (merged.shouldSyncCloud) {
+        syncProjectsToCloud(merged.projects);
+      }
+      if (!merged.changed) return prevProjects;
+      saveToStorage(merged.projects);
+      setCurrentProject(prevCurrent => {
+        if (!prevCurrent) return prevCurrent;
+        return merged.projects.find(project => project.id === prevCurrent.id) || prevCurrent;
       });
+      return merged.projects;
+    });
+    return result;
+  };
+
+  const loadCloudProjects = (promptIfMissing = false) => {
+    pullCloudProjects(promptIfMissing).catch(error => {
+      console.warn('加载云端项目失败:', error);
+    });
+  };
+
+  const syncProjectToCloud = async (
+    projectId: number,
+    opts?: { chapters?: { [key: number]: string } },
+  ) => {
+    const project = currentProject?.id === projectId
+      ? currentProject
+      : projects.find(item => item.id === projectId);
+    if (!project) return false;
+
+    const savedProject = await cloudProjectApi.saveProject(
+      stripProjectForCloud(project),
+      stripWriterStateForCloud(readWriterStateForProject(projectId)),
+      true,
+    );
+    if (!savedProject) return false;
+
+    const chapters = opts?.chapters || project.generatedChapters;
+    if (chapters) {
+      await cloudProjectApi.saveProjectChapters(projectId, {
+        chapters: Object.fromEntries(
+          Object.entries(chapters).map(([chapter, content]) => [String(chapter), content])
+        ),
+        replace: true,
+      }, true);
+    }
+
+    return true;
   };
 
   useEffect(() => {
@@ -746,6 +785,8 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       exportProject,
       exportAllProjects,
       importFromJsonText,
+      pullCloudProjects,
+      syncProjectToCloud,
       clearNovelCacheForProject,
       clearNovelCacheForAllProjects,
     }}>

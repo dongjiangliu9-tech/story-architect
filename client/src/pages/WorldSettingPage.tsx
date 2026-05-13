@@ -134,7 +134,7 @@ interface WorldSettingPageProps {
 type OutlineMode = 'novel' | 'microdrama' | 'literature';
 
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
-  const { currentProject, createProject, updateProject, deleteProject, loadProject, clearCurrentProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
+  const { currentProject, createProject, updateProject, deleteProject, loadProject, clearCurrentProject, exportProject, exportAllProjects, importFromJsonText, pullCloudProjects, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
   const getLogicModelRequest = () =>
     getLogicModelRequestFromSources(currentProject, selectedOutline);
   const getPreferredLogicModelFields = () =>
@@ -169,6 +169,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const [worldSetting, setWorldSetting] = useState<string>('');
   const [characters, setCharacters] = useState<string>('');
   const [outline, setOutline] = useState<string>('');
+  const [isPullingCloudProjects, setIsPullingCloudProjects] = useState(false);
   const [isGeneratingWorldSetting, setIsGeneratingWorldSetting] = useState(false);
   const [isGeneratingCharacters, setIsGeneratingCharacters] = useState(false);
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
@@ -914,6 +915,19 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     } catch (error) {
       console.error('导入项目失败:', error);
       alert('导入失败：读取或解析文件出错，请稍后重试');
+    }
+  };
+
+  const handlePullCloudProjects = async () => {
+    setIsPullingCloudProjects(true);
+    try {
+      const result = await pullCloudProjects(true);
+      alert(`云端项目已拉取：当前共有 ${result.total} 个项目。`);
+    } catch (error) {
+      console.error('拉取云端项目失败:', error);
+      alert('拉取云端项目失败，请确认激活码和网络后重试。');
+    } finally {
+      setIsPullingCloudProjects(false);
     }
   };
 
@@ -2042,6 +2056,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       }}
                     />
                   </label>
+                  <button
+                    onClick={handlePullCloudProjects}
+                    disabled={isPullingCloudProjects}
+                    className="flex items-center space-x-2 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-primary-400 rounded-lg text-sm font-medium transition-colors"
+                    title="按当前激活码从云端拉回项目和正文数据"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isPullingCloudProjects ? 'animate-spin' : ''}`} />
+                    <span>{isPullingCloudProjects ? '拉取中' : '拉取云端'}</span>
+                  </button>
                   {projects.length > 0 && (
                     <button
                       onClick={exportAllProjects}

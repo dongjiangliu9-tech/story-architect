@@ -157,7 +157,7 @@ const literatureStyleNames: Record<string, string> = {
 };
 
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
-  const { currentProject, updateProject, exportProject, clearNovelCacheForProject } = useWorldSettings();
+  const { currentProject, updateProject, exportProject, clearNovelCacheForProject, syncProjectToCloud } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
   const isMicrodrama = writerMode === 'microdrama';
   const isLiterature = currentProject?.detailedOutlineMode === 'literature';
@@ -169,6 +169,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [actionFirstScript, setActionFirstScript] = useState(false);
   const [targetEpisodeWords, setTargetEpisodeWords] = useState(1000);
   const [targetNovelWords, setTargetNovelWords] = useState(2100);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [isGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const latestGeneratedContentRef = useRef<string>('');
@@ -712,11 +713,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const saveProjectSnapshot = (
     chapters: {[key: number]: string},
     opts?: { silent?: boolean; auto?: boolean; message?: string }
-  ) => {
+  ): boolean => {
     const project = currentProjectRef.current;
     if (!project || Object.keys(chapters).length === 0) {
       if (!opts?.silent) alert('没有可保存的内容');
-      return;
+      return false;
     }
 
     const saveVersion = createWriterSaveVersion(chapters, opts?.auto ? 'auto_save' : 'save');
@@ -747,6 +748,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     if (!opts?.silent) {
       alert(opts?.message || '项目已保存！正文、版本历史和当前写作进度都已更新。');
     }
+    return true;
   };
 
   const maybeAutoSaveProjectSnapshot = (chapters: {[key: number]: string}) => {
@@ -876,11 +878,11 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   }, [generatedContent, generationState.isGenerating, generationState.currentGeneratingChapter, isEditingChapter]);
 
   // 保存生成的内容到项目
-  const saveGeneratedContent = () => {
+  const saveGeneratedContent = (opts?: { silent?: boolean }) => {
     const project = currentProjectRef.current;
     if (!project) {
-      alert('未找到当前项目');
-      return;
+      if (!opts?.silent) alert('未找到当前项目');
+      return null;
     }
 
     const contentToSave = visibleChapterContent?.trim();
@@ -891,8 +893,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     };
 
     if (Object.keys(chaptersToSave).length === 0) {
-      alert('没有可保存的内容');
-      return;
+      if (!opts?.silent) alert('没有可保存的内容');
+      return null;
     }
 
     generatedChaptersRef.current = chaptersToSave;
@@ -901,9 +903,28 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       setGeneratedContent(contentToSave);
     }
 
-    saveProjectSnapshot(chaptersToSave, {
+    const saved = saveProjectSnapshot(chaptersToSave, {
+      silent: opts?.silent,
       message: '项目已保存！正文、版本历史和当前写作进度都已更新。',
     });
+    return saved ? chaptersToSave : null;
+  };
+
+  const saveGeneratedContentAndSyncCloud = async () => {
+    const project = currentProjectRef.current;
+    const chaptersToSave = saveGeneratedContent({ silent: true });
+    if (!project || !chaptersToSave) return;
+
+    setIsCloudSyncing(true);
+    try {
+      const ok = await syncProjectToCloud(project.id, { chapters: chaptersToSave });
+      alert(ok ? '已保存并同步到云端。' : '本地已保存，但云端同步未完成：请确认激活码后重试。');
+    } catch (error) {
+      console.error('保存并同步云端失败:', error);
+      alert('本地已保存，但云端同步失败。请稍后重试。');
+    } finally {
+      setIsCloudSyncing(false);
+    }
   };
 
   // 恢复保存的版本
@@ -3420,12 +3441,22 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
               {/* 文件操作按钮 - 双排网格布局 */}
               <div className="grid grid-cols-2 gap-1.5">
                 <button
-                  onClick={saveGeneratedContent}
+                  onClick={() => saveGeneratedContent()}
                   disabled={Object.keys(generatedChapters).length === 0}
                   className="flex items-center space-x-2 px-3 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
                 >
                   <Save className="w-4 h-4" />
                   <span className="hidden sm:inline">保存</span>
+                </button>
+
+                <button
+                  onClick={saveGeneratedContentAndSyncCloud}
+                  disabled={isCloudSyncing || Object.keys(generatedChapters).length === 0}
+                  className="flex items-center space-x-2 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
+                  title="保存当前正文，并按激活码同步到云端"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{isCloudSyncing ? '同步中' : '云端'}</span>
                 </button>
 
                 <button
