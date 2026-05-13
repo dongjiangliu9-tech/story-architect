@@ -16,8 +16,8 @@ export class GenerateDetailedOutlineDto extends LogicModelSelectionDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['novel', 'microdrama'])
-  mode?: 'novel' | 'microdrama';
+  @IsIn(['novel', 'microdrama', 'literature'])
+  mode?: 'novel' | 'microdrama' | 'literature';
 
   @IsInt()
   @IsIn([15, 30, 60, 100])

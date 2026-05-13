@@ -6,6 +6,7 @@ const SAVED_OUTLINES_KEY = 'story-architect-saved-outlines';
 interface SavedOutlinesContextType {
   savedOutlines: OutlineData[];
   saveOutline: (outline: OutlineData) => void;
+  updateSavedOutlineIfExists: (sourceOutline: OutlineData, updatedOutline: OutlineData) => boolean;
   removeSavedOutline: (id: number) => void;
   isOutlineSaved: (outline: OutlineData) => boolean;
   exportOutline: (outline: OutlineData) => void;
@@ -74,6 +75,33 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
     }, 100);
   };
 
+  const isSameOutlineContent = (saved: OutlineData, outline: OutlineData) =>
+    saved.id === outline.id ||
+    (
+      saved.title === outline.title &&
+      saved.logline === outline.logline &&
+      saved.characters === outline.characters
+    );
+
+  const updateSavedOutlineIfExists = (sourceOutline: OutlineData, updatedOutline: OutlineData) => {
+    const targetIndex = savedOutlines.findIndex(saved => isSameOutlineContent(saved, sourceOutline));
+    if (targetIndex < 0) return false;
+
+    const updatedOutlines = savedOutlines.map((saved, index) =>
+      index === targetIndex
+        ? {
+            ...updatedOutline,
+            id: saved.id,
+            savedAt: new Date().toISOString(),
+          }
+        : saved
+    );
+
+    setSavedOutlines(updatedOutlines);
+    saveToStorage(updatedOutlines);
+    return true;
+  };
+
   // 删除保存的大纲
   const removeSavedOutline = (id: number) => {
     const updatedOutlines = savedOutlines.filter(outline => outline.id !== id);
@@ -122,6 +150,7 @@ export function SavedOutlinesProvider({ children }: { children: ReactNode }) {
     <SavedOutlinesContext.Provider value={{
       savedOutlines,
       saveOutline,
+      updateSavedOutlineIfExists,
       removeSavedOutline,
       isOutlineSaved,
       exportOutline,

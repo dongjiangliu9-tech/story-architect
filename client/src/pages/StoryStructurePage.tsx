@@ -8,8 +8,19 @@ import { getLogicModelRequestFromSources } from '../utils/llmModelSelection';
 /**
  * 过滤AI风格的内容，去掉markdown符号等
  */
+function stripLeakedPlanningMetadata(content: string): string {
+  return String(content || '')
+    .replace(/[（(][^（）()\n]*(?:桥段类型|爱情线一级结构|好感度|两人关系阶段|关系阶段|爱情线阶段|爱情线ID|承载中故事序号)[^（）()\n]*[）)]/g, '')
+    .split('\n')
+    .filter(line => !/^\s*(?:桥段类型|爱情线一级结构|好感度|两人关系阶段|关系阶段|爱情线阶段|爱情线ID|承载中故事序号)\s*[:：]/.test(line.trim()))
+    .join('\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function cleanMicroStoryContent(content: string): string {
-  return content
+  const cleanedContent = String(content || '')
     .replace(/```[\s\S]*?```/g, '') // 移除代码块
     .replace(/`([^`]*)`/g, '$1') // 移除行内代码
     .replace(/\*\*([^*]*)\*\*/g, '$1') // 移除粗体
@@ -19,8 +30,9 @@ function cleanMicroStoryContent(content: string): string {
     .replace(/^\s*\d+\.\s+/gm, '') // 移除有序列表
     .replace(/^\s*>\s+/gm, '') // 移除引用符号
     .replace(/🌟|⭐|✨|🔥|💎|🎯|👥|📖|🎪|🏆|⚔️|🗡️|🏰|🧙|🐉|🦄|🌈|💫|🌙|☀️|🌟|⭐|✨|🔥|💎|🎯|👥|📖|🎪|🏆|⚔️|🗡️|🏰|🧙|🐉|🦄|🌈|💫|🌙|☀️/g, '') // 移除表情符号
-    .replace(/\n{3,}/g, '\n\n') // 压缩多余换行
-    .trim();
+    .replace(/\n{3,}/g, '\n\n'); // 压缩多余换行
+
+  return stripLeakedPlanningMetadata(cleanedContent);
 }
 
 function extractChapterNumberFromDraft(draft: MicroStoryDraft): number | null {
@@ -51,6 +63,31 @@ type MicroStoryBatchVariantState = {
   error?: string;
 };
 
+const literatureWritingStyles = [
+  { id: 'realist_plain', name: '现实主义白描', description: '朴素克制，重场景与生活质感' },
+  { id: 'literary_lyrical', name: '抒情文学', description: '语言有诗性，情绪含蓄流动' },
+  { id: 'social_realism', name: '社会现实', description: '关注阶层、制度与人情压力' },
+  { id: 'family_saga', name: '家族叙事', description: '代际关系、家族秘密与命运回声' },
+  { id: 'coming_of_age', name: '成长小说', description: '青春经验、迷惘和自我确认' },
+  { id: 'suspense_literary', name: '文学悬疑', description: '真相缓慢显影，重心理与气氛' },
+  { id: 'psychological', name: '心理写实', description: '细写内在裂缝和动机摇摆' },
+  { id: 'rural_local', name: '乡土地方志', description: '地域风物、方言气息与乡土秩序' },
+  { id: 'urban_drift', name: '都市漂泊', description: '城市孤独、职业压力和关系疏离' },
+  { id: 'historical_texture', name: '历史质感', description: '时代细节厚，人物嵌入历史缝隙' },
+  { id: 'female_growth', name: '女性成长', description: '身份觉醒、关系重塑与自我选择' },
+  { id: 'youth_romance', name: '青春言情', description: '清爽细腻，感情推进自然克制' },
+  { id: 'essayistic', name: '散文化叙事', description: '段落舒展，带思辨和生活观察' },
+  { id: 'minimalist', name: '极简冷峻', description: '短句、留白、低解释度' },
+  { id: 'warm_healing', name: '温暖治愈', description: '温柔日常，强调修复与陪伴' },
+  { id: 'noir_literary', name: '冷硬 noir', description: '克制阴郁，适合罪案与边缘人物' },
+  { id: 'polyphonic', name: '群像复调', description: '多人物视角交错，关系网推进' },
+  { id: 'memoir_like', name: '回忆录式', description: '回望人生，带时间沉淀感' },
+  { id: 'humane_comedy', name: '人间喜剧', description: '带幽默和讽刺，人物可爱可叹' },
+  { id: 'magazine_literary', name: '杂志文学', description: '节奏清晰，兼顾文学性与可读性' },
+  { id: 'cinematic_literary', name: '电影感叙事', description: '镜头感强，动作与沉默并重' },
+  { id: 'classic_translated', name: '译制文学感', description: '沉稳长句，适合外国文学气质' },
+];
+
 interface StoryStructurePageProps {
   onBack: (targetPage?: string) => void;
   onNavigateToWriter?: () => void;
@@ -61,8 +98,14 @@ interface StoryStructurePageProps {
 export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep, setAutoFlowProgress }: StoryStructurePageProps) {
   const { currentProject, updateProject } = useWorldSettings();
   const getLogicModelRequest = () => getLogicModelRequestFromSources(currentProject);
-  const detailedOutlineMode = currentProject?.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
+  const detailedOutlineMode = currentProject?.detailedOutlineMode === 'microdrama'
+    ? 'microdrama'
+    : currentProject?.detailedOutlineMode === 'literature'
+      ? 'literature'
+      : 'novel';
   const isMicrodrama = detailedOutlineMode === 'microdrama';
+  const isLiterature = detailedOutlineMode === 'literature';
+  const selectedLiteratureStyle = currentProject?.literatureWritingStyle || literatureWritingStyles[0].id;
   const microdramaEpisodeCount: 15 | 30 | 60 | 100 =
     currentProject?.microdramaEpisodeCount === 15 || currentProject?.microdramaEpisodeCount === 30 || currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
       ? currentProject.microdramaEpisodeCount
@@ -75,6 +118,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         microButton: '生成分集细纲',
         emptyHint: '点击左侧的卡点中故事，查看或生成对应集数的单集剧本细纲',
       }
+    : isLiterature
+      ? {
+          unit: '章',
+          macro: '大章',
+          micro: '小节细纲',
+          microButton: '拆分小节',
+          emptyHint: '点击左侧的大章，查看或生成这一章的小节细纲',
+        }
     : {
         unit: '章',
         macro: '中故事',
@@ -82,7 +133,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         microButton: '生成单章细纲',
         emptyHint: '点击左侧的中故事列表，选择要查看的单章小故事细纲',
       };
-  const savedUnitLabel = isMicrodrama ? '分集' : '章节细纲';
+  const savedUnitLabel = isMicrodrama ? '分集' : isLiterature ? '小节细纲' : '章节细纲';
   // 用索引而不是内容字符串来选择中故事，避免内容重复/空白差异导致 indexOf 失效
   const [selectedMacroStoryIndex, setSelectedMacroStoryIndex] = useState<number | null>(null);
   const [macroStories, setMacroStories] = useState<string[]>([]);
@@ -195,7 +246,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   // 解析小故事内容，正确提取【小故事X】/【第X章】标记之间的内容
   const parseMicroStoriesFromOutline = (content: string): string[] => {
     const stories: string[] = [];
-    const microStoryRegex = /【(?:(?:小故事|分集|单集)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[章节集])】/g;
+    const microStoryRegex = /【(?:(?:小故事|分集|单集)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*章\s*第?\s*[一二三四五六七八九十\d]+\s*小节|第\s*[一二三四五六七八九十\d]+\s*[章节集]|第?\s*[一二三四五六七八九十\d]+\s*小节)】/g;
     const matches = [...content.matchAll(microStoryRegex)];
 
     if (matches.length === 0) {
@@ -506,7 +557,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   const getMicroStoryDefaultTitle = (num: number): string => (
-    isMicrodrama ? `第${num}集` : `小故事 ${getChineseNumber(num)}`
+    isMicrodrama ? `第${num}集` : isLiterature ? `第${getChineseNumber(num)}小节` : `小故事 ${getChineseNumber(num)}`
   );
 
   const getMicrodramaMacroPlans = (episodeCount: 15 | 30 | 60 | 100) => {
@@ -568,11 +619,27 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       return parseMicrodramaRangeFromMacroStory(storyIndex);
     }
 
+    if (isLiterature) {
+      return { startChapter: storyIndex + 1, endChapter: storyIndex + 1 };
+    }
+
     const chaptersPerMacroStory = isMicrodrama ? 10 : 15;
     const startChapter = storyIndex * chaptersPerMacroStory + 1;
     const endChapter = (storyIndex + 1) * chaptersPerMacroStory;
     return { startChapter, endChapter };
   };
+
+  const getSavedStoryTitle = (storyIndex: number, microIndex: number, stableOrder = microIndex) => {
+    const chapterRange = getChapterRange(storyIndex);
+    if (isMicrodrama) return `第${chapterRange.startChapter + stableOrder}集`;
+    if (isLiterature) return `第${chapterRange.startChapter}章 第${getChineseNumber(stableOrder + 1)}小节`;
+    return `第${chapterRange.startChapter + stableOrder}章`;
+  };
+
+  const formatChapterRangeLabel = (range: { startChapter: number; endChapter: number }) =>
+    range.startChapter === range.endChapter
+      ? `第${range.startChapter}${structureLabels.unit}`
+      : `第${range.startChapter}-${range.endChapter}${structureLabels.unit}`;
 
   // 检查中故事是否可以生成（前一个中故事必须已生成）
   const canGenerateStory = (storyIndex: number) => {
@@ -602,7 +669,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         macroStory,
         storyIndex: chineseIndex,
         chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
-        mode: detailedOutlineMode,
+	        mode: detailedOutlineMode,
       });
 
       console.log(`生成中故事${chineseIndex}的小故事细纲成功 (${structureLabels.unit}: ${chapterRange.startChapter}-${chapterRange.endChapter})`);
@@ -622,9 +689,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         const microStoriesParsed = parseMicroStoriesFromOutline(response.data);
         const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
           id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
-          title: isMicrodrama
-            ? `第${chapterRange.startChapter + index}集`
-            : `第${chapterRange.startChapter + index}章`,
+	          title: getSavedStoryTitle(storyIndex, index),
           content: cleanMicroStoryContent(content),
           macroStoryId: storyKey,
           macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -715,7 +780,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             macroStory,
             storyIndex: chineseIndex,
             chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
-            mode: detailedOutlineMode,
+	            mode: detailedOutlineMode,
           });
 
           console.log(`批量生成：中故事${chineseIndex}的小故事细纲成功`);
@@ -738,16 +803,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         // 保存小故事
         const outlineContent = generatedOutlines[storyKey];
         if (outlineContent) {
-          // 解析小故事内容
-	          const microStoriesParsed = parseMicroStoriesFromOutline(outlineContent);
-          const chapterRange = getChapterRange(storyIndex);
+	          // 解析小故事内容
+		          const microStoriesParsed = parseMicroStoriesFromOutline(outlineContent);
 
-          // 创建保存的小故事数据
+	          // 创建保存的小故事数据
           const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
             id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
-            title: isMicrodrama
-              ? `第${chapterRange.startChapter + index}集`
-              : `第${chapterRange.startChapter + index}章`,
+	            title: getSavedStoryTitle(storyIndex, index),
             content: cleanMicroStoryContent(content),
             macroStoryId: storyKey,
             macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -872,9 +934,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       const prev = existingByOrder.get(stableOrder) || existingByOrder.get(index);
       return {
         id: prev?.id || `${storyKey}_micro_${stableOrder}_${Date.now()}`,
-        title: (draft.title || (isMicrodrama
-          ? `第${chapterRange.startChapter + stableOrder}集`
-          : `第${chapterRange.startChapter + stableOrder}章`)).trim(),
+	        title: (draft.title || getSavedStoryTitle(storyIndex, index, stableOrder)).trim(),
         content: draft.content ?? '',
         macroStoryId: storyKey,
         macroStoryTitle: `中故事 ${storyIndex + 1}`,
@@ -1066,7 +1126,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         selectedVariantContent: selectedVariant?.content,
         note: state?.note,
         storyIndex: getChineseNumber(macroIndex + 1),
-        mode: detailedOutlineMode,
+	        mode: isLiterature ? 'novel' : detailedOutlineMode,
         worldSetting: currentProject.worldSetting || '',
         characters: currentProject.characters || '',
       });
@@ -1212,7 +1272,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         note: state?.note,
         storyIndex: getChineseNumber(macroIndex + 1),
         microIndex: `${microIndex + 1}`,
-        mode: detailedOutlineMode,
+	        mode: isLiterature ? 'novel' : detailedOutlineMode,
       });
 
       const variants = parseVariantDrafts(response.data);
@@ -1397,7 +1457,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         note: state?.note,
         storyIndex: getChineseNumber(macroIndex + 1),
         microIndex: selectedIndexes.map(i => `${i + 1}`).join(','),
-        mode: detailedOutlineMode,
+        mode: isLiterature ? 'novel' : detailedOutlineMode,
       });
 
       const variants = parseBatchVariantDrafts(response.data, selectedIndexes);
@@ -1573,7 +1633,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               </div>
               <div>
                 <h1 className="text-xl font-bold text-secondary-900">情节结构细化</h1>
-                <p className="text-sm text-secondary-600">为每个中故事选择合适的微故事卡</p>
+	                <p className="text-sm text-secondary-600">{isLiterature ? '把每个大章拆成小节，并选择正文文风' : '为每个中故事选择合适的微故事卡'}</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -1652,21 +1712,23 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     <div className="text-3xl font-bold text-primary-600 mb-2">
                       {currentProject.savedMicroStories.length}
                     </div>
-                    <div className="text-sm text-secondary-600">{isMicrodrama ? '已保存分集' : '已保存章节细纲'}</div>
+	                    <div className="text-sm text-secondary-600">{isMicrodrama ? '已保存分集' : isLiterature ? '已保存小节' : '已保存章节细纲'}</div>
                     <div className="text-xs text-secondary-400 mt-1">
                       {isMicrodrama
-                        ? `可生成 ${currentProject.savedMicroStories.length} 集剧本正文`
-                        : `可生成 ${currentProject.savedMicroStories.length} 章节`}
+	                        ? `可生成 ${currentProject.savedMicroStories.length} 集剧本正文`
+	                        : isLiterature
+	                          ? `可生成 ${macroStories.length} 章文学正文`
+	                          : `可生成 ${currentProject.savedMicroStories.length} 章节`}
                     </div>
                   </div>
 
                   <div className="text-center p-4 bg-white rounded-lg shadow-sm">
                     <div className="text-3xl font-bold text-green-600 mb-2">
-                      {isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 2200}
+	                      {isMicrodrama ? currentProject.savedMicroStories.length * 1900 : isLiterature ? currentProject.savedMicroStories.length * 1200 : currentProject.savedMicroStories.length * 2200}
                     </div>
                     <div className="text-sm text-secondary-600">预计总字数</div>
                     <div className="text-xs text-secondary-400 mt-1">
-                      约{Math.round((isMicrodrama ? currentProject.savedMicroStories.length * 1900 : currentProject.savedMicroStories.length * 2200) / 1000)}千字
+	                      约{Math.round((isMicrodrama ? currentProject.savedMicroStories.length * 1900 : isLiterature ? currentProject.savedMicroStories.length * 1200 : currentProject.savedMicroStories.length * 2200) / 1000)}千字
                     </div>
                   </div>
 
@@ -1679,9 +1741,38 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                       完整上下文支持
                     </div>
                   </div>
-                </div>
+	                </div>
 
-                <button
+	                {isLiterature && (
+	                  <div className="mb-8 text-left">
+	                    <div className="flex items-center justify-between gap-3 mb-3">
+	                      <div>
+	                        <h3 className="text-base font-semibold text-secondary-900">文风选择</h3>
+	                        <p className="text-sm text-secondary-500 mt-1">用于后续正文写作，按文学作品的书架气质生成叙事语言。</p>
+	                      </div>
+	                      <span className="text-xs text-secondary-500">已选：{literatureWritingStyles.find(style => style.id === selectedLiteratureStyle)?.name}</span>
+	                    </div>
+	                    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-3">
+	                      {literatureWritingStyles.map(style => (
+	                        <button
+	                          key={style.id}
+	                          type="button"
+	                          onClick={() => updateProject(currentProject.id, { literatureWritingStyle: style.id })}
+	                          className={`text-left rounded-lg border p-3 transition-all ${
+	                            selectedLiteratureStyle === style.id
+	                              ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-100'
+	                              : 'border-secondary-200 bg-white hover:border-primary-200 hover:bg-secondary-50'
+	                          }`}
+	                        >
+	                          <div className="text-sm font-semibold text-secondary-900">{style.name}</div>
+	                          <div className="mt-1 text-xs text-secondary-500 leading-relaxed">{style.description}</div>
+	                        </button>
+	                      ))}
+	                    </div>
+	                  </div>
+	                )}
+
+	                <button
                   onClick={() => {
                     localStorage.removeItem('story-architect-auto-flow');
                     localStorage.removeItem('story-architect-auto-flow-project-id');
@@ -1745,7 +1836,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                               {structureLabels.macro} {index + 1}
                             </h3>
                             <span className="text-xs text-secondary-400 bg-secondary-100 px-2 py-1 rounded">
-                              第{chapterRange.startChapter}-{chapterRange.endChapter}{structureLabels.unit}
+	                              {formatChapterRangeLabel(chapterRange)}
                             </span>
                           </div>
                           <div className={`text-xs mb-1 ${
@@ -1763,7 +1854,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                               {hasGenerated ? (
                                 <span className="text-xs text-green-600 flex items-center">
                                   <CheckCircle className="w-3 h-3 mr-1" />
-                                  {hasOutline ? '已生成细纲' : isMicrodrama ? '已保存分集' : '已保存章节细纲'}
+	                              {hasOutline ? '已生成细纲' : isMicrodrama ? '已保存分集' : isLiterature ? '已保存小节' : '已保存章节细纲'}
                                 </span>
                               ) : canGenerate ? (
                                 <span className="text-xs text-blue-500">
@@ -1901,7 +1992,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                 <div className="card p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-lg font-semibold text-secondary-900">
-                      {structureLabels.micro} ({isMicrodrama ? '按集数' : '15章'})
+	                      {structureLabels.micro} ({isMicrodrama ? '按集数' : isLiterature ? '按小节' : '15章'})
                     </h3>
                     <div className="flex items-center space-x-2">
                       <button
@@ -1914,7 +2005,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                         title="保存这些小故事到项目（支持手动编辑后的内容）"
                       >
                         <Plus className="w-4 h-4" />
-                        <span>{isMicrodrama ? '保存分集' : '保存章节细纲'}</span>
+	                        <span>{isMicrodrama ? '保存分集' : isLiterature ? '保存小节' : '保存章节细纲'}</span>
                       </button>
                       <button
                         onClick={() => toggleExpanded(selectedMacroStoryIndex!)}

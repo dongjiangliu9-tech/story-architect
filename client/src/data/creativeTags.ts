@@ -1,6 +1,6 @@
 import { NovelCategory, NovelStyle } from '../types';
 
-export type CreativeChannel = 'male' | 'female' | 'tiktok';
+export type CreativeChannel = 'male' | 'female' | 'tiktok' | 'literature';
 export type CreativeTagGroup = 'popular' | 'theme' | 'role' | 'plot';
 
 export interface CreativeTag extends NovelStyle {
@@ -23,6 +23,11 @@ export const creativeChannels: Record<CreativeChannel, NovelCategory> = {
     id: 'tiktok',
     name: 'TikTok',
     description: '海外竖屏短剧故事方向',
+  },
+  literature: {
+    id: 'literature',
+    name: '文学作品',
+    description: '书店出版文学与大众小说方向',
   },
 };
 
@@ -132,6 +137,31 @@ export const creativeTagsByChannel: Record<CreativeChannel, Record<CreativeTagGr
       '伴侣羁绊', '契约婚姻', '先婚后爱', '秘密孩子', '误会重逢', '身份揭露', '背叛复仇', '家族继承',
       '禁忌之恋', '逃婚', '替身', '三角关系', '强制同盟', '觉醒血脉', '月圆仪式', '阶层差',
       '危险保护', '订婚破局', '继承权争夺', '双向救赎', '强冲突开场', '连续打脸', '亲子揭露', '最终加冕',
+    ]),
+  },
+  literature: {
+    popular: makeTags('literature', 'popular', [
+      '传统文学', '当代文学', '现代文学', '现实主义小说', '悬疑小说', '推理小说', '青春文学', '青春言情',
+      '都市情感', '家庭伦理', '历史小说', '乡土文学', '女性成长', '传记文学', '散文随笔', '儿童文学',
+      '科幻文学', '外国文学', '中国文学', '文学改编', '社会派小说', '心理小说', '成长小说', '文化小说',
+    ]),
+    theme: makeTags('literature', 'theme', [
+      '时代变迁', '家族命运', '个人成长', '命运抉择', '社会现实', '人性困境', '爱与失去', '青春迷茫',
+      '城市漂泊', '原生家庭', '代际冲突', '婚姻关系', '友情与背叛', '秘密与真相', '犯罪迷局', '历史记忆',
+      '乡土变迁', '女性觉醒', '理想主义', '创伤疗愈', '文化寻根', '生命教育', '道德困境', '阶层流动',
+      '亲情修复', '孤独与归属', '记忆与遗忘', '现实困境', '成长阵痛', '社会观察',
+    ]),
+    role: makeTags('literature', 'role', [
+      '普通青年', '知识分子', '小镇青年', '城市白领', '作家', '记者', '教师', '医生',
+      '警察', '侦探', '律师', '母亲', '父亲', '少女', '少年', '老人',
+      '归乡者', '逃离者', '失意者', '见证者', '家族继承人', '边缘人物', '异乡人', '时代亲历者',
+      '创业者', '下岗工人', '基层干部', '乡村教师', '心理咨询师', '刑警',
+    ]),
+    plot: makeTags('literature', 'plot', [
+      '成长离乡', '重返故乡', '家族秘密', '悬案追踪', '谎言揭露', '旧案重启', '青春暗恋', '初恋错过',
+      '婚姻裂痕', '亲情和解', '代际和解', '社会调查', '现实困境', '道德选择', '命运反转', '多线叙事',
+      '双时间线', '书信日记', '口述回忆', '案件倒叙', '失踪事件', '身份误认', '记忆拼图', '旧物线索',
+      '时代切片', '城市迁徙', '乡村变迁', '家庭审判', '真相追问', '开放式结局',
     ]),
   },
 };

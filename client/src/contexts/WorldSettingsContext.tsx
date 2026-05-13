@@ -81,11 +81,14 @@ export interface WorldSettingsProject {
   worldSettingTransferRef?: string;
   charactersTransferRef?: string;
   detailedOutlineTransferRef?: string;
-  detailedOutlineMode?: 'novel' | 'microdrama';
+  detailedOutlineMode?: 'novel' | 'microdrama' | 'literature';
   microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   densityTuningLevels?: Partial<DensityTuningLevels>;
   reduceSensitiveContent?: boolean;
+  literatureWritingStyle?: string;
   worldSettingNeedsUpgradeSystem?: boolean;
+  worldSettingUseRealisticMode?: boolean;
+  worldSettingRealisticContext?: string;
   preferredLlmModelProvider?: LlmModelProvider;
   preferredLlmModel?: string;
   microStories?: {[key: string]: string[]}; // 中故事ID -> 微故事ID数组
@@ -255,7 +258,11 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       id,
       bookName: bookName.trim(),
       outline,
-      detailedOutlineMode: base.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel',
+      detailedOutlineMode: base.detailedOutlineMode === 'microdrama'
+        ? 'microdrama'
+        : base.detailedOutlineMode === 'literature'
+          ? 'literature'
+          : 'novel',
       microdramaEpisodeCount: base.microdramaEpisodeCount === 15 || base.microdramaEpisodeCount === 30 || base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
         ? base.microdramaEpisodeCount
         : 30,

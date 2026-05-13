@@ -16,7 +16,7 @@ interface WriterPageProps {
  */
 function cleanWriterContent(content: string): string {
   // 对于流式内容，我们需要更智能的处理
-  let cleanedContent = content
+  let cleanedContent = String(content || '')
     .replace(/```[\s\S]*?```/g, '') // 移除代码块
     .replace(/`([^`]*)`/g, '$1') // 移除行内代码
     .replace(/\*\*([^*]*)\*\*/g, '$1') // 移除粗体
@@ -81,6 +81,7 @@ function extractChapterOpening(content: string, linesCount: number = 8): string 
 
 function getSavedMicroStoryChapterNumber(story: SavedMicroStory | undefined, fallback: number): number {
   const text = `${story?.title || ''}\n${story?.content || ''}`;
+  if (/小节/.test(text)) return fallback;
   const matches = [...text.matchAll(/第\s*(\d{1,4})\s*[章节集]/g)]
     .map(match => Number(match[1]))
     .filter(value => Number.isFinite(value) && value > 0);
@@ -89,6 +90,7 @@ function getSavedMicroStoryChapterNumber(story: SavedMicroStory | undefined, fal
 
 function getFallbackChapterNumberForStory(story: SavedMicroStory | undefined, index: number): number {
   if (!story) return index + 1;
+  if (/小节/.test(`${story.title || ''}\n${story.content || ''}`)) return index + 1;
   const macroIndex = getMacroStoryIndexFromId(story.macroStoryId);
   const order = Number(story.order);
   if (Number.isFinite(macroIndex) && macroIndex < Number.MAX_SAFE_INTEGER && Number.isFinite(order) && order >= 0) {
@@ -128,11 +130,37 @@ function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentPr
 }
 
 const WRITER_AUTO_FLOW_MAX_AGE_MS = 5 * 60 * 1000;
+const SSE_RECONNECT_GRACE_MS = 180000;
+const literatureStyleNames: Record<string, string> = {
+  realist_plain: '现实主义白描',
+  literary_lyrical: '抒情文学',
+  social_realism: '社会现实',
+  family_saga: '家族叙事',
+  coming_of_age: '成长小说',
+  suspense_literary: '文学悬疑',
+  psychological: '心理写实',
+  rural_local: '乡土地方志',
+  urban_drift: '都市漂泊',
+  historical_texture: '历史质感',
+  female_growth: '女性成长',
+  youth_romance: '青春言情',
+  essayistic: '散文化叙事',
+  minimalist: '极简冷峻',
+  warm_healing: '温暖治愈',
+  noir_literary: '冷硬 noir',
+  polyphonic: '群像复调',
+  memoir_like: '回忆录式',
+  humane_comedy: '人间喜剧',
+  magazine_literary: '杂志文学',
+  cinematic_literary: '电影感叙事',
+  classic_translated: '译制文学感',
+};
 
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
   const { currentProject, updateProject, exportProject, clearNovelCacheForProject } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
   const isMicrodrama = writerMode === 'microdrama';
+  const isLiterature = currentProject?.detailedOutlineMode === 'literature';
   const unitLabel = isMicrodrama ? '集' : '章';
   const unitsPerMicroStory = 1;
   const storiesPerBatch = isMicrodrama ? 1 : 8;
@@ -154,6 +182,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [isFullCycleGenerating, setIsFullCycleGenerating] = useState(false);
   const [isSegmentGenerating, setIsSegmentGenerating] = useState(false);
+  const [isSingleUnitGenerating, setIsSingleUnitGenerating] = useState(false);
   const [parallelLaneCount, setParallelLaneCount] = useState(5);
   const [currentRequestId, setCurrentRequestId] = useState<string>('');
   const currentRequestIdRef = useRef('');
@@ -206,6 +235,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [currentEventSource, setCurrentEventSource] = useState<EventSource | null>(null);
   const [showSavedVersions, setShowSavedVersions] = useState(false);
   const [jumpToChapter, setJumpToChapter] = useState(currentChapter.toString());
+  const [specificUnitInput, setSpecificUnitInput] = useState('');
   const [showChapterSelector, setShowChapterSelector] = useState(false);
   const [selectedStartChapter, setSelectedStartChapter] = useState<number | null>(null);
   const [isRegenerateMode, setIsRegenerateMode] = useState(false); // 是否为重新生成模式
@@ -236,7 +266,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const maxAvailableChapter = availableChapterNumbers.length > 0 ? Math.max(...availableChapterNumbers) : 0;
   const alignedMicroStoriesForWriting = buildChapterAlignedStories(chapterStoryEntries);
   const getMicroStoryForChapter = (chapterNumber: number) => chapterStoryMap.get(chapterNumber);
-  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating;
+  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating;
   const isStreamingCurrentChapter =
     generationState.isGenerating &&
     generationState.currentGeneratingChapter === currentChapter &&
@@ -376,7 +406,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   useEffect(() => {
-    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter;
+    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isRewritingChapter;
     if (shouldKeepAwake) {
       void requestGenerationWakeLock();
       void startNoSleepVideoFallback();
@@ -399,7 +429,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       void releaseGenerationWakeLock();
       stopNoSleepVideoFallback();
     };
-  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, isRewritingChapter]);
+  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, isSingleUnitGenerating, isRewritingChapter]);
 
   const visibleChapterContent = isEditingChapter
     ? chapterDraft
@@ -518,6 +548,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       !isBatchGenerating &&
       !isFullCycleGenerating &&
       !isSegmentGenerating &&
+      !isSingleUnitGenerating &&
       microStoriesInOrder &&
       microStoriesInOrder.length > 0
     ) {
@@ -543,7 +574,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       console.log('检测到不可用或过期的正文自动化标记，已清理，避免进入正文页后自动续写');
       clearWriterAutoFlowFlags();
     }
-  }, [currentProject?.id, currentProject?.autoGenerationMode, currentProject?.autoGenerationStarted, currentProject?.generatedChapters, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
+  }, [currentProject?.id, currentProject?.autoGenerationMode, currentProject?.autoGenerationStarted, currentProject?.generatedChapters, generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, isSingleUnitGenerating, microStoriesInOrder, setAutoFlowStep, setAutoFlowProgress]);
 
   // 从localStorage和项目中恢复状态
   useEffect(() => {
@@ -905,6 +936,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
 
     const groupStart = targetChapter;
+    const hasOutline = availableChapterNumberSet.size === 0 || availableChapterNumberSet.has(targetChapter);
     const best = hasChapter(targetChapter) ? targetChapter : getBestExistingChapterInGroup(groupStart);
 
     if (best !== null) {
@@ -919,10 +951,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       return;
     }
 
-    const availableChapters = Object.keys(generatedChapters).map(Number).sort((a, b) => a - b);
+    if (hasOutline) {
+      setIsEditingChapter(false);
+      setChapterDraftTouched(false);
+      setCurrentChapter(targetChapter);
+      setGeneratedContent('');
+      setJumpToChapter(targetChapter.toString());
+      return;
+    }
+
+    const availableChapters = availableChapterNumbers.length > 0
+      ? availableChapterNumbers
+      : Object.keys(generatedChapters).map(Number).sort((a, b) => a - b);
     alert(isMicrodrama
-      ? `第${targetChapter}集还未生成。可用分集: ${availableChapters.join(', ')}`
-      : `第${targetChapter}章（所在组：第${groupStart}～${groupStart + 1}章）还未生成。可用章节: ${availableChapters.join(', ')}`);
+      ? `第${targetChapter}集没有对应分集细纲。可用分集: ${availableChapters.join(', ')}`
+      : `第${targetChapter}章没有对应小故事细纲。可用章节: ${availableChapters.join(', ')}`);
   };
 
   // 导出生成的内容
@@ -1000,6 +1043,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       isBatchGenerating ||
       isFullCycleGenerating ||
       isSegmentGenerating ||
+      isSingleUnitGenerating ||
       activeRequestIdsRef.current.size > 0 ||
       activeEventSourcesRef.current.size > 0 ||
       !!currentEventSource;
@@ -1050,6 +1094,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     setIsBatchGenerating(false);
     setIsFullCycleGenerating(false);
     setIsSegmentGenerating(false);
+    setIsSingleUnitGenerating(false);
     setFullCycleProgress(null);
     setSegmentProgress(null);
     setCurrentRequestId('');
@@ -1135,7 +1180,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   // 批量生成内容：小说每批8章，微短剧每次1集
   const generateBatchContent = async (expectedStartChapter?: number, expectedChapterCount?: number) => {
-    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating) {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating) {
       console.warn('已有正文生成任务正在运行，忽略新的批量生成请求');
       return;
     }
@@ -1422,9 +1467,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         console.warn('SSE连接暂时中断，等待浏览器自动重连:', error);
         if (sseErrorTimer) clearTimeout(sseErrorTimer);
         sseErrorTimer = setTimeout(() => {
-          if (Date.now() - lastSseEventAt < 60000) return;
-          console.error('SSE连接超过60秒没有恢复，停止前端等待');
-          alert('生成连接中断超过60秒，请刷新页面查看已保存章节，或从下一章继续生成');
+          if (Date.now() - lastSseEventAt < SSE_RECONNECT_GRACE_MS) return;
+          console.error('SSE连接超过180秒没有恢复，停止前端等待');
+          alert('生成连接中断超过180秒，请刷新页面查看已保存章节，或从下一章继续生成');
           eventSource.close();
           releaseGenerationRequest(requestId, eventSource);
           setGenerationState({
@@ -1435,7 +1480,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           });
           setIsBatchGenerating(false);
           generationLockRef.current = false;
-        }, 60000);
+        }, SSE_RECONNECT_GRACE_MS);
       };
 
     } catch (error) {
@@ -1446,8 +1491,335 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   };
 
+  const parseSpecificUnitNumbers = (input: string): number[] => {
+    const normalized = input
+      .replace(/[，、；;]/g, ',')
+      .replace(/[~～—–]/g, '-');
+    const numbers = new Set<number>();
+
+    normalized.split(',').forEach(part => {
+      const item = part.trim();
+      if (!item) return;
+      const rangeMatch = item.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (rangeMatch) {
+        const start = Number(rangeMatch[1]);
+        const end = Number(rangeMatch[2]);
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+        const low = Math.min(start, end);
+        const high = Math.max(start, end);
+        for (let value = low; value <= high; value += 1) {
+          numbers.add(value);
+        }
+        return;
+      }
+
+      const single = Number(item);
+      if (Number.isFinite(single)) {
+        numbers.add(single);
+      }
+    });
+
+    return Array.from(numbers)
+      .filter(value => Number.isInteger(value) && value > 0)
+      .sort((a, b) => a - b);
+  };
+
+  const getNextOutlinedUnitAfter = (unitNumber: number): number | null => {
+    const next = availableChapterNumbers.find(chapter => chapter > unitNumber);
+    return typeof next === 'number' && Number.isFinite(next) ? next : null;
+  };
+
+  const buildNextOutlineBridge = (unitNumber: number): string => {
+    const nextUnit = getNextOutlinedUnitAfter(unitNumber);
+    if (!nextUnit) return '';
+    const nextStoryData = getMicroStoryForChapter(nextUnit);
+    if (!nextStoryData) return '';
+
+    return `\n\n【下一${unitLabel}细纲衔接参考】\n下一${unitLabel}是第${nextUnit}${unitLabel}：${nextStoryData.title}\n${String(nextStoryData.content || '').substring(0, 600)}\n\n当前只需要让第${unitNumber}${unitLabel}结尾能够自然承接到下一${unitLabel}的剧情方向，不能提前写下一${unitLabel}的正文内容。`;
+  };
+
+  const generateSingleUnitContent = async (
+    unitNumber: number,
+    chaptersForContinuity: {[key: number]: string},
+    opts: { completedUnits: number[]; total: number },
+  ): Promise<string> => {
+    if (!currentProject) throw new Error('未找到当前项目');
+    const storyData = getMicroStoryForChapter(unitNumber);
+    if (!storyData) {
+      throw new Error(`第${unitNumber}${unitLabel}缺少对应${isMicrodrama ? '分集' : '小故事'}细纲`);
+    }
+
+    const microStoriesToUse = isMicrodrama
+      ? microStoriesInOrder
+      : alignedMicroStoriesForWriting;
+    if (!microStoriesToUse || microStoriesToUse.length === 0) {
+      throw new Error(`没有找到保存的${isMicrodrama ? '分集' : '小故事'}细纲`);
+    }
+
+    const effectivePreviousEnding =
+      unitNumber > 1 ? computePreviousEndingFromChapters(chaptersForContinuity, unitNumber) : '';
+    const nextStoryBridge = buildNextOutlineBridge(unitNumber);
+    const generationContext = buildGenerationContext(unitNumber, 1);
+
+    setCurrentChapter(unitNumber);
+    setJumpToChapter(unitNumber.toString());
+    setGeneratedContent('');
+    setIsEditingChapter(false);
+    setChapterDraftTouched(false);
+    setGenerationState({
+      isGenerating: true,
+      currentGeneratingChapter: unitNumber,
+      totalChapters: opts.total,
+      completedChapters: [...opts.completedUnits],
+    });
+
+    const prepareResponse = await blueprintApi.prepareChapterStream({
+      context: `${generationContext}
+
+【指定单${unitLabel}补写任务】
+本次只生成第${unitNumber}${unitLabel}，这是一次补空白/补缺章任务，不是循环生成。无论上下文里还有多少细纲，都必须只写这一${unitLabel}。
+上一${unitLabel}正文结尾会通过“previousEnding”提供，请从那个情绪、动作或叙事位置自然续上。
+如果存在下一${unitLabel}，只能参考下一${unitLabel}的小故事/分集细纲来做结尾衔接，不要引用或复述下一${unitLabel}已经写好的正文，也不要提前展开下一${unitLabel}的具体事件。
+生成完第${unitNumber}${unitLabel}后立刻停止。${nextStoryBridge}`,
+      chapterNumber: unitNumber,
+      unitCount: 1,
+      previousEnding: effectivePreviousEnding || undefined,
+      savedMicroStories: microStoriesToUse,
+      mode: writerMode,
+      writerModelProvider,
+      actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+      targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
+      targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
+      generatedChapters: undefined,
+      nextExistingChapterNumber: undefined,
+      nextExistingChapterContent: undefined,
+    });
+
+    const requestId = prepareResponse.requestId;
+    const eventSource = blueprintApi.generateChapterStream(requestId);
+    registerGenerationRequest(requestId, eventSource);
+
+    return new Promise((resolve, reject) => {
+      let completedContent = '';
+      let lastSseEventAt = Date.now();
+      let settled = false;
+      let sseErrorTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (sseErrorTimer) clearTimeout(sseErrorTimer);
+        eventSource.close();
+        releaseGenerationRequest(requestId, eventSource);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          lastSseEventAt = Date.now();
+          if (sseErrorTimer) {
+            clearTimeout(sseErrorTimer);
+            sseErrorTimer = null;
+          }
+
+          const data = JSON.parse(event.data);
+          if (generationCancelledRef.current) {
+            cleanup();
+            if (!settled) {
+              settled = true;
+              reject(new Error('生成已被终止'));
+            }
+            return;
+          }
+
+          switch (data.type) {
+            case 'ping':
+            case 'start':
+            case 'story_complete':
+              break;
+
+            case 'duplicate_stream':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                reject(new Error(data.message || '重复的流式连接已忽略'));
+              }
+              break;
+
+            case 'story_start': {
+              const startedChapter = Number(data.chapter || data.chapters?.[0] || unitNumber);
+              if (Number.isFinite(startedChapter)) {
+                setGenerationState(prev => ({
+                  ...prev,
+                  currentGeneratingChapter: startedChapter,
+                }));
+                if (autoFollowStreamingRef.current) {
+                  setCurrentChapter(startedChapter);
+                  setJumpToChapter(startedChapter.toString());
+                }
+              }
+              break;
+            }
+
+            case 'story_chunk':
+              if (data.content) {
+                const cleanContent = cleanWriterContent(data.content);
+                setGeneratedContent(cleanContent);
+                setGenerationState(prev => ({
+                  ...prev,
+                  currentGeneratingChapter: unitNumber,
+                }));
+              }
+              break;
+
+            case 'chapter_complete':
+              if (Number(data.chapter) === unitNumber && data.content) {
+                completedContent = cleanWriterContent(data.content);
+                persistGeneratedChapters({ [unitNumber]: completedContent });
+                setGeneratedContent(completedContent);
+                setGenerationState(prev => ({
+                  ...prev,
+                  completedChapters: prev.completedChapters.includes(unitNumber)
+                    ? prev.completedChapters
+                    : [...prev.completedChapters, unitNumber],
+                  currentGeneratingChapter: null,
+                }));
+              }
+              break;
+
+            case 'cancelled':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                reject(new Error('生成已被终止'));
+              }
+              break;
+
+            case 'story_error':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                reject(new Error(data.error || `第${unitNumber}${unitLabel}生成失败`));
+              }
+              break;
+
+            case 'complete':
+              cleanup();
+              if (!settled) {
+                settled = true;
+                if (completedContent) {
+                  resolve(completedContent);
+                } else {
+                  reject(new Error(`第${unitNumber}${unitLabel}生成结果为空`));
+                }
+              }
+              break;
+          }
+        } catch (error) {
+          cleanup();
+          if (!settled) {
+            settled = true;
+            reject(error);
+          }
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        if (sseErrorTimer) clearTimeout(sseErrorTimer);
+        sseErrorTimer = setTimeout(() => {
+          if (Date.now() - lastSseEventAt < SSE_RECONNECT_GRACE_MS) return;
+          cleanup();
+          if (!settled) {
+            settled = true;
+            reject(error instanceof Error ? error : new Error(`第${unitNumber}${unitLabel}连接中断`));
+          }
+        }, SSE_RECONNECT_GRACE_MS);
+      };
+    });
+  };
+
+  const generateSpecificUnits = async (inputText: string) => {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating) {
+      console.warn('已有正文生成任务正在运行，忽略指定章/集补写请求');
+      return;
+    }
+    if (!currentProject) {
+      alert('未找到当前项目');
+      return;
+    }
+
+    const numbers = parseSpecificUnitNumbers(inputText);
+    if (numbers.length === 0) {
+      alert(`请输入要补写的${unitLabel}编号，例如：30 或 41-43`);
+      return;
+    }
+
+    const unavailableNumbers = numbers.filter(number => !availableChapterNumberSet.has(number));
+    if (availableChapterNumberSet.size > 0 && unavailableNumbers.length > 0) {
+      alert(`以下${unitLabel}没有对应细纲，不能补写：${unavailableNumbers.join(', ')}`);
+      return;
+    }
+
+    const existingNumbers = numbers.filter(number => Boolean(getActiveGeneratedChapters()[number]));
+    if (existingNumbers.length > 0) {
+      const confirmed = confirm(
+        `第 ${existingNumbers.join(', ')} ${unitLabel}已有正文。继续会覆盖这些${unitLabel}，确定要重新生成吗？`
+      );
+      if (!confirmed) return;
+    }
+
+    generationLockRef.current = true;
+    generationCancelledRef.current = false;
+    setIsSingleUnitGenerating(true);
+    enableStreamingFollow();
+
+    try {
+      let accumulatedChapters: {[key: number]: string} = getActiveGeneratedChapters();
+      const completedUnits: number[] = [];
+
+      for (const unitNumber of numbers) {
+        if (generationCancelledRef.current) throw new Error('生成已被终止');
+        const content = await generateSingleUnitContent(unitNumber, accumulatedChapters, {
+          completedUnits,
+          total: numbers.length,
+        });
+        accumulatedChapters = {
+          ...accumulatedChapters,
+          [unitNumber]: content,
+        };
+        completedUnits.push(unitNumber);
+      }
+
+      const finalChapters = persistGeneratedChapters(accumulatedChapters);
+      await simulateSaveContent(finalChapters);
+      setGenerationState({
+        isGenerating: false,
+        currentGeneratingChapter: null,
+        totalChapters: 0,
+        completedChapters: [],
+      });
+      alert(`指定${unitLabel}补写完成：${numbers.join(', ')}`);
+    } catch (error) {
+      console.error(`指定${unitLabel}补写失败:`, error);
+      if (!generationCancelledRef.current) {
+        alert(error instanceof Error ? error.message : `指定${unitLabel}补写失败，请稍后重试`);
+      }
+      setGenerationState({
+        isGenerating: false,
+        currentGeneratingChapter: null,
+        totalChapters: 0,
+        completedChapters: [],
+      });
+    } finally {
+      setIsSingleUnitGenerating(false);
+      setIsBatchGenerating(false);
+      generationLockRef.current = false;
+    }
+  };
+
   // 从指定章节开始生成后续内容（支持覆盖模式）
   const generateFromChapter = async (startChapter: number, isOverwriteMode: boolean = false) => {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating) {
+      console.warn('已有正文生成任务正在运行，忽略从指定章节开始生成请求');
+      return;
+    }
     if (!currentProject) {
       alert('未找到当前项目');
       return;
@@ -1565,7 +1937,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       await generateSegmentParallelContent({ requestedLaneCount: parallelLaneCount });
       return;
     }
-    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating) {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating) {
       console.warn('已有正文生成任务正在运行，忽略新的一键循环生成请求');
       return;
     }
@@ -1918,13 +2290,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       eventSource.onerror = (error) => {
         if (sseErrorTimer) clearTimeout(sseErrorTimer);
         sseErrorTimer = setTimeout(() => {
-          if (Date.now() - lastSseEventAt < 60000) return;
+          if (Date.now() - lastSseEventAt < SSE_RECONNECT_GRACE_MS) return;
           cleanup();
           if (!settled) {
             settled = true;
             reject(error instanceof Error ? error : new Error(`第${startChapter}-${segmentEndChapter}${unitLabel}连接中断`));
           }
-        }, 60000);
+        }, SSE_RECONNECT_GRACE_MS);
       };
     });
   };
@@ -1934,7 +2306,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       alert('15章线程并行生成目前只用于网文正文，微短剧继续使用单集生成。');
       return;
     }
-    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating) {
+    if (generationLockRef.current || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating) {
       console.warn('已有正文生成任务正在运行，忽略新的15章线程并行生成请求');
       return;
     }
@@ -2404,12 +2776,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
             console.warn('模拟用户：SSE连接暂时中断，等待浏览器自动重连:', error);
             if (sseErrorTimer) clearTimeout(sseErrorTimer);
             sseErrorTimer = setTimeout(() => {
-              if (Date.now() - lastSseEventAt < 60000) return;
-              console.error('模拟用户：SSE连接超过60秒没有恢复');
+              if (Date.now() - lastSseEventAt < SSE_RECONNECT_GRACE_MS) return;
+              console.error('模拟用户：SSE连接超过180秒没有恢复');
               setIsBatchGenerating(false);
               releaseGenerationRequest(requestId, eventSource);
               reject(error);
-            }, 60000);
+            }, SSE_RECONNECT_GRACE_MS);
           };
 
         } catch (error) {
@@ -2537,11 +2909,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       context += '【项目大纲】\n';
       context += `书名：${currentProject.bookName}\n`;
       context += `核心概念：${currentProject.outline.logline}\n`;
-      context += `人物关系：${currentProject.outline.characters}\n`;
-      context += `世界观设定：${currentProject.outline.world}\n`;
-      context += `主要冲突：${currentProject.outline.hook}\n`;
-      context += `金手指设定：${currentProject.outline.themes}\n\n`;
-    }
+	      context += `人物关系：${currentProject.outline.characters}\n`;
+	      context += `世界观设定：${currentProject.outline.world}\n`;
+	      context += `主要冲突：${currentProject.outline.hook}\n`;
+	      context += `${isLiterature ? '文学核心' : '金手指设定'}：${currentProject.outline.themes}\n\n`;
+	    }
+
+	    if (isLiterature) {
+	      const styleName = literatureStyleNames[currentProject.literatureWritingStyle || ''] || '现实主义白描';
+	      context += `【文学作品正文模式】\n`;
+	      context += `文风选择：${styleName}\n`;
+	      context += `写作要求：这是文学作品，不按网文章节爽点写法处理；不要金手指、系统、外挂、升级、打脸爽点、强钩子和过度情绪拉扯。正文以正常叙事讲清故事，以人物刻画、生活细节、关系变化、环境压力和主题余韵为核心。小节细纲属于同一大章内部段落，写作时要保留“第X章 / 第X小节”的层次感。\n\n`;
+	    }
 
     // 世界观设定 - 精简关键信息
     if (currentProject.worldSetting) {
@@ -2577,12 +2956,14 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       );
 
       if (relevantStories.length > 0) {
-        context += `【本批次${isMicrodrama ? '分集' : '小故事'}细纲】\n`;
+	        context += `【本批次${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}细纲】\n`;
         relevantStories.forEach(({ story, chapterNumber }, index) => {
-          const rangeText = isMicrodrama
-            ? `第${chapterNumber}集`
-            : `第${chapterNumber}章`;
-          context += `${isMicrodrama ? '分集' : '小故事'}${index + 1}（${rangeText}）：\n`;
+	          const rangeText = isMicrodrama
+	            ? `第${chapterNumber}集`
+	            : isLiterature
+	              ? story.title
+	              : `第${chapterNumber}章`;
+	          context += `${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}${index + 1}（${rangeText}）：\n`;
           context += `标题：${story.title}\n`;
           context += `内容：${story.content}\n\n`;
         });
@@ -2595,14 +2976,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       const currentStory = getMicroStoryForChapter(currentStoryChapter);
 
       if (currentStory) {
-        context += `【当前${unitLabel === '集' ? '单集' : '章节'}剧情边界参考】\n`;
+	        context += `【当前${unitLabel === '集' ? '单集' : isLiterature ? '小节' : '章节'}剧情边界参考】\n`;
         context += isMicrodrama
           ? `当前集：第${currentStoryChapter}集\n`
-          : `章节：第${currentStoryChapter}章\n`;
-        context += `对应${isMicrodrama ? '分集' : '小故事'}：${currentStory.title}\n`;
-        context += `${isMicrodrama ? '分集' : '小故事'}详细内容：${currentStory.content}\n`;
+	          : isLiterature
+	            ? `当前小节：${currentStory.title}\n`
+	            : `章节：第${currentStoryChapter}章\n`;
+	        context += `对应${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}：${currentStory.title}\n`;
+	        context += `${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}详细内容：${currentStory.content}\n`;
         context += `所属中故事：${currentStory.macroStoryTitle}\n\n`;
-        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : '小故事'}内容进行创作，确保正文与剧情边界吻合；正文中不得出现“小故事卡”“技法卡”“一级结构”“阶段状态小结”等创作后台信息。\n\n`;
+	        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}内容进行创作，确保正文与剧情边界吻合；正文中不得出现“小故事卡”“技法卡”“一级结构”“阶段状态小结”等创作后台信息。\n\n`;
       }
     }
 
@@ -2671,7 +3054,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   const startEditChapter = () => {
-    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isRewritingChapter) return;
     pendingEditScrollYRef.current = window.scrollY;
     setIsEditingChapter(true);
     setChapterDraft(generatedChapters[currentChapter] ?? generatedContent ?? '');
@@ -2687,7 +3070,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const clearCurrentChapter = () => {
     if (!currentProject) return;
-    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter) return;
+    if (generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isRewritingChapter) return;
 
     const currentContent = visibleChapterContent;
     if (!currentContent) {
@@ -2716,7 +3099,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
   const rewriteCurrentChapterLength = async () => {
     if (!currentProject) return;
-    if (isEditingChapter || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter) return;
+    if (isEditingChapter || generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isRewritingChapter) return;
 
     const currentContent = visibleChapterContent;
     if (!currentContent) {
@@ -3116,6 +3499,55 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   <p className="mt-2 text-xs text-secondary-500">
                     生成时以约 {activeTargetWords} 字为目标；网文超过 3000 字会先校验小故事边界并裁剪越界内容，裁剪后仍超再用 DeepSeek 压缩约 30%。
                   </p>
+                </div>
+
+                <div className="p-4 bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-200 rounded-lg space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-violet-900">补写指定{unitLabel}</h4>
+                      <p className="text-xs text-violet-700 mt-1">
+                        可输入 30 或 41-43；连续空白会按单{unitLabel}逐个生成，只带上一{unitLabel}结尾和下一{unitLabel}细纲。
+                      </p>
+                    </div>
+                    <span className="px-2 py-1 rounded-md bg-white/80 border border-violet-200 text-[11px] font-medium text-violet-700">
+                      缺 {availableChapterNumbers.filter(chapter => !generatedChapters[chapter]).length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={specificUnitInput}
+                      onChange={(event) => setSpecificUnitInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          void generateSpecificUnits(specificUnitInput);
+                        }
+                      }}
+                      placeholder={`如 30, 41-43`}
+                      disabled={hasActiveGeneration || isRewritingChapter}
+                      className="min-w-0 flex-1 px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:bg-gray-100 disabled:text-gray-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => generateSpecificUnits(specificUnitInput)}
+                      disabled={hasActiveGeneration || isRewritingChapter || !specificUnitInput.trim()}
+                      className="px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                    >
+                      补写
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => generateSpecificUnits(String(currentChapter))}
+                    disabled={hasActiveGeneration || isRewritingChapter || !availableChapterNumberSet.has(currentChapter)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white hover:bg-violet-100 disabled:bg-gray-100 disabled:text-gray-400 border border-violet-200 text-violet-800 rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                    title={`只生成当前第${currentChapter}${unitLabel}`}
+                  >
+                    <PenTool className="w-4 h-4" />
+                    <span>只生成当前第{currentChapter}{unitLabel}</span>
+                  </button>
                 </div>
 
                 <div className="space-y-3">

@@ -7,9 +7,10 @@ import { useState, useEffect } from 'react';
 interface OutlineCardProps {
   outline: OutlineData;
   className?: string;
+  finalSectionTitle?: string;
 }
 
-export function OutlineCard({ outline, className = '' }: OutlineCardProps) {
+export function OutlineCard({ outline, className = '', finalSectionTitle = '金手指设定' }: OutlineCardProps) {
   const { saveOutline, isOutlineSaved, exportOutline } = useSavedOutlines();
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [localSaved, setLocalSaved] = useState(false);
@@ -60,7 +61,7 @@ export function OutlineCard({ outline, className = '' }: OutlineCardProps) {
     },
     {
       icon: Heart,
-      title: '金手指设定',
+      title: finalSectionTitle,
       content: outline.themes,
       color: 'text-red-600',
       bgColor: 'bg-red-50',
@@ -78,6 +79,31 @@ export function OutlineCard({ outline, className = '' }: OutlineCardProps) {
         <p className="text-primary-100 text-sm">
           由 Gemini 3 Pro 生成的故事架构
         </p>
+        {(outline.aliasTitle || outline.aliasSynopsis || outline.aliasTags?.length) && (
+          <div className="mt-4 rounded-lg bg-white/12 border border-white/20 p-3">
+            {outline.aliasTitle && (
+              <div className="text-sm">
+                <span className="text-primary-100">又名：</span>
+                <span className="font-semibold text-white">{outline.aliasTitle}</span>
+              </div>
+            )}
+            {outline.aliasSynopsis && (
+              <p className="mt-2 text-sm leading-relaxed text-primary-50 whitespace-pre-line">
+                <span className="text-primary-100">简介：</span>
+                {outline.aliasSynopsis}
+              </p>
+            )}
+            {outline.aliasTags?.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {outline.aliasTags.map(tag => (
+                  <span key={tag} className="px-2 py-0.5 rounded bg-white/15 text-primary-50 text-xs">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* 内容区域 */}

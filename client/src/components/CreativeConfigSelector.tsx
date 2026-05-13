@@ -19,11 +19,24 @@ interface CreativeConfigSelectorProps {
 }
 
 const groupOrder: CreativeTagGroup[] = ['popular', 'theme', 'role', 'plot'];
-const channelOrder: CreativeChannel[] = ['male', 'female', 'tiktok'];
+const channelOrder: CreativeChannel[] = ['male', 'female', 'tiktok', 'literature'];
+const CUSTOM_TAG_PREFIX = 'custom_tag_';
 
 function resolveChannel(category: NovelCategory | null): CreativeChannel {
   if (category?.id === 'tiktok') return 'tiktok';
+  if (category?.id === 'literature') return 'literature';
   return category?.id === 'female' ? 'female' : 'male';
+}
+
+function getCustomTagGroup(style: NovelStyle): CreativeTagGroup | null {
+  if (!style.id.startsWith(CUSTOM_TAG_PREFIX)) return null;
+  const group = style.id.split('_')[3] as CreativeTagGroup | undefined;
+  return groupOrder.includes(group as CreativeTagGroup) ? group as CreativeTagGroup : null;
+}
+
+function getSelectedTagGroup(style: NovelStyle): CreativeTagGroup | null {
+  const presetTag = getCreativeTagById(style.id);
+  return presetTag?.group || getCustomTagGroup(style);
 }
 
 export function CreativeConfigSelector({
@@ -35,6 +48,8 @@ export function CreativeConfigSelector({
   const [isOpen, setIsOpen] = useState(false);
   const [channel, setChannel] = useState<CreativeChannel>(() => resolveChannel(selectedCategory));
   const [activeGroup, setActiveGroup] = useState<CreativeTagGroup>('theme');
+  const [customTagName, setCustomTagName] = useState('');
+  const [customTagError, setCustomTagError] = useState('');
 
   useEffect(() => {
     if (!selectedCategory) {
@@ -51,19 +66,23 @@ export function CreativeConfigSelector({
     return groupOrder.map(group => ({
       group,
       tags: selectedStyles
-        .map(style => getCreativeTagById(style.id))
-        .filter((tag): tag is CreativeTag => Boolean(tag))
-        .filter(tag => tag.group === group),
+        .filter(style => getSelectedTagGroup(style) === group),
     }));
   }, [selectedStyles]);
 
   const activeTags = creativeTagsByChannel[channel][activeGroup];
+  const customTagCount = useMemo(
+    () => selectedStyles.filter(style => style.id.startsWith(CUSTOM_TAG_PREFIX)).length,
+    [selectedStyles],
+  );
 
   const changeChannel = (nextChannel: CreativeChannel) => {
     setChannel(nextChannel);
     onSelectCategory(creativeChannels[nextChannel]);
     onChangeSelectedStyles([]);
     setActiveGroup('theme');
+    setCustomTagName('');
+    setCustomTagError('');
   };
 
   const toggleTag = (tag: CreativeTag) => {
@@ -75,6 +94,36 @@ export function CreativeConfigSelector({
 
   const clearAll = () => {
     onChangeSelectedStyles([]);
+    setCustomTagError('');
+  };
+
+  const addCustomTag = () => {
+    const name = customTagName.trim().replace(/\s+/g, ' ');
+    if (!name) {
+      setCustomTagError('请输入自定义标签');
+      return;
+    }
+
+    if (customTagCount >= 5) {
+      setCustomTagError('自定义标签最多添加 5 个');
+      return;
+    }
+
+    const duplicated = selectedStyles.some(style => style.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicated) {
+      setCustomTagError('这个标签已经在已选列表里');
+      return;
+    }
+
+    const customStyle: NovelStyle = {
+      id: `${CUSTOM_TAG_PREFIX}${channel}_${activeGroup}_${Date.now()}`,
+      name,
+      description: `自定义 · ${creativeChannels[channel].name} · ${creativeGroupLabels[activeGroup]}`,
+    };
+
+    onChangeSelectedStyles([...selectedStyles, customStyle]);
+    setCustomTagName('');
+    setCustomTagError('');
   };
 
   return (
@@ -171,7 +220,10 @@ export function CreativeConfigSelector({
                       <button
                         key={group}
                         type="button"
-                        onClick={() => setActiveGroup(group)}
+                          onClick={() => {
+                            setActiveGroup(group);
+                            setCustomTagError('');
+                          }}
                         className={`px-3 py-2 rounded-lg text-sm font-semibold text-left transition-colors ${
                           activeGroup === group
                             ? 'bg-primary-600 text-white'
@@ -187,6 +239,52 @@ export function CreativeConfigSelector({
               </aside>
 
               <main className="flex-1 min-h-0 overflow-y-auto p-5 md:p-6">
+                <div className="mb-5 rounded-lg border border-primary-100 bg-primary-50/70 p-4">
+                  <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                    <div className="flex-1 min-w-0">
+                      <label className="block text-sm font-semibold text-secondary-900">
+                        自定义{creativeGroupLabels[activeGroup]}标签
+                      </label>
+                      <p className="mt-1 text-xs text-secondary-500">
+                        当前会添加到 {creativeChannels[channel].name} · {creativeGroupLabels[activeGroup]}，最多 5 个自定义标签。
+                      </p>
+                      <input
+                        type="text"
+                        value={customTagName}
+                        onChange={(event) => {
+                          setCustomTagName(event.target.value);
+                          setCustomTagError('');
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            addCustomTag();
+                          }
+                        }}
+                        placeholder="输入你想补充的标签"
+                        maxLength={24}
+                        className="mt-3 w-full rounded-lg border border-secondary-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addCustomTag}
+                      disabled={customTagCount >= 5}
+                      className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:bg-secondary-200 disabled:text-secondary-500 disabled:cursor-not-allowed"
+                    >
+                      添加自定义
+                    </button>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+                    <span className={customTagError ? 'text-red-600' : 'text-secondary-500'}>
+                      {customTagError || `已添加 ${customTagCount}/5 个自定义标签`}
+                    </span>
+                    {customTagCount >= 5 && (
+                      <span className="text-secondary-500">删除一个已选自定义标签后可继续添加</span>
+                    )}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
                   {activeTags.map(tag => {
                     const isSelected = selectedIds.has(tag.id);

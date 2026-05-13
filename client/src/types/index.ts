@@ -16,6 +16,9 @@ export interface GenerateOutlineResponse {
 export interface OutlineData {
   id: number;
   title: string;
+  aliasTitle?: string;
+  aliasSynopsis?: string;
+  aliasTags?: string[];
   logline: string;
   hook: string;
   characters: string;
@@ -28,6 +31,12 @@ export interface OutlineData {
 }
 
 export type LlmModelProvider = 'default' | 'gateway';
+
+export interface TitleVariant {
+  title: string;
+  synopsis: string;
+  tags: string[];
+}
 
 export interface LlmModelSelection {
   llmModelProvider?: LlmModelProvider;

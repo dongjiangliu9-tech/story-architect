@@ -20,7 +20,7 @@ export interface AutoGenerationStep {
   message?: string;
 }
 
-export type AutoGenerationTarget = 'microdrama-30' | 'novel-75';
+export type AutoGenerationTarget = 'microdrama-15' | 'microdrama-30' | 'novel-75';
 export type AutoGenerationPauseMode = 'none' | 'density' | 'first-micro-story';
 export type AutoGenerationDestination = 'world-setting' | 'story-structure' | 'writer';
 
@@ -124,6 +124,7 @@ export function useAutoGeneration() {
 
   const formatOutlineData = (outline: OutlineData): string => {
     return `### ${outline.title}
+${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
 核心概念：
 ${outline.logline}
@@ -146,7 +147,7 @@ ${outline.themes}`;
     bookName: string,
     onComplete: (projectId: number, destination?: AutoGenerationDestination) => void,
     onError: (error: string) => void,
-    options: AutoGenerationOptions = { target: 'microdrama-30' }
+    options: AutoGenerationOptions = { target: 'microdrama-15' }
   ) => {
     setIsAutoGenerating(true);
     initializeSteps();
@@ -154,14 +155,16 @@ ${outline.themes}`;
     try {
       const targetMode = options.target === 'novel-75' ? 'novel' : 'microdrama';
       const isMicrodrama = targetMode === 'microdrama';
-      const targetUnitCount = isMicrodrama ? 30 : 75;
-      const targetLabel = isMicrodrama ? '30集微短剧' : '75章网文';
-      const outlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline' : 'novel-75-detailed-outline';
-      const preIteratedOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-pre-v1' : 'novel-75-detailed-outline-pre-v1';
-      const finalOutlineCacheKey = isMicrodrama ? 'microdrama-30-detailed-outline-density-v3' : 'novel-75-detailed-outline-density-v3';
-      const microStoriesCacheKey = isMicrodrama ? 'microdrama-30-all-micro-stories' : 'novel-75-all-micro-stories';
-      const expandedWorldCacheKey = isMicrodrama ? 'microdrama-30-world-expanded-forces-v2' : 'novel-75-world-expanded-forces-v2';
-      const expandedCharactersCacheKey = isMicrodrama ? 'microdrama-30-characters-expanded-v1' : 'novel-75-characters-expanded-v1';
+      const microdramaEpisodeCount = options.target === 'microdrama-30' ? 30 : 15;
+      const targetUnitCount = isMicrodrama ? microdramaEpisodeCount : 75;
+      const targetLabel = isMicrodrama ? `${microdramaEpisodeCount}集微短剧` : '75章网文';
+      const targetCachePrefix = isMicrodrama ? `microdrama-${microdramaEpisodeCount}` : 'novel-75';
+      const outlineCacheKey = `${targetCachePrefix}-detailed-outline`;
+      const preIteratedOutlineCacheKey = `${targetCachePrefix}-detailed-outline-pre-v1`;
+      const finalOutlineCacheKey = `${targetCachePrefix}-detailed-outline-density-v3`;
+      const microStoriesCacheKey = `${targetCachePrefix}-all-micro-stories`;
+      const expandedWorldCacheKey = `${targetCachePrefix}-world-expanded-forces-v2`;
+      const expandedCharactersCacheKey = `${targetCachePrefix}-characters-expanded-v1`;
 
       // 清理旧缓存
       if (options.clearExisting !== false) {
@@ -198,7 +201,9 @@ ${outline.themes}`;
       }
 
       const cachedExpandedWorld = getCachedData(bookName, expandedWorldCacheKey);
-      if (cachedExpandedWorld) {
+      if (isMicrodrama) {
+        updateStep('generate-world', { status: 'completed', message: '微短剧自动化跳过世界观扩展包，采用基础世界观' });
+      } else if (cachedExpandedWorld) {
         worldResponse = { data: cachedExpandedWorld };
         updateStep('generate-world', { status: 'completed', message: '从缓存加载扩充后的世界观基础设定' });
       } else {
@@ -238,7 +243,9 @@ ${outline.themes}`;
       }
 
       const cachedExpandedCharacters = getCachedData(bookName, expandedCharactersCacheKey);
-      if (cachedExpandedCharacters) {
+      if (isMicrodrama) {
+        updateStep('generate-characters', { status: 'completed', message: '微短剧自动化跳过人物扩展包，采用基础人物设定' });
+      } else if (cachedExpandedCharacters) {
         charactersResponse = { data: cachedExpandedCharacters };
         updateStep('generate-characters', { status: 'completed', message: '从缓存加载扩充后的人物设定' });
       } else {
@@ -275,7 +282,7 @@ ${outline.themes}`;
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
           mode: targetMode,
-          microdramaEpisodeCount: isMicrodrama ? 30 : undefined,
+          microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
           reduceSensitiveContent: true,
           outlineBatchIndex: 1,
           existingDetailedOutline: ''
@@ -338,7 +345,7 @@ ${outline.themes}`;
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
           mode: targetMode,
-          microdramaEpisodeCount: isMicrodrama ? 30 : undefined,
+          microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
           reduceSensitiveContent: true,
           outlineBatchIndex: 1,
           existingDetailedOutline: detailedOutline,
@@ -362,7 +369,7 @@ ${outline.themes}`;
         characters: charactersResponse.data,
         detailedOutline: outlineResponse.data,
         detailedOutlineMode: targetMode,
-        microdramaEpisodeCount: isMicrodrama ? 30 : undefined,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         densityTuningLevels: currentDensityLevels,
         reduceSensitiveContent: true,
         ...preferredLogicModelFields,

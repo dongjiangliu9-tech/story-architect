@@ -109,7 +109,7 @@ function getOutlineSectionKey(label: string): keyof Pick<OutlineData, 'logline' 
   if (['主要冲突', '核心冲突', '主线冲突', 'mainconflict', 'conflict'].includes(normalized)) {
     return 'hook';
   }
-  if (['金手指设定', '金手指', '独特能力', '爽点机制', 'specialpower', 'cheat', 'power', 'hook'].includes(normalized)) {
+  if (['金手指设定', '金手指', '独特能力', '爽点机制', '文学核心', '文学气质', '审美表达', '叙事特色', '主题余韵', 'specialpower', 'cheat', 'power', 'hook'].includes(normalized)) {
     return 'themes';
   }
 
@@ -145,6 +145,7 @@ function appendOutlineSection(outline: OutlineData, section: string, content: st
  */
 export function formatOutlineForDisplay(outline: OutlineData): string {
   return `### ${outline.title}
+${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
 核心概念：
 ${outline.logline}

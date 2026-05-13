@@ -23,6 +23,7 @@ import {
  */
 function formatOutlineData(outline: OutlineData): string {
   return `### ${outline.title}
+${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
 核心概念：
 ${outline.logline}
@@ -38,6 +39,10 @@ ${outline.hook}
 
 金手指设定：
 ${outline.themes}`;
+}
+
+function getOutlineBookName(outline?: OutlineData | null): string {
+  return (outline?.aliasTitle || outline?.title || '').trim();
 }
 
 function hasMeaningfulOutline(outline?: OutlineData | null): outline is OutlineData {
@@ -66,6 +71,17 @@ function cleanMarkdownFormatting(text: string): string {
     .replace(/^\s*\d+\.\s+/gm, '') // 移除有序列表符号
     .replace(/^\s*>\s+/gm, '') // 移除引用符号
     .replace(/\n{3,}/g, '\n\n') // 压缩多余的换行
+    .trim();
+}
+
+function cleanPublicOutlineMetadata(text: string): string {
+  return String(text || '')
+    .replace(/[（(][^（）()\n]*(?:桥段类型|爱情线一级结构|好感度|两人关系阶段|关系阶段|爱情线阶段|爱情线ID|承载中故事序号)[^（）()\n]*[）)]/g, '')
+    .split('\n')
+    .filter(line => !/^\s*(?:桥段类型|爱情线一级结构|好感度|两人关系阶段|关系阶段|爱情线阶段|爱情线ID|承载中故事序号)\s*[:：]/.test(line.trim()))
+    .join('\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -115,14 +131,16 @@ interface WorldSettingPageProps {
   setAutoFlowProgress?: (progress: number) => void;
 }
 
+type OutlineMode = 'novel' | 'microdrama' | 'literature';
+
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
   const { currentProject, createProject, updateProject, deleteProject, loadProject, clearCurrentProject, exportProject, exportAllProjects, importFromJsonText, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
   const getLogicModelRequest = () =>
     getLogicModelRequestFromSources(currentProject, selectedOutline);
   const getPreferredLogicModelFields = () =>
     toPreferredLogicModelFields(getLogicModelRequest().llmModel);
-  const [outlineMode, setOutlineMode] = useState<'novel' | 'microdrama'>('novel');
-  const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<15 | 30 | 60 | 100>(30);
+  const [outlineMode, setOutlineMode] = useState<OutlineMode>('novel');
+  const [microdramaEpisodeCount, setMicrodramaEpisodeCount] = useState<15 | 30 | 60 | 100>(15);
   const [reduceSensitiveContent, setReduceSensitiveContent] = useState(false);
   const [densityTuningLevels, setDensityTuningLevels] = useState<DensityTuningLevels>(emptyDensityLevels);
   const [densityDraftLevels, setDensityDraftLevels] = useState<DensityTuningLevels>(emptyDensityLevels);
@@ -133,6 +151,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   });
   const [densityTuningLoading, setDensityTuningLoading] = useState(false);
   const [needsUpgradeSystem, setNeedsUpgradeSystem] = useState(true);
+  const [useRealisticWorldview, setUseRealisticWorldview] = useState(false);
+  const [realisticWorldviewContext, setRealisticWorldviewContext] = useState('');
   const [useEnglishNames, setUseEnglishNames] = useState(false);
 
   // 调试：监听项目状态变化
@@ -195,6 +215,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         emptyTitle: `尚未生成微短剧${microdramaEpisodeCount}集大纲`,
         emptyActionText: `手动填写微短剧${microdramaEpisodeCount}集大纲`,
       }
+    : outlineMode === 'literature'
+      ? {
+          shortName: '文学作品细纲',
+          buttonText: '生成文学作品细纲',
+          generateHint: '文学作品固定10个中故事作为完整作品终点，降低网文味，强调人物命运、时代压力和主题余韵',
+          resultTitle: '文学作品细纲结果',
+          emptyTitle: '尚未生成文学作品细纲',
+          emptyActionText: '手动填写文学作品细纲',
+        }
     : {
         shortName: '网文情节细纲',
         buttonText: '生成首批10个中故事',
@@ -215,7 +244,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   useEffect(() => {
     if (selectedOutline) {
       // 每次进入人设与世界观界面，都应该使用当前选中的灵感标题作为书名
-      setBookName(`${selectedOutline.title}`);
+      setBookName(getOutlineBookName(selectedOutline));
     }
   }, [selectedOutline]);
 
@@ -229,14 +258,20 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setBookName(currentProject.bookName);
       setWorldSetting(currentProject.worldSetting || '');
       setCharacters(currentProject.characters || '');
-      setOutline(currentProject.detailedOutline || '');
+      setOutline(cleanPublicOutlineMetadata(currentProject.detailedOutline || ''));
       setWorldSettingGenerated(!!currentProject.worldSetting);
       setCharactersGenerated(!!currentProject.characters);
-      setOutlineMode(currentProject.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel');
+      setOutlineMode(
+        currentProject.detailedOutlineMode === 'microdrama'
+          ? 'microdrama'
+          : currentProject.detailedOutlineMode === 'literature'
+            ? 'literature'
+            : 'novel'
+      );
       setMicrodramaEpisodeCount(
         currentProject.microdramaEpisodeCount === 15 || currentProject.microdramaEpisodeCount === 30 || currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
           ? currentProject.microdramaEpisodeCount
-          : 30
+          : 15
       );
       setReduceSensitiveContent(Boolean(currentProject.reduceSensitiveContent));
       const normalizedDensityLevels = normalizeDensityLevels(currentProject.densityTuningLevels);
@@ -244,6 +279,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setDensityDraftLevels(normalizedDensityLevels);
       setEnabledDensityTunings({ emotion: false, plot: false, element: false });
       setNeedsUpgradeSystem(currentProject.worldSettingNeedsUpgradeSystem !== false);
+      setUseRealisticWorldview(Boolean(currentProject.worldSettingUseRealisticMode));
+      setRealisticWorldviewContext(currentProject.worldSettingRealisticContext || '');
 
       // 如果有内容，自动切换到对应的标签页
       if (currentProject.detailedOutline) {
@@ -275,7 +312,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
       // 如果有selectedOutline，设置书名
       if (selectedOutline) {
-        setBookName(`${selectedOutline.title}`);
+        setBookName(getOutlineBookName(selectedOutline));
       }
     }
 
@@ -304,7 +341,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   // 单独处理selectedOutline的变化（当没有当前项目时）
   useEffect(() => {
     if (!currentProject && selectedOutline) {
-      setBookName(`${selectedOutline.title}`);
+      setBookName(getOutlineBookName(selectedOutline));
     }
   }, [selectedOutline, currentProject]);
 
@@ -313,6 +350,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       alert('未找到选中的故事大纲，请返回第一步重新选择');
       return;
     }
+    if (!validateRealisticWorldviewInput()) return;
 
     setIsGeneratingWorldSetting(true);
     try {
@@ -321,7 +359,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const response = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
-        needsUpgradeSystem,
+        ...getWorldSettingGenerationOptions(),
       });
 
       console.log('生成的世界观基础设定:', response.data);
@@ -382,6 +420,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       alert('请先填写要补充的批注');
       return;
     }
+    if (!validateRealisticWorldviewInput()) return;
 
     setIsSupplementingWorldSetting(true);
     try {
@@ -389,7 +428,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const response = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
-        needsUpgradeSystem,
+        ...getWorldSettingGenerationOptions(),
         existingWorldSetting: worldSetting,
         note,
       });
@@ -402,6 +441,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         updateProject(currentProject.id, {
           worldSetting: response.data,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          worldSettingUseRealisticMode: useRealisticWorldview,
+          worldSettingRealisticContext: realisticWorldviewContext,
         });
       }
 
@@ -493,8 +534,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         existingDetailedOutline: '',
       });
 
-      console.log('生成的情节细纲:', response.data);
-      setOutline(response.data);
+      const cleanedOutline = cleanPublicOutlineMetadata(response.data);
+      console.log('生成的情节细纲:', cleanedOutline);
+      setOutline(cleanedOutline);
       const resetDensityLevels = emptyDensityLevels();
       setDensityTuningLevels(resetDensityLevels);
       setDensityDraftLevels(resetDensityLevels);
@@ -551,12 +593,13 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         outlineRevisionSuggestion: outlineRevisionSuggestion.trim(),
       });
 
-      setOutline(response.data);
+      const cleanedOutline = cleanPublicOutlineMetadata(response.data);
+      setOutline(cleanedOutline);
       setActiveTab('outline');
 
       if (currentProject) {
         updateProject(currentProject.id, {
-          detailedOutline: response.data,
+          detailedOutline: cleanedOutline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           reduceSensitiveContent,
@@ -633,7 +676,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         ),
       });
 
-      setOutline(response.data);
+      const cleanedOutline = cleanPublicOutlineMetadata(response.data);
+      setOutline(cleanedOutline);
       setActiveTab('outline');
       setReduceSensitiveContent(true);
       setDensityTuningLevels(nextLevels);
@@ -641,7 +685,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       setEnabledDensityTunings({ emotion: false, plot: false, element: false });
 
       if (currentProject) {
-        const newStories = parseMacroStories(response.data);
+        const newStories = parseMacroStories(cleanedOutline);
         const saved = currentProject.savedMicroStories || [];
         const updatedSaved = saved.map(story => {
           const macroIndex = Number(story.macroStoryId.replace('story_', ''));
@@ -660,7 +704,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           : undefined;
 
         updateProject(currentProject.id, {
-          detailedOutline: response.data,
+          detailedOutline: cleanedOutline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           densityTuningLevels: nextLevels,
@@ -682,6 +726,19 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   const getActiveOutline = (): OutlineData | null => selectedOutline || currentProject?.outline || null;
 
+  const validateRealisticWorldviewInput = () => {
+    if (!useRealisticWorldview) return true;
+    if (realisticWorldviewContext.trim()) return true;
+    alert('请先填写现实主义世界观背景，比如“上世纪80年代东北县城”或“1990年代广州服装批发市场”。');
+    return false;
+  };
+
+  const getWorldSettingGenerationOptions = () => ({
+    needsUpgradeSystem: useRealisticWorldview ? false : needsUpgradeSystem,
+    useRealisticWorldview,
+    realisticWorldviewContext: useRealisticWorldview ? realisticWorldviewContext.trim() : undefined,
+  });
+
   const hasAnyDraftContent = () =>
     Boolean(bookName.trim() || worldSetting.trim() || characters.trim() || outline.trim());
 
@@ -697,13 +754,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       (currentProject.detailedOutlineMode || 'novel') !== outlineMode ||
       currentProject.microdramaEpisodeCount !== (outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined) ||
       Boolean(currentProject.reduceSensitiveContent) !== reduceSensitiveContent ||
-      (currentProject.worldSettingNeedsUpgradeSystem !== false) !== needsUpgradeSystem
+      (currentProject.worldSettingNeedsUpgradeSystem !== false) !== needsUpgradeSystem ||
+      Boolean(currentProject.worldSettingUseRealisticMode) !== useRealisticWorldview ||
+      (currentProject.worldSettingRealisticContext || '') !== realisticWorldviewContext
     );
   };
 
   const saveCurrentProject = (options: { requireComplete?: boolean; quiet?: boolean } = {}) => {
     const activeOutline = getActiveOutline();
-    const resolvedBookName = bookName.trim() || activeOutline?.title || currentProject?.bookName || '未命名项目';
+    const resolvedBookName = bookName.trim() || getOutlineBookName(activeOutline) || currentProject?.bookName || '未命名项目';
 
     if (!activeOutline) {
       if (!options.quiet) {
@@ -737,6 +796,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          worldSettingUseRealisticMode: useRealisticWorldview,
+          worldSettingRealisticContext: realisticWorldviewContext,
           ...getPreferredLogicModelFields(),
         });
       } else {
@@ -751,6 +812,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          worldSettingUseRealisticMode: useRealisticWorldview,
+          worldSettingRealisticContext: realisticWorldviewContext,
           ...getPreferredLogicModelFields(),
         });
         console.log('新项目创建完成，项目ID:', newProject.id);
@@ -911,6 +974,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       alert('请输入书名');
       return;
     }
+    if (!validateRealisticWorldviewInput()) return;
 
     setBatchGenerating(true);
     setBatchGenerationProgress({ current: 1, total: 4, message: '正在生成世界观基础设定...' });
@@ -926,7 +990,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       const worldResponse = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
-        needsUpgradeSystem,
+        ...getWorldSettingGenerationOptions(),
       });
 
       console.log('批量生成：世界观基础设定成功');
@@ -969,7 +1033,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       });
 
       console.log('批量生成：情节细纲成功');
-      setOutline(outlineResponse.data);
+      const cleanedOutline = cleanPublicOutlineMetadata(outlineResponse.data);
+      setOutline(cleanedOutline);
       const resetDensityLevels = emptyDensityLevels();
       setDensityTuningLevels(resetDensityLevels);
       setDensityDraftLevels(resetDensityLevels);
@@ -982,24 +1047,28 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           bookName: bookName.trim(),
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
-          detailedOutline: outlineResponse.data,
+          detailedOutline: cleanedOutline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           densityTuningLevels: resetDensityLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          worldSettingUseRealisticMode: useRealisticWorldview,
+          worldSettingRealisticContext: realisticWorldviewContext,
           ...getPreferredLogicModelFields(),
         });
       } else {
         const newProject = createProject(bookName.trim(), activeInspirationOutline, {
           worldSetting: worldResponse.data,
           characters: charactersResponse.data,
-          detailedOutline: outlineResponse.data,
+          detailedOutline: cleanedOutline,
           detailedOutlineMode: outlineMode,
           microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
           densityTuningLevels: resetDensityLevels,
           reduceSensitiveContent,
           worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+          worldSettingUseRealisticMode: useRealisticWorldview,
+          worldSettingRealisticContext: realisticWorldviewContext,
           ...getPreferredLogicModelFields(),
         });
         console.log('批量生成：新项目创建完成，项目ID:', newProject.id);
@@ -1239,8 +1308,11 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                   <div className="text-sm font-medium text-secondary-900 mb-3">升级体系选项</div>
                   <div className="flex flex-wrap gap-3">
 	                    <button
-	                      onClick={() => setNeedsUpgradeSystem(true)}
-	                      disabled={!canUseAIGeneration}
+	                      onClick={() => {
+                          setNeedsUpgradeSystem(true);
+                          setUseRealisticWorldview(false);
+                        }}
+	                      disabled={!canUseAIGeneration || useRealisticWorldview}
 	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
 	                        needsUpgradeSystem
 	                          ? 'bg-primary-600 text-white shadow-sm'
@@ -1251,7 +1323,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     </button>
 	                    <button
 	                      onClick={() => setNeedsUpgradeSystem(false)}
-	                      disabled={!canUseAIGeneration}
+	                      disabled={!canUseAIGeneration || useRealisticWorldview}
 	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
 	                        !needsUpgradeSystem
 	                          ? 'bg-primary-600 text-white shadow-sm'
@@ -1265,6 +1337,41 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     都市、现代、现实、豪门、职场、校园等题材，建议关闭修炼升级体系，改走现实向世界观模板。
                   </p>
                 </div>
+                <div className="rounded-lg border border-secondary-200 bg-white p-4">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={useRealisticWorldview}
+                      disabled={!canUseAIGeneration}
+                      onChange={(e) => {
+                        setUseRealisticWorldview(e.target.checked);
+                        if (e.target.checked) setNeedsUpgradeSystem(false);
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-secondary-900">生成现实主义世界观</span>
+                      <span className="mt-1 block text-xs text-secondary-600">
+                        适合年代、地域、家庭伦理、现实成长、社会变迁、职场商战等题材；开启后不会网文化、玄幻化或强行设计升级体系。
+                      </span>
+                    </span>
+                  </label>
+                  {useRealisticWorldview && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-secondary-600 mb-1">
+                        现实背景字段
+                      </label>
+                      <textarea
+                        value={realisticWorldviewContext}
+                        onChange={(e) => setRealisticWorldviewContext(e.target.value)}
+                        rows={3}
+                        disabled={!canUseAIGeneration}
+                        placeholder="例如：上世纪80年代东北县城；1990年代广州服装批发市场；2008年前后深圳互联网创业圈"
+                        className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none text-sm disabled:bg-secondary-50"
+                      />
+                    </div>
+                  )}
+                </div>
 	                <button
 	                  onClick={handleGenerateWorldSetting}
 	                  disabled={isGeneratingWorldSetting || !canUseAIGeneration}
@@ -1273,7 +1380,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                   {isGeneratingWorldSetting ? '生成中...' : '生成世界观设定'}
                 </button>
                 <p className="text-xs text-secondary-600">
-                  生成升级体系、地图布局、各大势力介绍等世界观基础元素
+                  {useRealisticWorldview
+                    ? '生成符合指定年代、地域、社会结构与生活细节的现实主义世界观'
+                    : '生成升级体系、地图布局、各大势力介绍等世界观基础元素'}
                 </p>
                 <div className="text-xs text-secondary-500">
                   <CheckCircle className="w-3 h-3 inline mr-1" />
@@ -1316,12 +1425,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 >
                   {isGeneratingCharacters ? '生成中...' : '生成人物设定'}
                 </button>
-                <p className="text-xs text-secondary-600">
-                  将根据故事大纲生成20-30个完整人物设定
+	                <p className="text-xs text-secondary-600">
+	                  将根据世界观生成20-30个完整人物群像
                 </p>
                 <div className="text-xs text-secondary-500">
                   <CheckCircle className="w-3 h-3 inline mr-1" />
-                  包含前200章主要登场人物
+	                  不按主角团、阵营或反派模板分类
                 </div>
               </div>
             </div>
@@ -1356,9 +1465,20 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
 	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
 	                    >
-                      微短剧大纲
-                    </button>
-                  </div>
+	                      微短剧大纲
+	                    </button>
+	                    <button
+	                      onClick={() => setOutlineMode('literature')}
+	                      disabled={!canUseAIGeneration}
+	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+	                        outlineMode === 'literature'
+	                          ? 'bg-primary-600 text-white shadow-sm'
+	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                    >
+	                      文学作品细纲
+	                    </button>
+	                  </div>
                   {outlineMode === 'microdrama' && (
                     <div className="mt-4 space-y-4">
                       <div className="text-xs font-medium text-secondary-700 mb-2">集数规格</div>
@@ -1710,7 +1830,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                             value={supplementNotes.characters}
                             onChange={(e) => setSupplementNotes(prev => ({ ...prev, characters: e.target.value }))}
                             className="w-full min-h-[84px] p-3 border border-primary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm text-secondary-800 bg-white"
-                            placeholder="写批注：比如补充女主当前状态、增加反派阵营、强化主角和师门关系、给配角加隐藏动机..."
+	                            placeholder="写批注：比如补充某个家庭/单位/行业圈层的人物、增加旧案相关人、强化人物之间的亏欠与秘密、给边缘角色加隐藏动机..."
                           />
                         </div>
                       )}

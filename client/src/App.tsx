@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 // import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { Sparkles, BookOpen, Wand2, Bookmark, PenTool, FilePlus2, Save, X } from 'lucide-react';
-import { NovelCategory, NovelStyle, OutlineData } from './types';
+import { NovelCategory, NovelStyle, OutlineData, TitleVariant } from './types';
 import { CreativeConfigSelector } from './components/CreativeConfigSelector';
 import { GenerateButton } from './components/GenerateButton';
 import { OutlineCard } from './components/OutlineCard';
@@ -11,7 +11,7 @@ import { SavedOutlinesPanel } from './components/SavedOutlinesPanel';
 import { AutoGenerationProgress } from './components/AutoGenerationProgress';
 import { WorldSettingPage } from './pages/WorldSettingPage';
 import { WriterPage } from './pages/WriterPage';
-import { SavedOutlinesProvider } from './contexts/SavedOutlinesContext';
+import { SavedOutlinesProvider, useSavedOutlines } from './contexts/SavedOutlinesContext';
 import { WorldSettingsProvider } from './contexts/WorldSettingsContext';
 import { StoryStructurePage } from './pages/StoryStructurePage';
 import { blueprintApi } from './services/api';
@@ -28,17 +28,43 @@ import {
 
 const LOGIC_MODEL_STORAGE_KEY = 'story-architect-logic-model';
 const LOGIC_MODEL_DEFAULT_MIGRATION_KEY = 'story-architect-logic-model-default-migrated';
+const BLUEPRINT_OUTLINES_STORAGE_KEY = 'story-architect-blueprint-outlines';
+const BLUEPRINT_OUTLINE_INDEX_STORAGE_KEY = 'story-architect-blueprint-current-index';
+
+function getOutlineBookName(outline?: OutlineData | null): string {
+  return (outline?.aliasTitle || outline?.title || '').trim();
+}
+
+function formatOutlineForTitleVariants(outline: OutlineData): string {
+  return `### ${outline.title}
+${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
+核心概念：
+${outline.logline}
+
+人物关系：
+${outline.characters}
+
+世界观设定：
+${outline.world}
+
+主要冲突：
+${outline.hook}
+
+金手指设定：
+${outline.themes}`;
+}
 
 function BlueprintPage({
   onNavigate
 }: {
   onNavigate: (page: string, outline?: OutlineData, shouldNavigateToStructure?: boolean) => void;
 }) {
+  const { updateSavedOutlineIfExists } = useSavedOutlines();
   const [selectedCategory, setSelectedCategory] = useState<NovelCategory | null>(null);
   const [selectedStyles, setSelectedStyles] = useState<NovelStyle[]>([]);
   const [theme, setTheme] = useState('');
   const [bookName, setBookName] = useState('');
-  const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-30' | 'novel-75'>('microdrama-30');
+  const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-15' | 'microdrama-30' | 'novel-75'>('microdrama-15');
   const [isAutoSetupOpen, setIsAutoSetupOpen] = useState(false);
   const [autoPauseMode, setAutoPauseMode] = useState<AutoGenerationPauseMode>('none');
   const [autoClearExisting, setAutoClearExisting] = useState(true);
@@ -58,23 +84,51 @@ function BlueprintPage({
     }
   });
   const [isGenerating, setIsGenerating] = useState(false);
-  const [outlines, setOutlines] = useState<OutlineData[]>([]);
-  const [currentOutlineIndex, setCurrentOutlineIndex] = useState(0);
+  const [outlines, setOutlines] = useState<OutlineData[]>(() => {
+    try {
+      const saved = localStorage.getItem(BLUEPRINT_OUTLINES_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [currentOutlineIndex, setCurrentOutlineIndex] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(BLUEPRINT_OUTLINE_INDEX_STORAGE_KEY) || 0);
+      return Number.isFinite(saved) && saved >= 0 ? saved : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [error, setError] = useState<string | null>(null);
   const [isSavedPanelOpen, setIsSavedPanelOpen] = useState(false);
   const [outlineDraft, setOutlineDraft] = useState<OutlineData | null>(null);
   const [editingOutlineIndex, setEditingOutlineIndex] = useState<number | null>(null);
   const [lastCommittedOutline, setLastCommittedOutline] = useState<OutlineData | null>(null);
+  const [isGeneratingTitleVariants, setIsGeneratingTitleVariants] = useState(false);
+  const [titleVariants, setTitleVariants] = useState<TitleVariant[]>([]);
+  const [selectedTitleVariantIndex, setSelectedTitleVariantIndex] = useState(0);
+  const [selectedSynopsisVariantIndex, setSelectedSynopsisVariantIndex] = useState(0);
+  const [titleVariantError, setTitleVariantError] = useState<string | null>(null);
   const isEditingOutline = outlineDraft !== null;
   const resolvedOutlineIndex =
     currentOutlineIndex >= 0 && currentOutlineIndex < outlines.length
       ? currentOutlineIndex
       : 0;
   const currentOutline = outlines[resolvedOutlineIndex] ?? null;
+  const isLiteraryWorkSelected = selectedCategory?.id === 'literature' || selectedCategory?.name === '文学作品';
+  const finalOutlineSectionTitle = isLiteraryWorkSelected ? '文学核心' : '金手指设定';
+  const finalOutlineSectionPlaceholder = isLiteraryWorkSelected
+    ? '作品气质、叙事特色、主题余韵、人物精神困境'
+    : '外挂、能力成长路径、资源机制';
 
   const createCachedOutline = (outline: OutlineData): OutlineData => ({
     id: outline.id,
     title: (outline.title || '').slice(0, 200),
+    aliasTitle: (outline.aliasTitle || '').slice(0, 200),
+    aliasSynopsis: (outline.aliasSynopsis || '').slice(0, 1000),
+    aliasTags: outline.aliasTags || [],
     logline: (outline.logline || '').slice(0, 2000),
     hook: (outline.hook || '').slice(0, 2000),
     characters: (outline.characters || '').slice(0, 2000),
@@ -84,6 +138,16 @@ function BlueprintPage({
     preferredLlmModelProvider: outline.preferredLlmModelProvider,
     preferredLlmModel: outline.preferredLlmModel,
   });
+
+  const persistBlueprintOutlines = (nextOutlines: OutlineData[], nextIndex = currentOutlineIndex) => {
+    try {
+      const compactOutlines = nextOutlines.map(createCachedOutline);
+      localStorage.setItem(BLUEPRINT_OUTLINES_STORAGE_KEY, JSON.stringify(compactOutlines));
+      localStorage.setItem(BLUEPRINT_OUTLINE_INDEX_STORAGE_KEY, String(nextIndex));
+    } catch (error) {
+      console.warn('缓存灵感架构列表失败:', error);
+    }
+  };
 
   const createBlankOutline = (): OutlineData => ({
     id: Date.now(),
@@ -105,6 +169,10 @@ function BlueprintPage({
       // Ignore localStorage failures so model selection never blocks generation.
     }
   }, [logicModelValue]);
+
+  useEffect(() => {
+    persistBlueprintOutlines(outlines, resolvedOutlineIndex);
+  }, [outlines, resolvedOutlineIndex]);
 
   const confirmDiscardOutlineEdits = () => {
     if (!isEditingOutline) return true;
@@ -152,8 +220,11 @@ function BlueprintPage({
 
       setOutlines(parsedOutlines);
       setCurrentOutlineIndex(0);
+      persistBlueprintOutlines(parsedOutlines, 0);
       setOutlineDraft(null);
       setEditingOutlineIndex(null);
+      setTitleVariants([]);
+      setTitleVariantError(null);
     } catch (err) {
       console.error('生成失败:', err);
       setError(err instanceof Error ? err.message : '生成失败，请稍后重试');
@@ -166,11 +237,15 @@ function BlueprintPage({
 
   const handleNextOutline = () => {
     if (!confirmDiscardOutlineEdits()) return;
+    setTitleVariants([]);
+    setTitleVariantError(null);
     setCurrentOutlineIndex((prev) => (prev + 1) % outlines.length);
   };
 
   const handlePrevOutline = () => {
     if (!confirmDiscardOutlineEdits()) return;
+    setTitleVariants([]);
+    setTitleVariantError(null);
     setCurrentOutlineIndex((prev) => (prev - 1 + outlines.length) % outlines.length);
   };
 
@@ -179,10 +254,13 @@ function BlueprintPage({
     // 将保存的大纲设置为当前显示的架构
     setOutlines([outline]);
     setCurrentOutlineIndex(0);
+    persistBlueprintOutlines([outline], 0);
     setLastCommittedOutline(outline);
     setLogicModelValue(getPreferredLogicModelValue(outline));
     setOutlineDraft(null);
     setEditingOutlineIndex(null);
+    setTitleVariants([]);
+    setTitleVariantError(null);
   };
 
   const startEditCurrentOutline = () => {
@@ -190,12 +268,16 @@ function BlueprintPage({
     if (!current) return;
     setEditingOutlineIndex(resolvedOutlineIndex);
     setOutlineDraft({ ...current });
+    setTitleVariants([]);
+    setTitleVariantError(null);
   };
 
   const startCreateBlankOutline = () => {
     if (!confirmDiscardOutlineEdits()) return;
     setEditingOutlineIndex(null);
     setOutlineDraft(createBlankOutline());
+    setTitleVariants([]);
+    setTitleVariantError(null);
   };
 
   const cancelOutlineEdit = () => {
@@ -223,13 +305,16 @@ function BlueprintPage({
       setOutlines(prev => {
         const next = [...prev, normalizedOutline];
         setCurrentOutlineIndex(next.length - 1);
+        persistBlueprintOutlines(next, next.length - 1);
         return next;
       });
     } else {
       setLastCommittedOutline(normalizedOutline);
-      setOutlines(prev =>
-        prev.map((item, index) => (index === editingOutlineIndex ? normalizedOutline : item))
-      );
+      setOutlines(prev => {
+        const next = prev.map((item, index) => (index === editingOutlineIndex ? normalizedOutline : item));
+        persistBlueprintOutlines(next, editingOutlineIndex);
+        return next;
+      });
       setCurrentOutlineIndex(editingOutlineIndex);
     }
 
@@ -262,6 +347,76 @@ function BlueprintPage({
         [field]: value,
       };
     });
+  };
+
+  const updateOutlineDraftTags = (value: string) => {
+    setOutlineDraft(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        aliasTags: value.split(/[、,，/|｜\s]+/).map(tag => tag.trim()).filter(Boolean),
+      };
+    });
+  };
+
+  const handleGenerateTitleVariants = async () => {
+    const outline = currentOutline;
+    if (!outline) {
+      setTitleVariantError('请先生成或选择一个灵感架构');
+      return;
+    }
+
+    setIsGeneratingTitleVariants(true);
+    setTitleVariantError(null);
+
+    try {
+      const response = await blueprintApi.generateTitleVariants({
+        outline: formatOutlineForTitleVariants(outline),
+        ...toLogicModelRequest(logicModelValue),
+      });
+
+      if (!response.data?.length) {
+        throw new Error('没有解析到有效的书名简介候选');
+      }
+
+      setTitleVariants(response.data);
+      setSelectedTitleVariantIndex(0);
+      setSelectedSynopsisVariantIndex(0);
+    } catch (err) {
+      console.error('生成书名简介候选失败:', err);
+      setTitleVariantError(err instanceof Error ? err.message : '生成书名简介候选失败，请稍后重试');
+    } finally {
+      setIsGeneratingTitleVariants(false);
+    }
+  };
+
+  const applySelectedTitleVariant = () => {
+    const outline = currentOutline;
+    const titleVariant = titleVariants[selectedTitleVariantIndex];
+    const synopsisVariant = titleVariants[selectedSynopsisVariantIndex];
+    if (!outline || !titleVariant || !synopsisVariant) return;
+
+    const updatedOutline: OutlineData = {
+      ...outline,
+      aliasTitle: titleVariant.title.trim(),
+      aliasSynopsis: synopsisVariant.synopsis.trim(),
+      aliasTags: synopsisVariant.tags || [],
+      ...toPreferredLogicModelFields(logicModelValue),
+    };
+
+    setOutlines(prev => {
+      const next = prev.map((item, index) => (index === resolvedOutlineIndex ? updatedOutline : item));
+      persistBlueprintOutlines(next, resolvedOutlineIndex);
+      return next;
+    });
+    updateSavedOutlineIfExists(outline, updatedOutline);
+    setLastCommittedOutline(updatedOutline);
+    setBookName(updatedOutline.aliasTitle || updatedOutline.title);
+    try {
+      localStorage.setItem('story-architect-current-outline', JSON.stringify(createCachedOutline(updatedOutline)));
+    } catch (error) {
+      console.warn('缓存改名后的灵感架构失败:', error);
+    }
   };
 
   const handleEnterWorldSetting = () => {
@@ -361,7 +516,7 @@ function BlueprintPage({
     const outline = getValidatedAutoOutline();
     if (!outline) return;
 
-    const resolvedBookName = bookName.trim() || outline.title.trim() || '未命名作品';
+    const resolvedBookName = bookName.trim() || getOutlineBookName(outline) || '未命名作品';
     setError(null);
     setIsAutoSetupOpen(false);
 
@@ -451,7 +606,7 @@ function BlueprintPage({
                   <textarea
                     value={theme}
                     onChange={(e) => setTheme(e.target.value)}
-                    placeholder="写一个自定义创意方向，比如：被退婚的落魄少爷绑定废品回收系统，在都市修真世界逆袭成神"
+                    placeholder="可以选择或组合这些核心主题：成长崛起、雪耻复仇、逆袭打脸、身份反转、强者归来、废柴觉醒、权力争夺、财富逆袭、爱情救赎、破镜重圆、婚恋博弈、家族恩怨、生死逃亡、末世求生、守护牺牲。也可以写自定义创意方向。"
                     className="w-full min-h-[96px] px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
                   />
                   <p className="text-xs text-secondary-500">
@@ -523,6 +678,7 @@ function BlueprintPage({
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {([
+                      { value: 'microdrama-15' as const, label: '15集微短剧' },
                       { value: 'microdrama-30' as const, label: '30集微短剧' },
                       { value: 'novel-75' as const, label: '75章网文' },
                     ]).map(option => (
@@ -553,7 +709,7 @@ function BlueprintPage({
                   }`}
                 >
                   <Sparkles className="w-6 h-6" />
-                  <span>{isAutoGenerating ? 'AI自动迭代中...' : `AI自动迭代文学作品（${autoGenerationTarget === 'microdrama-30' ? '30集' : '75章'}）`}</span>
+                  <span>{isAutoGenerating ? 'AI自动迭代中...' : `AI自动迭代文学作品（${autoGenerationTarget === 'microdrama-15' ? '15集' : autoGenerationTarget === 'microdrama-30' ? '30集' : '75章'}）`}</span>
                 </button>
               </div>
             </div>
@@ -585,13 +741,23 @@ function BlueprintPage({
                       {!isEditingOutline ? (
                         <>
                           {outlines.length > 0 && (
-                            <button
-                              onClick={startEditCurrentOutline}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
-                            >
-                              <PenTool className="w-4 h-4" />
-                              <span>编辑当前架构</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={handleGenerateTitleVariants}
+                                disabled={isGeneratingTitleVariants}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                <Wand2 className="w-4 h-4" />
+                                <span>{isGeneratingTitleVariants ? '生成中...' : '改书名简介'}</span>
+                              </button>
+                              <button
+                                onClick={startEditCurrentOutline}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-md"
+                              >
+                                <PenTool className="w-4 h-4" />
+                                <span>编辑当前架构</span>
+                              </button>
+                            </>
                           )}
                           <button
                             onClick={startCreateBlankOutline}
@@ -629,6 +795,88 @@ function BlueprintPage({
                     </div>
                   </div>
                 </div>
+                {!isEditingOutline && (titleVariants.length > 0 || titleVariantError || isGeneratingTitleVariants) && (
+                  <div className="card p-4 bg-white/95 border border-amber-200">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-secondary-900">书名与简介候选</h3>
+                        <p className="text-xs text-secondary-500 mt-1">
+                          可分别选择一个书名和一个简介，应用后会作为“又名/简介”显示，原标题不删除。
+                        </p>
+                      </div>
+                      {titleVariants.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={applySelectedTitleVariant}
+                          className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium"
+                        >
+                          应用选中
+                        </button>
+                      )}
+                    </div>
+
+                    {titleVariantError && (
+                      <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {titleVariantError}
+                      </div>
+                    )}
+
+                    {isGeneratingTitleVariants && (
+                      <div className="text-sm text-secondary-600">正在让 AI 重新设计 5 组书名、简介和标签...</div>
+                    )}
+
+                    {titleVariants.length > 0 && (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-xs font-medium text-secondary-600 mb-2">选择书名</div>
+                          <div className="flex flex-wrap gap-2">
+                            {titleVariants.map((variant, index) => (
+                              <button
+                                key={`title-${index}`}
+                                type="button"
+                                onClick={() => setSelectedTitleVariantIndex(index)}
+                                className={`px-3 py-1.5 rounded-full border text-sm font-medium ${
+                                  selectedTitleVariantIndex === index
+                                    ? 'bg-amber-600 border-amber-600 text-white'
+                                    : 'bg-white border-secondary-200 text-secondary-700 hover:bg-secondary-50'
+                                }`}
+                              >
+                                {variant.title}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {titleVariants.map((variant, index) => (
+                            <button
+                              key={`synopsis-${index}`}
+                              type="button"
+                              onClick={() => setSelectedSynopsisVariantIndex(index)}
+                              className={`text-left rounded-lg border p-3 transition-colors ${
+                                selectedSynopsisVariantIndex === index
+                                  ? 'border-amber-500 bg-amber-50'
+                                  : 'border-secondary-200 bg-white hover:bg-secondary-50'
+                              }`}
+                            >
+                              <div className="text-sm font-semibold text-secondary-900">{variant.title}</div>
+                              <p className="mt-1 text-sm text-secondary-700 leading-relaxed">{variant.synopsis}</p>
+                              {variant.tags?.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {variant.tags.map(tag => (
+                                    <span key={tag} className="px-2 py-0.5 rounded bg-secondary-100 text-secondary-600 text-xs">
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {isEditingOutline && outlineDraft ? (
                   <div className="card p-6 animate-fade-in">
                     <div className="flex items-center justify-between mb-4">
@@ -649,6 +897,42 @@ function BlueprintPage({
                           value={outlineDraft.title}
                           onChange={(e) => updateOutlineDraft('title', e.target.value)}
                           placeholder="请输入灵感架构标题"
+                          className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-secondary-700 mb-1">
+                          又名
+                        </label>
+                        <input
+                          type="text"
+                          value={outlineDraft.aliasTitle || ''}
+                          onChange={(e) => updateOutlineDraft('aliasTitle', e.target.value)}
+                          placeholder="可填写新的网文书名，原标题会保留"
+                          className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-secondary-700 mb-1">
+                          简介
+                        </label>
+                        <textarea
+                          value={outlineDraft.aliasSynopsis || ''}
+                          onChange={(e) => updateOutlineDraft('aliasSynopsis', e.target.value)}
+                          rows={3}
+                          placeholder="可填写新的作品简介"
+                          className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-secondary-700 mb-1">
+                          标签
+                        </label>
+                        <input
+                          type="text"
+                          value={(outlineDraft.aliasTags || []).join('、')}
+                          onChange={(e) => updateOutlineDraftTags(e.target.value)}
+                          placeholder="例如：民俗恐怖、无限流、复仇"
                           className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                         />
                       </div>
@@ -702,13 +986,13 @@ function BlueprintPage({
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-secondary-700 mb-1">
-                          金手指设定
+                          {finalOutlineSectionTitle}
                         </label>
                         <textarea
                           value={outlineDraft.themes}
                           onChange={(e) => updateOutlineDraft('themes', e.target.value)}
                           rows={4}
-                          placeholder="外挂、能力成长路径、资源机制"
+                          placeholder={finalOutlineSectionPlaceholder}
                           className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                         />
                       </div>
@@ -717,6 +1001,7 @@ function BlueprintPage({
                 ) : currentOutline ? (
                   <OutlineCard
                     outline={currentOutline}
+                    finalSectionTitle={finalOutlineSectionTitle}
                     className="animate-fade-in"
                   />
                 ) : null}
@@ -777,7 +1062,8 @@ function BlueprintPage({
             <div className="px-6 py-5 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {([
-                  { value: 'microdrama-30' as const, label: '30集微短剧', note: '默认单集约1000字' },
+                  { value: 'microdrama-15' as const, label: '15集微短剧', note: '默认单集约1分钟，节奏轻快' },
+                  { value: 'microdrama-30' as const, label: '30集微短剧', note: '单集按约1分钟剧情厚度细化' },
                   { value: 'novel-75' as const, label: '75章网文', note: '5个中故事，每个拆15章' },
                 ]).map(option => (
                   <button
@@ -900,6 +1186,9 @@ function App() {
     const cachedOutline: OutlineData = {
       id: outline.id,
       title: (outline.title || '').slice(0, 200),
+      aliasTitle: (outline.aliasTitle || '').slice(0, 200),
+      aliasSynopsis: (outline.aliasSynopsis || '').slice(0, 1000),
+      aliasTags: outline.aliasTags || [],
       logline: (outline.logline || '').slice(0, 2000),
       hook: (outline.hook || '').slice(0, 2000),
       characters: (outline.characters || '').slice(0, 2000),

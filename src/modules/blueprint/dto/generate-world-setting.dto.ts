@@ -10,6 +10,14 @@ export class GenerateWorldSettingDto extends LogicModelSelectionDto {
   @IsOptional()
   needsUpgradeSystem?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  useRealisticWorldview?: boolean;
+
+  @IsString()
+  @IsOptional()
+  realisticWorldviewContext?: string;
+
   @IsString()
   @IsOptional()
   existingWorldSetting?: string;

@@ -6,6 +6,7 @@ import { GenerateCharactersDto } from './dto/generate-characters.dto';
 import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto';
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
+import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
 import { GenerateChapterDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
@@ -45,6 +46,11 @@ export class BlueprintController {
   @Post('generate')
   async generate(@Body() dto: GenerateOutlineDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateInspiration(dto));
+  }
+
+  @Post('generate-title-variants')
+  async generateTitleVariants(@Body() dto: GenerateTitleVariantsDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateTitleVariants(dto));
   }
 
   @Post('generate-world-setting')
@@ -109,6 +115,11 @@ export class BlueprintController {
 
     const claimed = this.blueprintService.claimGenerationRequest(requestId);
     if (!claimed) {
+      const existingStream = this.blueprintService.getExistingGenerationStream(requestId);
+      if (existingStream) {
+        console.log('生成请求已不在待处理队列，但流任务仍可重连:', requestId);
+        return existingStream;
+      }
       console.error('生成请求不存在:', requestId);
       console.log('当前存储的请求数量:', this.blueprintService.getStoredRequestCount());
       throw new Error('生成请求不存在或已过期，请重新开始生成');

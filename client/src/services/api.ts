@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { GenerateOutlineDto, GenerateOutlineResponse, LlmModelSelection } from '../types';
+import { GenerateOutlineDto, GenerateOutlineResponse, LlmModelSelection, TitleVariant } from '../types';
 
 const api = axios.create({
   baseURL: (import.meta as any).env.VITE_API_BASE_URL || '/api',
@@ -13,6 +13,7 @@ const ACTIVATION_CODE_STORAGE_KEY = 'story-architect-activation-code';
 const ACTIVATION_BADGE_ID = 'story-architect-activation-quota';
 const AI_ENDPOINTS = new Set([
   '/blueprint/generate',
+  '/blueprint/generate-title-variants',
   '/blueprint/generate-world-setting',
   '/blueprint/generate-characters',
   '/blueprint/generate-detailed-outline',
@@ -202,8 +203,19 @@ if (typeof window !== 'undefined') {
 export interface GenerateWorldSettingDto extends LlmModelSelection {
   outline: string;
   needsUpgradeSystem?: boolean;
+  useRealisticWorldview?: boolean;
+  realisticWorldviewContext?: string;
   existingWorldSetting?: string;
   note?: string;
+}
+
+export interface GenerateTitleVariantsDto extends LlmModelSelection {
+  outline: string;
+}
+
+export interface GenerateTitleVariantsResponse {
+  success: boolean;
+  data: TitleVariant[];
 }
 
 export interface GenerateCharactersDto extends LlmModelSelection {
@@ -218,7 +230,7 @@ export interface GenerateDetailedOutlineDto extends LlmModelSelection {
   outline: string;
   worldSetting: string;
   characters: string;
-  mode?: 'novel' | 'microdrama';
+  mode?: 'novel' | 'microdrama' | 'literature';
   microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   outlineBatchIndex?: number;
   existingDetailedOutline?: string;
@@ -231,7 +243,7 @@ export interface GenerateMicroStoriesDto extends LlmModelSelection {
   macroStory: string;
   storyIndex: string;
   chapterRange?: string;
-  mode?: 'novel' | 'microdrama';
+  mode?: 'novel' | 'microdrama' | 'literature';
 }
 
 export interface GenerateMicroStoryVariantsDto extends LlmModelSelection {
@@ -284,6 +296,11 @@ export interface RewriteChapterDto {
 export const blueprintApi = {
   generateOutline: async (data: GenerateOutlineDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate', data);
+    return response.data;
+  },
+
+  generateTitleVariants: async (data: GenerateTitleVariantsDto): Promise<GenerateTitleVariantsResponse> => {
+    const response = await api.post('/blueprint/generate-title-variants', data);
     return response.data;
   },
 
