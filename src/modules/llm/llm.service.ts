@@ -192,6 +192,7 @@ export class LlmService {
       status === 503 ||
       status === 504 ||
       status === 524 ||
+      /空内容|empty content|empty response/i.test(message) ||
       /timeout|timed out|connection|socket/i.test(`${name} ${message}`) ||
       /ECONNRESET|ETIMEDOUT|ECONNABORTED|ENOTFOUND|EAI_AGAIN/i.test(code)
     );
@@ -216,6 +217,29 @@ export class LlmService {
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => !this.isDeepseekModel(item));
+
+    return Array.from(new Set(candidates));
+  }
+
+  private canFallbackGatewayModel(error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    return (
+      this.isRetryableLogicError(error) ||
+      status === 403 ||
+      status === 404
+    );
+  }
+
+  private getGatewayModelCandidates(primaryModel: string): string[] {
+    const fallbackRaw =
+      this.configService.get<string>('GATEWAY_FALLBACK_MODELS') ||
+      this.configService.get<string>('ZHILING_GATEWAY_FALLBACK_MODELS') ||
+      'claude-sonnet-4-6,gpt-5.5,DeepSeek-V4-Pro,claude-opus-4-6,claude-opus-4-5-20251101';
+
+    const candidates = [primaryModel, ...fallbackRaw.split(',')]
+      .map((item) => this.normalizeGatewayModel(item.trim()))
+      .filter(Boolean)
+      .filter((item) => !/flash/i.test(item));
 
     return Array.from(new Set(candidates));
   }
@@ -369,19 +393,27 @@ export class LlmService {
 
     return this.withLlmSlot('gateway', targetModel, async () => {
     let lastError: unknown;
-    const maxAttempts = this.getConfigNumber('GATEWAY_MAX_ATTEMPTS', 2);
-    const requestTimeoutMs = this.getConfigNumber('GATEWAY_TIMEOUT_MS', 180000);
+    const candidateModels = this.getGatewayModelCandidates(targetModel);
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let modelIndex = 0; modelIndex < candidateModels.length; modelIndex++) {
+      const currentModel = candidateModels[modelIndex];
+      const maxAttempts = modelIndex === 0
+        ? this.getConfigNumber('GATEWAY_PRIMARY_MAX_ATTEMPTS', this.getConfigNumber('GATEWAY_MAX_ATTEMPTS', 2))
+        : this.getConfigNumber('GATEWAY_FALLBACK_MAX_ATTEMPTS', 1);
+      const requestTimeoutMs = modelIndex === 0
+        ? this.getConfigNumber('GATEWAY_TIMEOUT_MS', 180000)
+        : this.getConfigNumber('GATEWAY_FALLBACK_TIMEOUT_MS', this.getConfigNumber('GATEWAY_TIMEOUT_MS', 180000));
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         console.log(
-          `[LLM] 准备调用 gateway model=${targetModel}, attempt=${attempt}/${maxAttempts}, timeoutMs=${requestTimeoutMs}`,
+          `[LLM] 准备调用 gateway model=${currentModel}, attempt=${attempt}/${maxAttempts}, fallbackIndex=${modelIndex}/${candidateModels.length - 1}, timeoutMs=${requestTimeoutMs}`,
         );
 
         const completion = await this.gatewayClient.chat.completions.create(
           {
             messages,
-            model: targetModel,
+            model: currentModel,
             temperature: 0.7,
           },
           { timeout: requestTimeoutMs },
@@ -389,6 +421,9 @@ export class LlmService {
 
         const content = this.extractCompletionContent(completion);
         if (content) {
+          if (currentModel !== targetModel) {
+            console.warn(`[LLM] 网关主模型 ${targetModel} 不可用，已切换到 ${currentModel}`);
+          }
           return content;
         }
 
@@ -396,15 +431,22 @@ export class LlmService {
       } catch (error) {
         lastError = error;
         console.error(
-          `Gateway LLM API Call Failed (model ${targetModel}, attempt ${attempt}/${maxAttempts}):`,
+          `Gateway LLM API Call Failed (model ${currentModel}, attempt ${attempt}/${maxAttempts}):`,
           error,
         );
 
         if (this.isRetryableLogicError(error) && attempt < maxAttempts) {
           const delay = attempt === 1 ? 3000 : 8000;
-          console.warn(`将在 ${delay / 1000} 秒后重试网关模型 ${targetModel}...`);
+          console.warn(`将在 ${delay / 1000} 秒后重试网关模型 ${currentModel}...`);
           await this.sleep(delay);
           continue;
+        }
+
+        const hasFallbackModel = modelIndex < candidateModels.length - 1;
+        if (hasFallbackModel && this.canFallbackGatewayModel(error)) {
+          const nextModel = candidateModels[modelIndex + 1];
+          console.warn(`[LLM] 网关模型 ${currentModel} 暂不可用，切换到 ${nextModel}`);
+          break;
         }
 
         if (this.isTimeoutOrGatewayError(error)) {
@@ -423,18 +465,20 @@ export class LlmService {
           throw new Error('AI 网关拒绝访问，请检查网关 Token、模型权限或账户额度');
         }
         if (status === 404) {
-          throw new Error(`网关模型 ${targetModel} 当前不可用或接口路径不匹配`);
+          throw new Error(`网关模型 ${currentModel} 当前不可用或接口路径不匹配`);
         }
         if (status === 429 || status === 503) {
-          throw new Error(`网关模型 ${targetModel} 当前高负载，请稍后重试`);
+          throw new Error(`网关模型 ${currentModel} 当前高负载，请稍后重试`);
         }
 
         throw new Error('AI 网关暂时不可用，请稍后重试');
       }
     }
+    }
 
-    console.error('[LLM] 网关模型不可用:', targetModel, lastError);
-    throw new Error(`AI 网关模型 ${targetModel} 当前不可用，请稍后重试`);
+    const triedModels = candidateModels.join(' -> ');
+    console.error('[LLM] 网关模型不可用:', triedModels, lastError);
+    throw new Error(`AI 网关模型当前不可用，已尝试 ${triedModels}，请稍后重试`);
     });
   }
 
@@ -449,6 +493,10 @@ export class LlmService {
       AI_MODELS.DEFAULT_MODEL;
 
     const isDeepseek = this.isDeepseekModel(targetModel);
+    if (!isDeepseek) {
+      return this.chatWithGatewayModel(messages, targetModel);
+    }
+
     const candidateModels = isDeepseek
       ? [targetModel]
       : this.getLogicModelCandidates(targetModel);

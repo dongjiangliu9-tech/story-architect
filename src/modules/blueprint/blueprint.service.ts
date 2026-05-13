@@ -48,7 +48,7 @@ export class BlueprintService {
       return this.llmService.chatWithGatewayModel(messages, dto.llmModel.trim());
     }
 
-    return this.llmService.chat(messages);
+    return this.llmService.chatWithGatewayModel(messages);
   }
 
   private normalizeDetailedOutlineMode(mode?: string): 'novel' | 'microdrama' | 'literature' {

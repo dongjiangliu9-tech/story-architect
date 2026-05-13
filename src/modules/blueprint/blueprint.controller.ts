@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, MessageEvent, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Headers, MessageEvent, Post, Query, ServiceUnavailableException, Sse } from '@nestjs/common';
 import { BlueprintService } from './blueprint.service';
 import { GenerateOutlineDto } from './dto/generate-outline.dto';
 import { GenerateWorldSettingDto } from './dto/generate-world-setting.dto';
@@ -30,6 +30,10 @@ export class BlueprintController {
     } catch (error) {
       if (options.refundOnError !== false) {
         this.activationQuotaService.refund(activationCode, model);
+      }
+      const message = String((error as { message?: string })?.message || '');
+      if (/AI|Gemini|Deepseek|网关|模型|上游|高负载|超时|空内容/i.test(message)) {
+        throw new ServiceUnavailableException(message || 'AI 服务暂时不可用，请稍后重试');
       }
       throw error;
     }

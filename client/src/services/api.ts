@@ -3,7 +3,7 @@ import { GenerateOutlineDto, GenerateOutlineResponse, LlmModelSelection, TitleVa
 
 const api = axios.create({
   baseURL: (import.meta as any).env.VITE_API_BASE_URL || '/api',
-  timeout: 600000, // 10分钟超时，给官方 Gemini 高负载重试留出时间
+  timeout: 600000,
   headers: {
     'Content-Type': 'application/json',
   },

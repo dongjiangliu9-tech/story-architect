@@ -11,12 +11,7 @@ export const LOGIC_MODEL_OPTIONS: Array<{
   {
     value: DEFAULT_LOGIC_MODEL_VALUE,
     label: 'Gemini 3.1 Pro',
-    description: '智灵网关备用',
-  },
-  {
-    value: OFFICIAL_LOGIC_MODEL_VALUE,
-    label: 'Gemini 官方',
-    description: '保持现有主线路由',
+    description: '智灵网关主模型',
   },
   {
     value: 'gpt-5.5',
@@ -67,7 +62,10 @@ export const toLogicModelRequest = (value?: string): LlmModelSelection => {
   const resolvedValue = value || DEFAULT_LOGIC_MODEL_VALUE;
 
   if (resolvedValue === OFFICIAL_LOGIC_MODEL_VALUE) {
-    return { llmModelProvider: 'default' };
+    return {
+      llmModelProvider: 'gateway',
+      llmModel: DEFAULT_LOGIC_MODEL_VALUE,
+    };
   }
 
   return {
