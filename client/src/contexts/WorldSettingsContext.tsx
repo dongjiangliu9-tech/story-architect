@@ -500,10 +500,13 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
       ...additionalData,
     };
 
-    const updatedProjects = [...projects, newProject];
-    setProjects(updatedProjects);
-    saveToStorage(updatedProjects);
-    syncProjectsToCloud(updatedProjects);
+    setProjects(prevProjects => {
+      const withoutDuplicate = prevProjects.filter(project => project.id !== newProject.id);
+      const updatedProjects = [...withoutDuplicate, newProject];
+      saveToStorage(updatedProjects);
+      syncProjectsToCloud(updatedProjects);
+      return updatedProjects;
+    });
     setCurrentProject(newProject);
 
     console.log('创建新项目:', newProject.bookName);
@@ -516,11 +519,20 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
 
     setProjects(prevProjects => {
       const previousProject = prevProjects.find(project => project.id === projectId);
-      const updatedProjects = prevProjects.map(project =>
-        project.id === projectId
-          ? { ...project, ...updates, updatedAt }
-          : project
-      );
+      const projectExists = !!previousProject;
+      const fallbackProject = currentProject?.id === projectId ? currentProject : null;
+      const repairedProject = fallbackProject
+        ? { ...fallbackProject, ...updates, updatedAt }
+        : null;
+      const updatedProjects = projectExists
+        ? prevProjects.map(project =>
+            project.id === projectId
+              ? { ...project, ...updates, updatedAt }
+              : project
+          )
+        : repairedProject
+          ? [...prevProjects, repairedProject]
+          : prevProjects;
       const nextProject = updatedProjects.find(project => project.id === projectId);
       const cloudMetadataKeys = Object.keys(updates).filter(key =>
         key !== 'generatedChapters' && key !== 'savedVersions'
@@ -537,6 +549,9 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
           nextProject?.generatedChapters,
           { replace: updates.generatedChapters === undefined },
         );
+      }
+      if (!projectExists && repairedProject) {
+        console.warn('当前项目不在项目列表中，已在保存时自动补回:', projectId);
       }
       return updatedProjects;
     });

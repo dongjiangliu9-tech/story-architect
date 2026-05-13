@@ -421,6 +421,9 @@ export interface CloudProjectsBundle {
 }
 
 function buildActivationHeaders(promptIfMissing = false) {
+  if (shouldBypassActivationPrompt() && !promptIfMissing) {
+    return null;
+  }
   const storedCode = readStoredActivationCode();
   const code = storedCode || (promptIfMissing ? requestActivationCode('请输入激活码以同步云端项目：') : '');
   if (!code) return null;
@@ -428,7 +431,7 @@ function buildActivationHeaders(promptIfMissing = false) {
 }
 
 export const cloudProjectApi = {
-  hasActivationCode: () => !!readStoredActivationCode(),
+  hasActivationCode: () => !shouldBypassActivationPrompt() && !!readStoredActivationCode(),
 
   fetchProjects: async (promptIfMissing = false): Promise<CloudProjectsBundle | null> => {
     const headers = buildActivationHeaders(promptIfMissing);
