@@ -1058,9 +1058,9 @@ function BlueprintPage({
       />
 
       {isAutoSetupOpen && (
-        <div className="fixed inset-0 z-[80] bg-secondary-950/50 backdrop-blur-sm flex items-center justify-center px-4">
-          <div className="w-full max-w-2xl bg-white rounded-xl shadow-2xl border border-secondary-200 overflow-hidden">
-            <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-secondary-100">
+        <div className="fixed inset-0 z-[80] bg-secondary-950/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-2xl max-h-[92vh] bg-white rounded-xl shadow-2xl border border-secondary-200 overflow-hidden flex flex-col">
+            <div className="flex flex-shrink-0 items-start justify-between gap-4 px-6 py-5 border-b border-secondary-100">
               <div>
                 <h3 className="text-lg font-semibold text-secondary-900">启动 AI 自动迭代</h3>
                 <p className="mt-1 text-sm text-secondary-600">
@@ -1077,7 +1077,7 @@ function BlueprintPage({
               </button>
             </div>
 
-            <div className="px-6 py-5 space-y-5">
+            <div className="px-6 py-5 space-y-5 overflow-y-auto min-h-0">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {([
                   { value: 'microdrama-15' as const, label: '15集微短剧', note: '默认单集约1分钟，节奏轻快' },
@@ -1229,7 +1229,7 @@ function BlueprintPage({
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-5 bg-secondary-50 border-t border-secondary-100">
+            <div className="flex flex-shrink-0 flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-5 bg-secondary-50 border-t border-secondary-100">
               <button
                 type="button"
                 onClick={() => {
