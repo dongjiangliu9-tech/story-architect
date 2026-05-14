@@ -251,6 +251,10 @@ export class LlmService {
     return aliases[model] || model;
   }
 
+  private shouldUseGatewayDefaultTemperature(model: string): boolean {
+    return /^gpt-5/i.test(model);
+  }
+
   private getConfigNumber(name: string, fallback: number): number {
     const rawValue = this.configService.get<string>(name);
     const parsed = Number(rawValue);
@@ -410,12 +414,17 @@ export class LlmService {
           `[LLM] 准备调用 gateway model=${currentModel}, attempt=${attempt}/${maxAttempts}, fallbackIndex=${modelIndex}/${candidateModels.length - 1}, timeoutMs=${requestTimeoutMs}`,
         );
 
+        const requestBody: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
+          messages,
+          model: currentModel,
+        };
+
+        if (!this.shouldUseGatewayDefaultTemperature(currentModel)) {
+          requestBody.temperature = 0.7;
+        }
+
         const completion = await this.gatewayClient.chat.completions.create(
-          {
-            messages,
-            model: currentModel,
-            temperature: 0.7,
-          },
+          requestBody,
           { timeout: requestTimeoutMs },
         );
 

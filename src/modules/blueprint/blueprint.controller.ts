@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { GenerateChapterDto, RewriteChapterDto } from './dto/generate-chapter.dto';
+import { GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
 
@@ -90,6 +90,11 @@ export class BlueprintController {
   @Post('rewrite-chapter')
   async rewriteChapter(@Body() dto: RewriteChapterDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(activationCode, this.getRewriteQuotaModel(dto), () => this.blueprintService.rewriteChapter(dto));
+  }
+
+  @Post('review-microdrama-scripts')
+  async reviewMicrodramaScripts(@Body() dto: ReviewMicrodramaScriptsDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.reviewMicrodramaScripts(dto));
   }
 
   @Post('prepare-stream')

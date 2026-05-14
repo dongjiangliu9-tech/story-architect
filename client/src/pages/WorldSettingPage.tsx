@@ -393,6 +393,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         outline: outlineData,
         worldSetting: worldSetting,
         useEnglishNames,
+        mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
       });
 
       console.log('生成的人物数据:', response.data);
@@ -485,6 +487,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         outline: outlineData,
         worldSetting,
         useEnglishNames,
+        mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
         existingCharacters: characters,
         note,
       });
@@ -674,6 +678,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           densityTuningLevels,
           nextLevels,
           enabledDensityTunings,
+          outlineMode,
         ),
       });
 
@@ -1022,6 +1027,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         outline: outlineData,
         worldSetting: worldResponse.data,
         useEnglishNames,
+        mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
       });
 
       console.log('批量生成：人物设定成功');

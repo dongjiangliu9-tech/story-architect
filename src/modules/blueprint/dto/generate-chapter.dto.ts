@@ -110,3 +110,28 @@ export class ValidateChapterScopeDto {
   @IsIn(['novel', 'microdrama'])
   mode?: 'novel' | 'microdrama';
 }
+
+export class ReviewMicrodramaScriptsDto {
+  @IsObject()
+  chapters: { [key: number]: string };
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+
+  @IsString()
+  @IsOptional()
+  detailedOutline?: string;
+
+  @IsArray()
+  @IsOptional()
+  savedMicroStories?: any[];
+
+  @IsString()
+  @IsOptional()
+  model?: string;
+}

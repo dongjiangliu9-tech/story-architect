@@ -44,7 +44,7 @@ function getWordCount(content: string): number {
 
 function normalizeTargetEpisodeWords(value: unknown): number {
   const numericValue = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numericValue)) return 1000;
+  if (!Number.isFinite(numericValue)) return 500;
   return Math.min(5000, Math.max(500, Math.round(numericValue)));
 }
 
@@ -167,7 +167,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const unitsPerBatch = isMicrodrama ? 1 : 8;
   const writerModelProvider: 'deepseek' = 'deepseek';
   const [actionFirstScript, setActionFirstScript] = useState(false);
-  const [targetEpisodeWords, setTargetEpisodeWords] = useState(1000);
+  const [targetEpisodeWords, setTargetEpisodeWords] = useState(500);
   const [targetNovelWords, setTargetNovelWords] = useState(2100);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [isGenerating] = useState(false);
@@ -243,6 +243,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [chapterListOrder, setChapterListOrder] = useState<'desc' | 'asc'>('desc');
   const [rewritePercent, setRewritePercent] = useState(20);
   const [isRewritingChapter, setIsRewritingChapter] = useState(false);
+  const [isReviewingScripts, setIsReviewingScripts] = useState(false);
 
   // 正文编辑：支持编辑已写内容并保存（落库到项目 generatedChapters）
   const [isEditingChapter, setIsEditingChapter] = useState(false);
@@ -267,7 +268,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const maxAvailableChapter = availableChapterNumbers.length > 0 ? Math.max(...availableChapterNumbers) : 0;
   const alignedMicroStoriesForWriting = buildChapterAlignedStories(chapterStoryEntries);
   const getMicroStoryForChapter = (chapterNumber: number) => chapterStoryMap.get(chapterNumber);
-  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating;
+  const hasActiveGeneration = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isReviewingScripts;
   const isStreamingCurrentChapter =
     generationState.isGenerating &&
     generationState.currentGeneratingChapter === currentChapter &&
@@ -407,7 +408,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   };
 
   useEffect(() => {
-    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isRewritingChapter;
+    const shouldKeepAwake = generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isSingleUnitGenerating || isRewritingChapter || isReviewingScripts;
     if (shouldKeepAwake) {
       void requestGenerationWakeLock();
       void startNoSleepVideoFallback();
@@ -430,7 +431,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       void releaseGenerationWakeLock();
       stopNoSleepVideoFallback();
     };
-  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, isSingleUnitGenerating, isRewritingChapter]);
+  }, [generationState.isGenerating, isBatchGenerating, isFullCycleGenerating, isSegmentGenerating, isSingleUnitGenerating, isRewritingChapter, isReviewingScripts]);
 
   const visibleChapterContent = isEditingChapter
     ? chapterDraft
@@ -1041,39 +1042,88 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     console.log('内容已导出');
   };
 
-  // 导出为DOCX格式
-  const exportAsDocx = async () => {
+  const makeSafeExportFilename = (name: string) => (
+    name.trim().replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_').replace(/_+/g, '_') || '正文导出'
+  );
+
+  const stripDuplicatedUnitHeading = (content: string, unitNumber: number) => {
+    const trimmed = content.trim();
+    const lines = trimmed.split(/\r?\n/);
+    const firstLine = (lines[0] || '').trim();
+    const headingPattern = new RegExp(`^(#{1,6}\\s*)?第\\s*${unitNumber}\\s*[章节集回幕节](\\s|[：:、.．-]|$)`);
+
+    if (headingPattern.test(firstLine)) {
+      return lines.slice(1).join('\n').trim();
+    }
+
+    return trimmed;
+  };
+
+  const buildMarkdownExport = () => {
+    const chapterNumbers = Object.keys(generatedChapters)
+      .map(Number)
+      .filter(chapterNum => generatedChapters[chapterNum]?.trim())
+      .sort((a, b) => a - b);
+    const projectTitle = currentProject?.bookName || (isMicrodrama ? '微短剧剧本' : '小说正文');
+    const exportType = isMicrodrama ? '微短剧剧本' : isLiterature ? '文学作品正文' : '网文正文';
+    const totalWords = chapterNumbers.reduce((sum, chapterNum) => (
+      sum + (generatedChapters[chapterNum] || '').replace(/\s/g, '').length
+    ), 0);
+    const exportedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+    const toc = chapterNumbers
+      .map(chapterNum => `- [第${chapterNum}${unitLabel}](#第${chapterNum}${unitLabel})`)
+      .join('\n');
+    const chapterBlocks = chapterNumbers
+      .map(chapterNum => {
+        const content = stripDuplicatedUnitHeading(generatedChapters[chapterNum], chapterNum);
+        return `## 第${chapterNum}${unitLabel}\n\n${content || '> 本章暂无正文。'}`;
+      })
+      .join('\n\n---\n\n');
+
+    return [
+      `# ${projectTitle}`,
+      '',
+      `> 类型：${exportType}`,
+      `> 导出时间：${exportedAt}`,
+      `> 已生成：${chapterNumbers.length}${unitLabel}`,
+      `> 正文总字数：约 ${totalWords.toLocaleString('zh-CN')} 字`,
+      '',
+      '---',
+      '',
+      '## 目录',
+      '',
+      toc,
+      '',
+      '---',
+      '',
+      chapterBlocks,
+      ''
+    ].join('\n');
+  };
+
+  // 导出为精排 Markdown
+  const exportAsMarkdown = () => {
     if (Object.keys(generatedChapters).length === 0) {
       alert('没有可导出的内容');
       return;
     }
 
     try {
-      const projectTitle = currentProject?.bookName || '小说正文';
+      const projectTitle = currentProject?.bookName || (isMicrodrama ? '微短剧剧本' : '小说正文');
+      const markdownContent = buildMarkdownExport();
+      const blob = new Blob([markdownContent], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${makeSafeExportFilename(projectTitle)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      const response = await blueprintApi.exportAsDocx({
-        chapters: generatedChapters,
-        bookName: projectTitle
-      });
-
-      if (response.success) {
-        // 创建下载
-        const blob = new Blob([response.data], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = response.filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        console.log('DOCX内容已导出');
-      } else {
-        alert('导出失败，请稍后重试');
-      }
+      console.log('Markdown内容已导出');
     } catch (error) {
-      console.error('导出DOCX失败:', error);
+      console.error('导出Markdown失败:', error);
       alert('导出失败，请稍后重试');
     }
   };
@@ -3194,6 +3244,63 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   };
 
+  const reviewAndReviseMicrodramaScripts = async () => {
+    if (!currentProject || !isMicrodrama) return;
+    if (isEditingChapter || hasActiveGeneration || isRewritingChapter) return;
+
+    const chapterCount = Object.keys(generatedChapters).length;
+    if (chapterCount === 0) {
+      alert('请先生成微短剧剧本正文，再进行全剧审读修订');
+      return;
+    }
+
+    const confirmed = confirm(
+      `将用 GPT-5.5 对已生成的 ${chapterCount} 集微短剧做整体审读和补丁式修订。\n\n重点会检查剧情一致性、反派贯穿、人物弧光，并重点打磨主角和主要配角台词，让台词更符合人设、更有记忆点和金句感。修订会直接覆盖可安全替换的小段内容，确定继续吗？`
+    );
+    if (!confirmed) return;
+
+    setIsReviewingScripts(true);
+    try {
+      const response = await blueprintApi.reviewMicrodramaScripts({
+        chapters: generatedChapters,
+        worldSetting: currentProject.worldSetting,
+        characters: currentProject.characters,
+        detailedOutline: currentProject.detailedOutline,
+        savedMicroStories: currentProject.savedMicroStories,
+        model: 'gpt-5.5',
+      });
+
+      if (!response.success || !response.data?.updatedChapters) {
+        throw new Error('审读修订结果为空');
+      }
+
+      const updatedChapters = Object.fromEntries(
+        Object.entries(response.data.updatedChapters).map(([episode, content]) => [Number(episode), cleanWriterContent(String(content || ''))])
+      );
+      setGeneratedChapters(updatedChapters);
+      generatedChaptersRef.current = updatedChapters;
+      setGeneratedContent(updatedChapters[currentChapter] || generatedContent);
+      updateProject(currentProject.id, {
+        generatedChapters: updatedChapters,
+      });
+
+      const applied = response.data.appliedPatches?.length || 0;
+      const skipped = response.data.skippedPatches?.length || 0;
+      const issues = response.data.issues?.length || 0;
+      const compressed = response.data.compressedEpisodes?.length || 0;
+      alert(`全剧审读修订完成。\n发现问题：${issues}处\n已自动应用补丁：${applied}处\n超长单集压缩：${compressed}集\n需人工确认/未能定位：${skipped}处\n\n${response.data.summary || ''}`);
+    } catch (error) {
+      console.error('微短剧全剧审读修订失败:', error);
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '微短剧全剧审读修订失败，请稍后重试';
+      alert(errorMessage);
+    } finally {
+      setIsReviewingScripts(false);
+    }
+  };
+
   const exportChapter = () => {
     // 导出章节内容
     const contentToExport = visibleChapterContent;
@@ -3478,12 +3585,13 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 </button>
 
                 <button
-                  onClick={exportAsDocx}
+                  onClick={exportAsMarkdown}
                   disabled={Object.keys(generatedChapters).length === 0}
+                  title="导出精排 Markdown"
                   className="flex items-center space-x-2 px-3 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
                 >
                   <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">DOCX</span>
+                  <span className="hidden sm:inline">MD</span>
                 </button>
               </div>
 
@@ -3932,6 +4040,36 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       </span>
                     </button>
                   </div>
+
+                  {isMicrodrama && (
+                    <div className="p-4 bg-gradient-to-r from-fuchsia-50 to-rose-50 border border-fuchsia-200 rounded-lg">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-fuchsia-900">全剧审读修订</h4>
+                          <p className="text-xs text-fuchsia-700 mt-1">
+                            GPT-5.5补丁式修订：查剧情一致性、反派贯穿、人物弧光，并重点打磨主角和主要配角台词。
+                          </p>
+                        </div>
+                        <span className="px-2 py-1 rounded-md bg-white/80 border border-fuchsia-200 text-[11px] font-medium text-fuchsia-700">
+                          GPT-5.5
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={reviewAndReviseMicrodramaScripts}
+                        disabled={
+                          Object.keys(generatedChapters).length === 0 ||
+                          isEditingChapter ||
+                          hasActiveGeneration ||
+                          isRewritingChapter
+                        }
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-fuchsia-600 hover:bg-fuchsia-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                      >
+                        <Sparkles className={`w-4 h-4 ${isReviewingScripts ? 'animate-spin' : ''}`} />
+                        <span>{isReviewingScripts ? '审读修订中...' : '审读并打磨全剧'}</span>
+                      </button>
+                    </div>
+                  )}
 
 		                <button
 		                  onClick={exportChapter}

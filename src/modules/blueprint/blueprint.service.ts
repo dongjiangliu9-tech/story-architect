@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { GenerateChapterDto, RewriteChapterDto } from './dto/generate-chapter.dto';
+import { GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { LogicModelSelectionDto } from './dto/logic-model-selection.dto';
 import { Observable, Subscriber } from 'rxjs';
 
@@ -1114,6 +1114,8 @@ ${dto.outline}
 
   async generateCharacters(dto: GenerateCharactersDto) {
     console.log('开始基于世界观基础设定生成人物设定');
+    const mode = this.normalizeDetailedOutlineMode(dto.mode);
+    const episodeCount = this.normalizeMicrodramaEpisodeCount(dto.microdramaEpisodeCount);
     const characterNameRestrictions = dto.useEnglishNames
       ? `6. 继续遵守限制：本次按英文人物设定处理，角色姓名使用自然的欧美英文名；不要设置华裔角色，不要设置俄裔角色，姓名、家族背景、移民背景和文化标识都要避开华裔/俄裔指向。`
       : `6. 继续遵守限制：主角不可以姓叶、不可以姓陈、不可以姓顾，名字里不可有默字。`;
@@ -1123,6 +1125,17 @@ ${dto.outline}
 ⚠️ 姓名、家族背景、移民背景和文化标识都要避开华裔/俄裔指向`
       : `⚠️ 生成的主角不可以姓叶、不可以姓陈、不可以姓顾
 ⚠️ 名字里不可有默字`;
+    const characterArcModeBlock = mode === 'microdrama'
+      ? `\n【微短剧人物弧线硬要求】\n- 本次人物设定必须能支撑 ${episodeCount} 集微短剧，不要只生成人物功能表。\n- 必须设置一个贯穿全剧的主反派/核心压力源：可以是个人、家族、公司、组织、旧案真凶或利益集团。它必须从开局就与主角目标发生因果冲突，并能通过代理人、资源封锁、舆论操控、关系离间、证据陷阱、权力压迫等方式持续参与每个阶段，不能每个中故事都换一批互不相关的敌人。\n- 主反派/核心压力源必须写清：公开身份、隐藏动机、掌握资源、压迫手段、与主角的旧账或利益冲突、阶段性升级路线、最终败局或关系反转可能。\n- 主角必须有长线成长弧线：初始缺陷/执念/误判、每个阶段被迫做出的选择、能力/心态/关系变化、终局蜕变。\n- 重要配角必须有自己的弧光：至少6-10个重要配角要写清“初始立场 -> 被触发的关键事件 -> 中段选择 -> 关系变化 -> 结局位置”。他们不能只是送信息、制造危机或被打脸的工具人。\n- 爱情线相关人物要有关系弧线：信任、误会、试探、护短、吃醋、并肩破局或牺牲选择，都要改变双方关系和后续行动。`
+      : mode === 'literature'
+        ? `\n【文学作品人物弧线硬要求】\n- 本次人物设定的核心目标是人物塑造、人物命运和主题承载，不是生成网文功能牌。\n- 主要人物必须有贯穿全书的成长、退化、妥协、醒悟、自我和解或精神破裂弧线；每条弧线都要写清初始困境、内在矛盾、现实压力、关键选择、不可逆后果和最终状态。\n- 重要配角也要有弧光：至少8-12个重要人物要写出他们如何受时代、家庭、职业、地域、阶层、亲密关系或旧事影响，并在故事中发生立场、情感或命运变化。\n- 对手、施压者和误解者也必须立得住：他们要有生活来源、利益逻辑、情感软肋、自我辩护和可能的悲剧性，不能写成单纯坏人。\n- 人物设定要能服务10个中故事的完整闭合：每个主要人物最好标明适合在哪几个中故事承担关键转折，最终命运必须能形成文学余韵。`
+        : `\n【人物弧线硬要求】\n- 主角必须有贯穿长线的成长弧线：初始缺陷、阶段选择、付出代价、能力/心态/关系变化、终局蜕变要连续可见。\n- 重要配角和主要对手也要有欲望、弱点、利益变化和选择后果，避免只作为工具人出现。\n- 至少6-10个重要人物要写出“初始立场 -> 触发事件 -> 中段变化 -> 后续作用/结局位置”。`;
+    const characterGroupingRule = mode === 'microdrama'
+      ? '除明确设置的「贯穿主线主反派/核心压力源」外，其他人物仍应依据世界观自然场域生成，不要机械套“主角团/主角阵营/反派阵营/正派/龙套”模板。'
+      : '新增角色应依据世界观自然场域生成，不要按“主角团/主角阵营/反派阵营/正派/反派”模板分类。';
+    const opponentNamingRule = mode === 'microdrama'
+      ? '必须明确设置贯穿主线的主反派/核心压力源；其他对手、施压者、误解者和利益竞争者不要简单脸谱化。'
+      : '可以存在主要人物、对手、施压者、误解者和利益竞争者，但不要用“反派”“主角阵营”等字眼做类别，也不要把人物简单写成坏人。';
 
     if (dto.existingCharacters?.trim() && dto.note?.trim()) {
       const expansionPackOnly = dto.note.includes('[AUTO_EXPANSION_PACK_ONLY]');
@@ -1147,9 +1160,11 @@ ${cleanedNote}
 2. 扩展包必须能直接追加在既有人物设定正文后方使用，角色编号、类别、出场阶段清晰。
 3. 新增角色必须与故事大纲、世界观和既有人设一致，并能直接服务后续中故事/小故事生成。
 4. 不要删除、改写、总结或压缩原有角色。
-5. 新增角色应依据世界观自然场域生成，不要按“主角团/主角阵营/反派阵营/正派/反派”模板分类。
+5. ${characterGroupingRule}
 6. 不要出现“金手指、系统、外挂、能力成长、异能等级、修炼境界、神器绑定”等概念；重点写社会位置、资源、欲望、秘密、关系和行动逻辑。
 7. 不要输出补丁说明、修改清单、执行过程或额外解释。
+8. 新增角色必须补足人物弧线：重要新增角色要写出初始立场、关键转折、关系变化和后续结局位置；若是微短剧，要优先补足贯穿主线的反派/核心压力源及其代理人网络。
+${characterArcModeBlock}
 	${characterNameRestrictions}`
         : `你是一名长篇小说人物设定统筹。现在需要根据用户批注，在既有人物设定正文的基础上补充内容，并把新增内容插入到最合适的位置。
 
@@ -1171,7 +1186,9 @@ ${dto.note}
 3. 根据批注把新增角色、关系、动机、当前状态或冲突线插入最合适的类别；如果原文没有合适位置，可以新增一个小节。
 4. 不要删除与批注无关的角色，不要重写成另一套人物体系。
 5. 新增内容必须与故事大纲、世界观和既有人设一致，并能直接服务后续中故事/小故事生成。
-6. 新增或调整人物时，不要按“主角团/主角阵营/反派阵营/正派/反派”模板分类；不要出现“金手指、系统、外挂、能力成长、异能等级、修炼境界、神器绑定”等概念。
+6. ${characterGroupingRule}不要出现“金手指、系统、外挂、能力成长、异能等级、修炼境界、神器绑定”等概念。
+7. 新增或调整人物时，必须补足人物弧线：主角、重要配角、主要对手/压力源要写出初始立场、关键转折、关系变化、阶段作用和结局位置。
+${characterArcModeBlock}
 ${characterNameRestrictions}`;
 
       try {
@@ -1200,19 +1217,22 @@ ${dto.outline}
 世界观基础设定：
 ${dto.worldSetting}
 
-请依据世界观自身的家庭、职业、地域、阶层、机构、行业、圈层、历史旧账和利益关系，生成20-30个完整人物。不要先套“主角团/主角阵营/反派阵营/正派/反派/核心伙伴/龙套”这类模板。
+请依据世界观自身的家庭、职业、地域、阶层、机构、行业、圈层、历史旧账和利益关系，生成20-30个完整人物。${characterGroupingRule}
 
 **重要限制条件：**
 ${characterNameLimitBlock}
+${characterArcModeBlock}
 
 **要求：**
 - 只按“人物在世界观中的位置”组织，例如：家庭与亲缘、学校/单位/行业、地方社会、资本与资源、旧案/旧怨相关人、情感关系、边缘见证者、压力来源等；具体分组要根据世界观自然生成。
 - 每个角色都要有：姓名、年龄段、身份/职业/社会位置、生活处境、外在行为习惯、内在欲望、恐惧或创伤、隐藏信息、与其他人物的真实关系、可能推动的事件。
+- 每个主要人物和重要配角必须额外写「人物弧线」：初始状态/缺陷、被什么事件触发、会经历什么选择和代价、关系如何变化、最终可能走向哪里。不能只写静态人设。
 - 不要把人物写成脸谱化功能牌。每个人都要有自利性、局限性、矛盾点、可变动的立场和能被剧情触发的行动逻辑。
-- 可以存在主要人物、对手、施压者、误解者和利益竞争者，但不要用“反派”“主角阵营”等字眼做类别，也不要把人物简单写成坏人。
+- ${opponentNamingRule}
 - 不要出现“金手指、系统、外挂、能力成长、异能等级、修炼境界、神器绑定”等概念；如果原故事大纲里有特殊机制，也只能转化为人物所面对的规则、资源、心理压力或现实代价。
 - 所有人物都必须从世界观里长出来，能看出其所属场域、资源来源、关系网络和与主线冲突的连接方式。
 - 人物之间必须形成交叉关系：亲缘、旧识、同事、师生、邻里、交易、竞争、欠债、秘密、误会、保护、亏欠等，避免孤立人物清单。
+- 输出结尾必须追加「【人物弧线总表】」：列出主角、3-5个最重要配角、主要对手/核心压力源的长线变化，并标注适合承载他们转折的中故事阶段。
 - **严格遵守上述限制条件**
 
 请按世界观自然分组输出，不要用主角团、主角阵营、反派阵营这些标签。`;
@@ -1643,7 +1663,9 @@ ${romanceLineRules}
    - 中段剧情推进必须快，不能用铺垫水时长；每集只安排1个最核心的打压/高燃点/爽点释放/反转打脸，不要堆多个事件
    - 女频向内容要强化爱情线桥段：允许并鼓励打情骂俏、互动调戏、试探拉扯、吃醋误会、英雄救场、暧昧反差，但不得让关系推进过快或跳过必要铺垫
    - 男频、事业向、升级流或复仇向微短剧也必须保留少量爱情线推进：甜宠照顾、互相调侃、打情骂俏、并肩破局、吃醋护短、暧昧误会、救场后的反向调戏等桥段可以点缀，但比例要少，不能抢走主线爽点
-   - 每一集都应同时满足：解决一个当前矛盾、埋下一个新伏笔/新危机、完成一次主角心态或实力弧光
+   - 每一集都应至少解决一个当前矛盾，并埋下一个新伏笔/新危机；人物弧线不要求每集都推进，但本组${rangeUnitCount}集里至少必须有1集用明确的剧情行为推进人物弧线
+   - 人物弧线推进必须是可拍的剧情行为，而不是一句状态说明：例如主角做出违背旧习惯的选择、为保护某人承担代价、主动反击旧压迫、拒绝诱惑、承认弱点、放弃短利、改变对某人的信任、与反派/压力源发生关键对抗等
+   - 承担人物弧线推进的那一集，必须在细纲里写清“具体行为 → 造成的关系/处境变化 → 对后续目标的影响”，但不要额外输出后台字段
    - ${microdramaLastUnitLabel}必须形成这一卡点的黑场悬念或更大反转
    - 如果中故事末尾提供了「阶段状态小结」，本组单集细纲必须把这一组的终点写到该小结指定的主角状态、人物关系、当前压力与下一阶段目标方向
    - 本组第一集开头要承接本中故事自身的开端目标；${microdramaLastUnitLabel}结尾要把“下一阶段目标方向”自然递给下一中故事，但不要提前写下一中故事的核心爆点
@@ -1761,7 +1783,7 @@ ${romanceLineRules}
 3. 必须结合世界观和人物设定，不能脱离已有角色动机、能力边界、势力关系和世界规则。
 4. 必须兼顾上下中故事连续性：承接前文已经发生的结果，不提前消耗后文核心爆点。
 5. ${mode === 'microdrama'
-          ? '按爆款微短剧中故事设计：必须承接当前中故事已标注的对应集数，内部每集都要有惊艳开场、快节奏推进、打压、高潮、反转、打脸和最后一集黑场钩子；每一集只承载约1分钟可拍剧情，详细剧情要精准但不要过厚；女频内容要强化爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯和情感误会，但不得让关系推进过快；结尾必须追加「阶段状态小结」。'
+        ? '按爆款微短剧中故事设计：必须承接当前中故事已标注的对应集数，内部每集都要有惊艳开场、快节奏推进、打压、高潮、反转、打脸和最后一集黑场钩子；每一集只承载约1分钟可拍剧情，详细剧情要精准但不要过厚；本中故事内部至少要有一处明确的剧情行为推进人物弧线，例如选择、牺牲、反击、护短、示弱、拒绝诱惑或改变信任，不能只写状态变化；女频内容要强化爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯和情感误会，但不得让关系推进过快；结尾必须追加「阶段状态小结」。'
           : '按小说中故事设计：默认能继续拆成15个单章小故事；首个中故事以生死为局开头，后续中故事以重大危局开头，内部要有完整目标、阻碍、升级、高燃点/爽点释放、阶段高潮、结尾扣子和阶段收束；详细剧情必须写到可继续拆成单章细纲的程度。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础。
 7. 当前中故事开头必须精准承接【上一个中故事】结尾的结果、主角状态、关系变化、当前压力与“目标方向”；如果上一个中故事为空，则按本作品开局逻辑处理。
@@ -1838,7 +1860,7 @@ ${romanceLineRules}
 4. 必须兼顾选中段落前后的连续性，不能改坏前文动机，也不能提前消耗后文核心爆点。
 5. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
 6. ${mode === 'microdrama'
-        ? '按爆款微短剧连续单集思维设计：每集都有惊艳开场、开场冲突、快节奏升级、人物性格外化、打压、高潮、反转、打脸和结尾钩子；但每集只写约1分钟可拍剧情容量，单集细纲控制在120-220字，最多不超过260字；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会，同时整段形成更大的连续推进。'
+        ? '按爆款微短剧连续单集思维设计：每集都有惊艳开场、开场冲突、快节奏升级、人物性格外化、打压、高潮、反转、打脸和结尾钩子；但每集只写约1分钟可拍剧情容量，单集细纲控制在120-220字，最多不超过260字；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会，同时整段形成更大的连续推进；这一组连续单集里至少有一集必须通过具体剧情行为推动人物弧线，不能只写“主角成长/关系变化”这类概括。'
         : '按小说连续小故事思维设计：每个小故事都要以危机开头，推进中释放高燃点或爽点，结尾留下钩子；同时整段形成章节群推进。'}
 7. 若提供了用户批注，必须显著响应批注；若提供了用户认可的一整套候选版本，以它为优化基础。
 
@@ -1879,7 +1901,7 @@ ${romanceLineRules}
 3. 必须兼顾前后连续性：不能改坏上一${unitLabel}已经建立的动机，也不能提前消耗下一${unitLabel}的核心爆点。
 4. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
 5. ${mode === 'microdrama'
-      ? '按爆款微短剧单集思维设计：开场必须惊艳并立即抓人，中段快节奏推进，人物性格鲜明，有打压、有高潮、有反转、有打脸，结尾为下一集留下强钩子；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会；内容应便于继续扩成单集剧本。'
+      ? '按爆款微短剧单集思维设计：开场必须惊艳并立即抓人，中段快节奏推进，人物性格鲜明，有打压、有高潮、有反转、有打脸，结尾为下一集留下强钩子；若当前单集承担本中故事的人物弧线推进，必须用具体剧情行为体现，例如选择、牺牲、反击、护短、示弱、拒绝诱惑或改变信任，而不是写一句状态变化；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会；内容应便于继续扩成单集剧本。'
         : '按小说单章小故事思维设计：每个小故事只服务1章，写清危机开头、冲突递进、高燃点/爽点释放、阶段反转、章尾钩子和当章收束。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础，而不是退回原方案。
 
@@ -2353,7 +2375,7 @@ ${romanceLineRules}
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
   }
 
-	  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
+  async generateChapterStream(dto: GenerateChapterDto, requestId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`): Promise<Observable<any>> {
     const existingJob = this.generationStreamJobs.get(requestId);
     if (existingJob) {
       console.log(`接入已有流式生成任务: ${requestId}, 已缓存事件: ${existingJob.events.length}`);
@@ -2729,6 +2751,207 @@ ${romanceLineRules}
       })();
 
     return this.getGenerationStreamObservable(job);
+  }
+
+  async reviewMicrodramaScripts(dto: ReviewMicrodramaScriptsDto) {
+    const entries = Object.entries(dto.chapters || {})
+      .map(([episode, content]) => ({ episode: Number(episode), content: String(content || '') }))
+      .filter(item => Number.isFinite(item.episode) && item.content.trim())
+      .sort((a, b) => a.episode - b.episode);
+
+    if (!entries.length) {
+      throw new Error('没有可审读的微短剧剧本正文');
+    }
+
+    const chunkSize = 5;
+    const updatedChapters: Record<number, string> = Object.fromEntries(entries.map(item => [item.episode, item.content]));
+    const allIssues: Array<Record<string, unknown>> = [];
+    const appliedPatches: Array<Record<string, unknown>> = [];
+    const skippedPatches: Array<Record<string, unknown>> = [];
+    const compressedEpisodes: Array<Record<string, unknown>> = [];
+    const model = dto.model?.trim() || 'gpt-5.5';
+
+    const parseJson = (raw: string) => {
+      const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        throw new Error('AI审读结果不是有效JSON');
+      }
+    };
+
+    const compact = (text?: string, limit = 3500) => {
+      const value = String(text || '').trim();
+      return value.length > limit ? `${value.slice(0, limit)}\n...[已截断]` : value;
+    };
+
+    for (let index = 0; index < entries.length; index += chunkSize) {
+      const chunk = entries.slice(index, index + chunkSize);
+      const previous = entries[index - 1];
+      const next = entries[index + chunk.length];
+      const episodeNumbers = chunk.map(item => item.episode);
+      const microStoryRefs = (dto.savedMicroStories || [])
+        .filter((story: any, storyIndex: number) => {
+          const order = Number(story?.order || storyIndex + 1);
+          return episodeNumbers.includes(order);
+        })
+        .map((story: any, storyIndex: number) => `第${story?.order || storyIndex + 1}集细纲：${story?.title || ''}\n${String(story?.content || '').slice(0, 900)}`)
+        .join('\n\n');
+
+      const scriptBlock = chunk
+        .map(item => `【第${item.episode}集当前剧本】\n${item.content}`)
+        .join('\n\n');
+
+      const prompt = `你是微短剧剧本总审读与台词修订师。请对下面这批已写好的微短剧剧本做“补丁式修订”，不要整集重写。
+
+【世界观摘要】
+${compact(dto.worldSetting, 2200)}
+
+【人物设定摘要】
+${compact(dto.characters, 3200)}
+
+【全剧/中故事大纲摘要】
+${compact(dto.detailedOutline, 2600)}
+
+【本批分集细纲】
+${microStoryRefs || '无'}
+
+${previous ? `【上一集结尾参考】\n第${previous.episode}集结尾：${previous.content.slice(-500)}\n` : ''}
+${next ? `【下一集细纲/衔接参考】\n第${next.episode}集标题或正文开端：${next.content.slice(0, 500)}\n` : ''}
+
+【待审读剧本】
+${scriptBlock}
+
+审读与修订重点：
+1. 剧情一致性：人物已知信息、身份、关系、上一集结尾、下一集承接不能矛盾。
+2. 微短剧节奏：每集开头要抓人，中段推进快，结尾有钩子；删掉重复解释和无效闲聊。
+3. 人物弧光：主角、主要配角、主反派/核心压力源的选择、代价、关系变化要连续。
+4. 反派贯穿：主反派或核心压力源不能断线；即便本人不出场，也要通过代理人、证据、资源封锁、舆论、旧账或关系操控产生压力。
+5. 台词专项，这是最高优先级之一：
+   - 主角台词必须符合人设，有记忆点、有态度、有价值观，可以形成金句；不能像普通说明文字。
+   - 主要配角台词要能听出身份、欲望、恐惧、口癖或利益立场，不能所有人一个腔调。
+   - 反派/压力方台词要有压迫感、诱惑性或自我辩护，不能只会放狠话。
+   - 爱情线台词要有试探、调侃、护短、吃醋、误会或暧昧张力，但必须推动关系变化。
+6. 可拍摄性：不要把单集改厚，优先替换一小段、一组对白或一处动作说明。
+7. 只返回需要修改的地方。没有问题的段落不要返回补丁。
+
+返回严格JSON，不要Markdown，不要解释：
+{
+  "issues": [
+    {"episode": 1, "type": "dialogue|continuity|pacing|character_arc|villain_thread|format|review_risk", "severity": "high|medium|low", "problem": "问题说明"}
+  ],
+  "patches": [
+    {
+      "episode": 1,
+      "type": "dialogue|continuity|pacing|character_arc|villain_thread|format|review_risk",
+      "reason": "为什么这样改",
+      "findText": "原文中需要替换的一小段，必须逐字摘录，长度控制在20-600字",
+      "replaceText": "替换后的新文本，保留剧本格式，尤其优先打磨主角和主要配角台词"
+    }
+  ],
+  "summary": "本批修订概要"
+}`;
+
+      const raw = await this.llmService.chatWithGatewayModel([
+        { role: 'system', content: '你只输出严格JSON。你擅长微短剧剧本一致性审读、补丁式修订和高记忆点台词打磨。' },
+        { role: 'user', content: prompt },
+      ], model);
+      const parsed = parseJson(raw);
+      const issues = Array.isArray(parsed?.issues) ? parsed.issues : [];
+      const patches = Array.isArray(parsed?.patches) ? parsed.patches : [];
+      allIssues.push(...issues);
+
+      for (const patch of patches) {
+        const episode = Number(patch?.episode);
+        const findText = String(patch?.findText || '').trim();
+        const replaceText = String(patch?.replaceText || '').trim();
+        if (!Number.isFinite(episode) || !findText || !replaceText || !updatedChapters[episode]) {
+          skippedPatches.push({ ...patch, skipReason: '补丁字段不完整或集数不存在' });
+          continue;
+        }
+        if (!updatedChapters[episode].includes(findText)) {
+          skippedPatches.push({ ...patch, skipReason: '未找到可安全替换的原文片段' });
+          continue;
+        }
+        updatedChapters[episode] = updatedChapters[episode].replace(findText, replaceText);
+        appliedPatches.push({
+          episode,
+          type: patch?.type || 'dialogue',
+          reason: patch?.reason || '',
+          beforeWords: this.getWordCount(findText),
+          afterWords: this.getWordCount(replaceText),
+        });
+      }
+    }
+
+    for (const [episodeText, content] of Object.entries(updatedChapters)) {
+      const episode = Number(episodeText);
+      const currentWords = this.getWordCount(content);
+      if (!Number.isFinite(episode) || currentWords <= 1500) continue;
+
+      const storyData = (dto.savedMicroStories || []).find((story: any, index: number) => {
+        const order = Number(story?.order || index + 1);
+        return order === episode;
+      });
+      const prompt = `请把下面这集微短剧剧本压缩到约1200字，允许1100-1300字之间浮动。
+
+【本集分集细纲】
+${storyData ? `标题：${storyData.title || ''}\n内容：${String(storyData.content || '').slice(0, 1200)}` : '无'}
+
+【当前第${episode}集剧本，约${currentWords}字】
+${content}
+
+压缩要求：
+1. 必须输出完整的第${episode}集剧本，不要输出说明、清单或差异。
+2. 保留核心剧情节点、开场危机、关键反转/爽点、人物弧线推进、爱情线有效互动和集尾钩子。
+3. 保留已经打磨出的主角金句、主要配角身份化台词、反派压迫感台词；如果必须删减台词，优先删重复解释和普通寒暄。
+4. 压缩方式：合并重复动作、删掉解释性对白、减少场景铺陈、压缩不影响剧情的镜头说明；不要删掉导致前后不连贯。
+5. 仍然保持标准微短剧拍摄剧本格式：场号、人物、动作/镜头说明、角色对白清楚。
+6. 不要提前写下一集内容，不要改变本集结尾钩子。
+
+请直接输出压缩后的第${episode}集剧本。`;
+
+      try {
+        const compressed = await this.llmService.chatWithGatewayModel([
+          { role: 'system', content: '你是微短剧剧本压缩师，擅长在不损失戏剧质量、人物弧光和台词记忆点的前提下压缩篇幅。' },
+          { role: 'user', content: prompt },
+        ], model);
+        const cleaned = String(compressed || '').trim();
+        if (cleaned) {
+          const nextWords = this.getWordCount(cleaned);
+          updatedChapters[episode] = cleaned;
+          compressedEpisodes.push({
+            episode,
+            beforeWords: currentWords,
+            afterWords: nextWords,
+          });
+        }
+      } catch (error) {
+        console.error(`第${episode}集剧本压缩失败:`, error);
+        skippedPatches.push({
+          episode,
+          type: 'length_compression',
+          skipReason: `第${episode}集超过1500字，自动压缩失败，保留审读修订后的原文`,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        updatedChapters,
+        issues: allIssues,
+        appliedPatches,
+        skippedPatches,
+        compressedEpisodes,
+        summary: `完成${entries.length}集微短剧审读，应用${appliedPatches.length}处补丁，压缩${compressedEpisodes.length}集超长剧本，跳过${skippedPatches.length}处需人工确认补丁。`,
+      },
+    };
   }
 
   async rewriteChapter(dto: RewriteChapterDto) {

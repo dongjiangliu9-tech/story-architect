@@ -266,7 +266,9 @@ ${outline.themes}`;
         charactersResponse = await blueprintApi.generateCharacters({
           ...logicModelRequest,
           outline: outlineData,
-          worldSetting: worldResponse.data
+          worldSetting: worldResponse.data,
+          mode: targetMode,
+          microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         });
         setCachedData(bookName, 'characters', charactersResponse.data);
         updateStep('generate-characters', { status: 'completed', message: '人物设定生成完成' });
@@ -290,6 +292,8 @@ ${outline.themes}`;
           ...logicModelRequest,
           outline: outlineData,
           worldSetting: worldResponse.data,
+          mode: targetMode,
+          microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
           existingCharacters: baseCharacters,
           note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增人物扩展包：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、身份阵营、欲望目标、能力/资源、与主角或核心人物的关系、首次登场场景、能制造的冲突、后续可回收的伏笔或反转。角色要覆盖前期压迫、中期副本/任务、后期势力博弈等不同阶段。不要输出完整更新版，不要复写原有人物设定。',
         });
@@ -376,7 +380,7 @@ ${outline.themes}`;
           plot: targetDensityLevel,
           element: targetDensityLevel,
         };
-        const suggestion = buildDensityTuningSuggestion(currentDensityLevels, nextDensityLevels, enabledDensity);
+        const suggestion = buildDensityTuningSuggestion(currentDensityLevels, nextDensityLevels, enabledDensity, targetMode);
 
         updateStep('density-iterate', {
           status: 'running',

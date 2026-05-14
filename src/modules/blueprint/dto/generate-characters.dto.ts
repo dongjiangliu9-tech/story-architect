@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsIn, IsInt } from 'class-validator';
 import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
 export class GenerateCharactersDto extends LogicModelSelectionDto {
@@ -13,6 +13,16 @@ export class GenerateCharactersDto extends LogicModelSelectionDto {
   @IsBoolean()
   @IsOptional()
   useEnglishNames?: boolean;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['novel', 'microdrama', 'literature'])
+  mode?: 'novel' | 'microdrama' | 'literature';
+
+  @IsInt()
+  @IsIn([15, 30, 60, 100])
+  @IsOptional()
+  microdramaEpisodeCount?: 15 | 30 | 60 | 100;
 
   @IsString()
   @IsOptional()

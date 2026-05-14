@@ -21,6 +21,7 @@ const AI_ENDPOINTS = new Set([
   '/blueprint/generate-micro-story-variants',
   '/blueprint/generate-chapter',
   '/blueprint/rewrite-chapter',
+  '/blueprint/review-microdrama-scripts',
   '/blueprint/prepare-stream',
 ]);
 
@@ -261,6 +262,8 @@ export interface GenerateCharactersDto extends LlmModelSelection {
   outline: string;
   worldSetting: string;
   useEnglishNames?: boolean;
+  mode?: 'novel' | 'microdrama' | 'literature';
+  microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   existingCharacters?: string;
   note?: string;
 }
@@ -332,6 +335,27 @@ export interface RewriteChapterDto {
   mode?: 'novel' | 'microdrama';
 }
 
+export interface ReviewMicrodramaScriptsDto {
+  chapters: { [key: number]: string };
+  worldSetting?: string;
+  characters?: string;
+  detailedOutline?: string;
+  savedMicroStories?: any[];
+  model?: string;
+}
+
+export interface ReviewMicrodramaScriptsResponse {
+  success: boolean;
+  data: {
+    updatedChapters: { [key: number]: string };
+    issues: Array<Record<string, any>>;
+    appliedPatches: Array<Record<string, any>>;
+    skippedPatches: Array<Record<string, any>>;
+    compressedEpisodes?: Array<Record<string, any>>;
+    summary: string;
+  };
+}
+
 export const blueprintApi = {
   generateOutline: async (data: GenerateOutlineDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate', data);
@@ -375,6 +399,11 @@ export const blueprintApi = {
 
   rewriteChapter: async (data: RewriteChapterDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/rewrite-chapter', data);
+    return response.data;
+  },
+
+  reviewMicrodramaScripts: async (data: ReviewMicrodramaScriptsDto): Promise<ReviewMicrodramaScriptsResponse> => {
+    const response = await api.post('/blueprint/review-microdrama-scripts', data);
     return response.data;
   },
 
