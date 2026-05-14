@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { GenerateOutlineDto, GenerateOutlineResponse, LlmModelSelection, TitleVariant } from '../types';
+import { GenerateOutlineDto, GenerateOutlineResponse, LlmModelSelection, TitleVariant, WriterModelProvider } from '../types';
 
 const api = axios.create({
   baseURL: (import.meta as any).env.VITE_API_BASE_URL || '/api',
@@ -317,7 +317,8 @@ export interface GenerateChapterDto {
   nextExistingChapterNumber?: number;
   nextExistingChapterContent?: string;
   mode?: 'novel' | 'microdrama';
-  writerModelProvider?: 'deepseek' | 'gemini';
+  writerModelProvider?: WriterModelProvider;
+  writerModel?: string;
   actionFirstScript?: boolean;
   targetEpisodeWords?: number;
   targetNovelWords?: number;
@@ -330,7 +331,8 @@ export interface RewriteChapterDto {
   adjustmentPercent: number;
   context?: string;
   storyData?: any;
-  writerModelProvider?: 'deepseek' | 'gemini';
+  writerModelProvider?: WriterModelProvider;
+  writerModel?: string;
   actionFirstScript?: boolean;
   mode?: 'novel' | 'microdrama';
 }

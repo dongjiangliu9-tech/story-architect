@@ -40,11 +40,11 @@ export class BlueprintController {
   }
 
   private getWriterQuotaModel(dto: GenerateChapterDto): ActivationModelKind {
-    return dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+    return dto.writerModelProvider === 'deepseek' ? 'deepseek' : 'gemini';
   }
 
   private getRewriteQuotaModel(dto: RewriteChapterDto): ActivationModelKind {
-    return dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+    return dto.writerModelProvider === 'deepseek' ? 'deepseek' : 'gemini';
   }
 
   @Post('generate')

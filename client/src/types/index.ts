@@ -31,6 +31,7 @@ export interface OutlineData {
 }
 
 export type LlmModelProvider = 'default' | 'gateway';
+export type WriterModelProvider = 'deepseek' | 'gemini' | 'gateway';
 
 export interface TitleVariant {
   title: string;

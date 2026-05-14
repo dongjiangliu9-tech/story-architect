@@ -1,4 +1,4 @@
-import { LlmModelProvider, LlmModelSelection } from '../types';
+import { LlmModelProvider, LlmModelSelection, WriterModelProvider } from '../types';
 
 export const DEFAULT_LOGIC_MODEL_VALUE = 'gemini-3.1-pro-preview';
 export const OFFICIAL_LOGIC_MODEL_VALUE = 'default';
@@ -49,6 +49,78 @@ export const LOGIC_MODEL_OPTIONS: Array<{
     description: '智灵网关备用',
   },
 ];
+
+export const DEFAULT_WRITER_MODEL_VALUE = 'deepseek:deepseek-v4-pro';
+
+export const WRITER_MODEL_OPTIONS: Array<{
+  value: string;
+  provider: WriterModelProvider;
+  model: string;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: DEFAULT_WRITER_MODEL_VALUE,
+    provider: 'deepseek',
+    model: 'deepseek-v4-pro',
+    label: 'DeepSeek V4 Pro',
+    description: '官方 DeepSeek 写作接口',
+  },
+  {
+    value: 'gateway:DeepSeek-V4-Pro',
+    provider: 'gateway',
+    model: 'DeepSeek-V4-Pro',
+    label: 'DeepSeek V4 Pro',
+    description: '智灵网关',
+  },
+  {
+    value: 'gateway:DeepSeek-V4-Flash',
+    provider: 'gateway',
+    model: 'DeepSeek-V4-Flash',
+    label: 'DeepSeek V4 Flash',
+    description: '智灵网关',
+  },
+  {
+    value: 'gateway:gemini-3.1-pro-preview',
+    provider: 'gateway',
+    model: 'gemini-3.1-pro-preview',
+    label: 'Gemini 3.1 Pro',
+    description: '智灵网关',
+  },
+  {
+    value: 'gateway:gpt-5.5',
+    provider: 'gateway',
+    model: 'gpt-5.5',
+    label: 'GPT-5.5',
+    description: '智灵网关',
+  },
+  {
+    value: 'gateway:claude-sonnet-4-6',
+    provider: 'gateway',
+    model: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    description: '智灵网关',
+  },
+  {
+    value: 'gateway:claude-opus-4-6',
+    provider: 'gateway',
+    model: 'claude-opus-4-6',
+    label: 'Claude Opus 4.6',
+    description: '智灵网关',
+  },
+];
+
+export const getWriterModelOption = (value?: string) => {
+  return WRITER_MODEL_OPTIONS.find(option => option.value === value) || WRITER_MODEL_OPTIONS[0];
+};
+
+export const toWriterModelRequest = (value?: string) => {
+  const option = getWriterModelOption(value);
+  return {
+    writerModelProvider: option.provider,
+    writerModel: option.model,
+  };
+};
 
 const GATEWAY_MODEL_ALIASES: Record<string, string> = {
   'claude-sonnet-series': 'claude-sonnet-4-6',

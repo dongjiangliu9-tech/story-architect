@@ -28,6 +28,9 @@ export interface AutoGenerationOptions {
   target: AutoGenerationTarget;
   pauseAfter?: AutoGenerationPauseMode;
   clearExisting?: boolean;
+  needsUpgradeSystem?: boolean;
+  useRealisticWorldview?: boolean;
+  realisticWorldviewContext?: string;
 }
 
 export function useAutoGeneration() {
@@ -165,15 +168,25 @@ ${outline.themes}`;
       const targetMode = options.target === 'novel-75' ? 'novel' : 'microdrama';
       const isMicrodrama = targetMode === 'microdrama';
       const microdramaEpisodeCount = options.target === 'microdrama-30' ? 30 : 15;
+      const useRealisticWorldview = options.useRealisticWorldview === true;
+      const realisticWorldviewContext = String(options.realisticWorldviewContext || '').trim();
+      const needsUpgradeSystem = useRealisticWorldview ? false : options.needsUpgradeSystem !== false;
       const targetUnitCount = isMicrodrama ? microdramaEpisodeCount : 75;
       const targetLabel = isMicrodrama ? `${microdramaEpisodeCount}集微短剧` : '75章网文';
       const targetCachePrefix = isMicrodrama ? `microdrama-${microdramaEpisodeCount}` : 'novel-75';
-      const outlineCacheKey = `${targetCachePrefix}-detailed-outline`;
-      const preIteratedOutlineCacheKey = `${targetCachePrefix}-detailed-outline-pre-v1`;
-      const finalOutlineCacheKey = `${targetCachePrefix}-detailed-outline-density-v3`;
-      const microStoriesCacheKey = `${targetCachePrefix}-all-micro-stories`;
-      const expandedWorldCacheKey = `${targetCachePrefix}-world-expanded-forces-v2`;
-      const expandedCharactersCacheKey = `${targetCachePrefix}-characters-expanded-v1`;
+      const worldModeCacheKey = `${targetCachePrefix}-world-${useRealisticWorldview ? 'realistic' : 'web'}-${needsUpgradeSystem ? 'upgrade' : 'no-upgrade'}-${realisticWorldviewContext || 'auto'}`;
+      const worldSettingCacheKey = `${worldModeCacheKey}-base`;
+      const outlineCacheKey = `${worldModeCacheKey}-detailed-outline`;
+      const preIteratedOutlineCacheKey = `${worldModeCacheKey}-detailed-outline-pre-v1`;
+      const finalOutlineCacheKey = `${worldModeCacheKey}-detailed-outline-density-v3`;
+      const microStoriesCacheKey = `${worldModeCacheKey}-all-micro-stories`;
+      const expandedWorldCacheKey = `${worldModeCacheKey}-world-expanded-v3`;
+      const expandedCharactersCacheKey = `${worldModeCacheKey}-characters-expanded-v2`;
+      const worldSettingGenerationOptions = {
+        needsUpgradeSystem,
+        useRealisticWorldview,
+        realisticWorldviewContext: useRealisticWorldview ? realisticWorldviewContext : undefined,
+      };
 
       // 清理旧缓存
       if (options.clearExisting !== false) {
@@ -196,6 +209,9 @@ ${outline.themes}`;
         reduceSensitiveContent: true,
         autoGenerationMode: true,
         autoGenerationStarted: false,
+        worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        worldSettingUseRealisticMode: useRealisticWorldview,
+        worldSettingRealisticContext: realisticWorldviewContext,
         ...preferredLogicModelFields,
       });
       const persistAutoProject = (updates: Parameters<typeof updateProject>[1]) => {
@@ -208,16 +224,17 @@ ${outline.themes}`;
       setCurrentStepMessage('正在生成世界观基础设定...');
 
       let worldResponse;
-      const cachedWorld = getCachedData(bookName, 'world-setting');
+      const cachedWorld = getCachedData(bookName, worldSettingCacheKey);
       if (cachedWorld) {
         worldResponse = { data: cachedWorld };
         updateStep('generate-world', { status: 'completed', message: '从缓存加载世界观基础设定' });
       } else {
         worldResponse = await blueprintApi.generateWorldSetting({
           ...logicModelRequest,
-          outline: outlineData
+          outline: outlineData,
+          ...worldSettingGenerationOptions,
         });
-        setCachedData(bookName, 'world-setting', worldResponse.data);
+        setCachedData(bookName, worldSettingCacheKey, worldResponse.data);
         updateStep('generate-world', { status: 'completed', message: '世界观基础设定生成完成' });
       }
       persistAutoProject({
@@ -225,6 +242,9 @@ ${outline.themes}`;
         detailedOutlineMode: targetMode,
         microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         reduceSensitiveContent: true,
+        worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        worldSettingUseRealisticMode: useRealisticWorldview,
+        worldSettingRealisticContext: realisticWorldviewContext,
       });
 
       const cachedExpandedWorld = getCachedData(bookName, expandedWorldCacheKey);
@@ -234,23 +254,36 @@ ${outline.themes}`;
         worldResponse = { data: cachedExpandedWorld };
         updateStep('generate-world', { status: 'completed', message: '从缓存加载扩充后的世界观基础设定' });
       } else {
-        updateStep('generate-world', { status: 'running', message: '正在自动补充世界观：增加势力与副本...' });
-        setCurrentStepMessage('正在自动补充世界观：增加势力与副本...');
+        const expansionMessage = needsUpgradeSystem
+          ? '正在自动补充世界观：增加势力与副本...'
+          : '正在自动补充世界观：增加现实组织与事件...';
+        updateStep('generate-world', { status: 'running', message: expansionMessage });
+        setCurrentStepMessage(expansionMessage);
         const baseWorldSetting = worldResponse.data;
+        const expansionNote = needsUpgradeSystem
+          ? '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增世界观扩展包：新增20个可直接用于正文展开的具体势力，新增20个副本/试炼/任务/危机事件场景。具体势力必须写清名称、类型、领袖或核心人物、资源/能力、地盘或活动范围、公开目标、隐藏目的、与主角和其他势力的关系、可制造的冲突、可服务的章节阶段。副本/试炼/任务/危机事件必须写清触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要输出完整更新版，不要复写原有世界观。'
+          : '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增现实向世界观扩展包：新增20个可直接用于正文展开的具体社会组织、家庭/亲缘网络、行业圈层、单位/学校/地方机构、资本/资源节点、旧案旧怨相关群体或压力来源；再新增20个现实事件、危机、任务、交易、审查、舆论、家庭冲突、职场变动、经济压力或关系爆点。每项必须写清触发条件、参与人物/组织、利益冲突、现实规则、代价、可服务的章节阶段，以及能牵引人物命运或关系变化的钩子。禁止输出副本、试炼、秘境、修炼资源、境界突破、宗门和玄幻化设定。不要输出完整更新版，不要复写原有世界观。';
         const expandedWorldResponse = await blueprintApi.generateWorldSetting({
           ...logicModelRequest,
           outline: outlineData,
+          ...worldSettingGenerationOptions,
           existingWorldSetting: baseWorldSetting,
-          note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增世界观扩展包：新增20个可直接用于正文展开的具体势力，新增20个副本/试炼/任务/危机事件场景。具体势力必须写清名称、类型、领袖或核心人物、资源/能力、地盘或活动范围、公开目标、隐藏目的、与主角和其他势力的关系、可制造的冲突、可服务的章节阶段。副本/试炼/任务/危机事件必须写清触发条件、参与势力、主要冲突、可获得资源或代价、可服务的章节阶段，以及能牵引主角成长或人物关系变化的钩子。不要输出完整更新版，不要复写原有世界观。',
+          note: expansionNote,
         });
         worldResponse = {
           data: mergeExpansionPack(baseWorldSetting, '【世界观扩展包】', expandedWorldResponse.data),
         };
         setCachedData(bookName, expandedWorldCacheKey, worldResponse.data);
-        updateStep('generate-world', { status: 'completed', message: '世界观扩充完成：已补充势力与副本' });
+        updateStep('generate-world', {
+          status: 'completed',
+          message: needsUpgradeSystem ? '世界观扩充完成：已补充势力与副本' : '世界观扩充完成：已补充现实组织与事件',
+        });
       }
       persistAutoProject({
         worldSetting: worldResponse.data,
+        worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        worldSettingUseRealisticMode: useRealisticWorldview,
+        worldSettingRealisticContext: realisticWorldviewContext,
       });
 
       // 3. 生成人物设定
@@ -295,7 +328,9 @@ ${outline.themes}`;
           mode: targetMode,
           microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
           existingCharacters: baseCharacters,
-          note: '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增人物扩展包：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、身份阵营、欲望目标、能力/资源、与主角或核心人物的关系、首次登场场景、能制造的冲突、后续可回收的伏笔或反转。角色要覆盖前期压迫、中期副本/任务、后期势力博弈等不同阶段。不要输出完整更新版，不要复写原有人物设定。',
+          note: needsUpgradeSystem
+            ? '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增人物扩展包：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、身份阵营、欲望目标、能力/资源、与主角或核心人物的关系、首次登场场景、能制造的冲突、后续可回收的伏笔或反转。角色要覆盖前期压迫、中期副本/任务、后期势力博弈等不同阶段。不要输出完整更新版，不要复写原有人物设定。'
+            : '[AUTO_EXPANSION_PACK_ONLY]\n请只生成新增现实向人物扩展包：新增30个会在不同阶段出场的角色。每个角色必须写清出场阶段、现实身份/职业/家庭位置、欲望目标、可支配资源或社会关系、与主角或核心人物的关系、首次登场场景、能制造的现实冲突、后续可回收的旧账/秘密/情感变化或反转。角色要覆盖家庭、行业、地方社会、资本资源、亲密关系、舆论压力和制度规则等不同层面。禁止使用修炼境界、战力、宗门、副本任务模板。不要输出完整更新版，不要复写原有人物设定。',
         });
         charactersResponse = {
           data: mergeExpansionPack(baseCharacters, '【人物扩展包】', expandedCharactersResponse.data),
@@ -339,6 +374,9 @@ ${outline.themes}`;
         detailedOutlineMode: targetMode,
         microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         reduceSensitiveContent: true,
+        worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        worldSettingUseRealisticMode: useRealisticWorldview,
+        worldSettingRealisticContext: realisticWorldviewContext,
       });
 
       updateStep('density-iterate', { status: 'running', message: '正在进行单轮三密度滑块迭代...' });
@@ -417,6 +455,9 @@ ${outline.themes}`;
         microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         densityTuningLevels: currentDensityLevels,
         reduceSensitiveContent: true,
+        worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        worldSettingUseRealisticMode: useRealisticWorldview,
+        worldSettingRealisticContext: realisticWorldviewContext,
       });
 
       // 5. 保存项目
@@ -431,6 +472,9 @@ ${outline.themes}`;
         microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         densityTuningLevels: currentDensityLevels,
         reduceSensitiveContent: true,
+        worldSettingNeedsUpgradeSystem: needsUpgradeSystem,
+        worldSettingUseRealisticMode: useRealisticWorldview,
+        worldSettingRealisticContext: realisticWorldviewContext,
         ...preferredLogicModelFields,
       });
       const newProject = autoProject;

@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import { AI_MODELS, API_CONFIG } from '../../common/constants';
 
 type LlmConcurrencyBucket = 'gemini' | 'deepseek' | 'gateway';
+type WriterModelProvider = 'deepseek' | 'gemini' | 'gateway';
 
 @Injectable()
 export class LlmService {
@@ -605,7 +606,8 @@ export class LlmService {
   }
 
   private isDeepseekModel(model: string): boolean {
-    return model.includes('deepseek') || model === this.getWriterModel();
+    const normalizedModel = model.toLowerCase();
+    return normalizedModel.includes('deepseek') || model === this.getWriterModel();
   }
 
   private getWriterModel(): string {
@@ -623,7 +625,8 @@ export class LlmService {
   async chatWithWriterModelStream(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     onChunk: (chunk: string) => void,
-    provider: 'deepseek' | 'gemini' = 'deepseek',
+    provider: WriterModelProvider = 'deepseek',
+    model?: string,
     options: { signal?: AbortSignal; isCancelled?: () => boolean } = {},
   ) {
     const throwIfCancelled = () => {
@@ -634,21 +637,20 @@ export class LlmService {
 
     throwIfCancelled();
 
-    if (provider === 'gemini') {
-      const content = await this.chat(messages);
-      throwIfCancelled();
-      if (content) {
-        onChunk(content);
-      }
-      return;
+    if (provider === 'gateway') {
+      return this.chatWithGatewayModelStream(messages, onChunk, model, options);
     }
 
-    return this.withLlmSlot('deepseek', this.getWriterModel(), async () => {
+    if (provider === 'gemini') {
+      return this.chatWithGatewayModelStream(messages, onChunk, model, options);
+    }
+
+    const targetModel = model?.trim() || this.getWriterModel();
+    return this.withLlmSlot('deepseek', targetModel, async () => {
     try {
-      const model = this.getWriterModel();
       const stream = await this.deepseekClient.chat.completions.create({
         messages,
-        model,
+        model: targetModel,
         temperature: 1.2,
         max_tokens: 8192,
         stream: true,
@@ -671,20 +673,129 @@ export class LlmService {
     });
   }
 
+  private async chatWithGatewayModelStream(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    onChunk: (chunk: string) => void,
+    model?: string,
+    options: { signal?: AbortSignal; isCancelled?: () => boolean } = {},
+  ) {
+    const throwIfCancelled = () => {
+      if (options.signal?.aborted || options.isCancelled?.()) {
+        throw new Error('GENERATION_CANCELLED');
+      }
+    };
+    const targetModel = this.normalizeGatewayModel(
+      model ||
+        this.configService.get<string>('GATEWAY_MODEL') ||
+        this.configService.get<string>('ZHILING_GATEWAY_MODEL') ||
+        'gemini-3.1-pro-preview',
+    );
+    const candidateModels = this.getGatewayModelCandidates(targetModel);
+
+    return this.withLlmSlot('gateway', targetModel, async () => {
+      let lastError: unknown;
+
+      for (let modelIndex = 0; modelIndex < candidateModels.length; modelIndex++) {
+        const currentModel = candidateModels[modelIndex];
+        let emittedAnyChunk = false;
+
+        try {
+          throwIfCancelled();
+          console.log(
+            `[LLM_STREAM] 准备流式调用 gateway model=${currentModel}, fallbackIndex=${modelIndex}/${candidateModels.length - 1}`,
+          );
+
+          const requestBody: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
+            messages,
+            model: currentModel,
+            stream: true,
+          };
+
+          if (!this.shouldUseGatewayDefaultTemperature(currentModel)) {
+            requestBody.temperature = 0.7;
+          }
+
+          const stream = await this.gatewayClient.chat.completions.create(
+            requestBody,
+            options.signal ? { signal: options.signal } : undefined,
+          );
+
+          for await (const chunk of stream) {
+            throwIfCancelled();
+            const content = chunk.choices?.[0]?.delta?.content || '';
+            if (content) {
+              emittedAnyChunk = true;
+              onChunk(content);
+            }
+          }
+
+          if (emittedAnyChunk) {
+            if (currentModel !== targetModel) {
+              console.warn(`[LLM_STREAM] 网关主模型 ${targetModel} 不可用，已切换到 ${currentModel}`);
+            }
+            return;
+          }
+
+          throw new Error('AI 网关流式返回了空内容，请稍后重试');
+        } catch (error) {
+          if (options.signal?.aborted || options.isCancelled?.() || String((error as Error)?.message || '') === 'GENERATION_CANCELLED') {
+            throw new Error('GENERATION_CANCELLED');
+          }
+
+          lastError = error;
+          console.error(`Gateway LLM stream failed (model ${currentModel}):`, error);
+
+          const hasFallbackModel = modelIndex < candidateModels.length - 1;
+          if (!emittedAnyChunk && hasFallbackModel && this.canFallbackGatewayModel(error)) {
+            const nextModel = candidateModels[modelIndex + 1];
+            console.warn(`[LLM_STREAM] 网关流式模型 ${currentModel} 暂不可用，切换到 ${nextModel}`);
+            continue;
+          }
+
+          if (this.isTimeoutOrGatewayError(error)) {
+            throw new Error('AI 网关流式响应超时或上游暂时不可用，请稍后重试');
+          }
+
+          const status = (error as { status?: number })?.status;
+          if (status === 401 || status === 403) {
+            throw new Error('AI 网关拒绝访问，请检查网关 Token、模型权限或账户额度');
+          }
+          if (status === 404) {
+            throw new Error(`网关模型 ${currentModel} 当前不可用或接口路径不匹配`);
+          }
+          if (status === 429 || status === 503) {
+            throw new Error(`网关模型 ${currentModel} 当前高负载，请稍后重试`);
+          }
+
+          throw new Error('AI 网关流式写作服务暂时不可用，请稍后重试');
+        }
+      }
+
+      const triedModels = candidateModels.join(' -> ');
+      console.error('[LLM_STREAM] 网关流式模型不可用:', triedModels, lastError);
+      throw new Error(`AI 网关流式模型当前不可用，已尝试 ${triedModels}，请稍后重试`);
+    });
+  }
+
   async chatWithWriterModel(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-    provider: 'deepseek' | 'gemini' = 'deepseek',
+    provider: WriterModelProvider = 'deepseek',
+    model?: string,
   ) {
-    if (provider === 'gemini') {
-      return this.chat(messages);
+    if (provider === 'gateway') {
+      return this.chatWithGatewayModel(messages, model);
     }
 
-    return this.withLlmSlot('deepseek', this.getWriterModel(), async () => {
+    if (provider === 'gemini') {
+      return this.chatWithGatewayModel(messages, model);
+    }
+
+    const targetModel = model?.trim() || this.getWriterModel();
+    return this.withLlmSlot('deepseek', targetModel, async () => {
     try {
-      const model = this.getWriterModel();
       const completion = await this.deepseekClient.chat.completions.create({
         messages,
-        model,
+        model: targetModel,
         temperature: 1.2,
         max_tokens: 8192,
       });

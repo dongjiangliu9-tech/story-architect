@@ -1,5 +1,7 @@
 import { IsString, IsNumber, IsOptional, IsArray, IsObject, IsIn, IsBoolean } from 'class-validator';
 
+export type WriterModelProvider = 'deepseek' | 'gemini' | 'gateway';
+
 export class GenerateChapterDto {
   @IsString()
   context: string; // 完整的故事背景信息
@@ -38,8 +40,12 @@ export class GenerateChapterDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['deepseek', 'gemini'])
-  writerModelProvider?: 'deepseek' | 'gemini';
+  @IsIn(['deepseek', 'gemini', 'gateway'])
+  writerModelProvider?: WriterModelProvider;
+
+  @IsString()
+  @IsOptional()
+  writerModel?: string;
 
   @IsBoolean()
   @IsOptional()
@@ -77,8 +83,12 @@ export class RewriteChapterDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['deepseek', 'gemini'])
-  writerModelProvider?: 'deepseek' | 'gemini';
+  @IsIn(['deepseek', 'gemini', 'gateway'])
+  writerModelProvider?: WriterModelProvider;
+
+  @IsString()
+  @IsOptional()
+  writerModel?: string;
 
   @IsBoolean()
   @IsOptional()

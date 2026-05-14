@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto } from './dto/generate-chapter.dto';
+import { GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto, WriterModelProvider } from './dto/generate-chapter.dto';
 import { LogicModelSelectionDto } from './dto/logic-model-selection.dto';
 import { Observable, Subscriber } from 'rxjs';
 
@@ -20,6 +20,12 @@ interface GenerationStreamJob {
   completed: boolean;
   error?: unknown;
   heartbeat?: ReturnType<typeof setInterval>;
+}
+
+interface WriterModelSelection {
+  provider: WriterModelProvider;
+  model?: string;
+  label: string;
 }
 
 @Injectable()
@@ -49,6 +55,19 @@ export class BlueprintService {
     }
 
     return this.llmService.chatWithGatewayModel(messages);
+  }
+
+  private normalizeWriterModelSelection(dto?: { writerModelProvider?: WriterModelProvider; writerModel?: string }): WriterModelSelection {
+    const provider: WriterModelProvider =
+      dto?.writerModelProvider === 'gateway' || dto?.writerModelProvider === 'gemini'
+        ? dto.writerModelProvider
+        : 'deepseek';
+    const model = dto?.writerModel?.trim() || undefined;
+    return {
+      provider,
+      model,
+      label: model ? `${provider}:${model}` : provider,
+    };
   }
 
   private normalizeDetailedOutlineMode(mode?: string): 'novel' | 'microdrama' | 'literature' {
@@ -2071,6 +2090,8 @@ ${content}
     storyData,
     nextStoryData,
     previousEnding,
+    writerModelProvider = 'deepseek',
+    writerModel,
   }: {
     content: string;
     chapterNumber: number;
@@ -2078,6 +2099,8 @@ ${content}
     storyData?: any;
     nextStoryData?: any;
     previousEnding?: string;
+    writerModelProvider?: WriterModelProvider;
+    writerModel?: string;
   }): Promise<string> {
     const currentWords = this.getWordCount(content);
     if (currentWords <= 3000) return content;
@@ -2099,7 +2122,7 @@ ${content}
             previousEnding,
           }),
         },
-      ], 'deepseek');
+      ], writerModelProvider, writerModel);
 
       const trimmedRewrite = rewritten
         ? await this.validateAndTrimChapterScope({
@@ -2108,6 +2131,8 @@ ${content}
             storyData,
             nextStoryData,
             mode: 'novel',
+            writerModelProvider,
+            writerModel,
           })
         : '';
 
@@ -2129,6 +2154,8 @@ ${content}
     nextStoryData,
     previousEnding,
     mode,
+    writerModelProvider = 'deepseek',
+    writerModel,
   }: {
     content: string;
     chapterNumber: number;
@@ -2137,6 +2164,8 @@ ${content}
     nextStoryData?: any;
     previousEnding?: string;
     mode: 'novel' | 'microdrama';
+    writerModelProvider?: WriterModelProvider;
+    writerModel?: string;
   }): Promise<string> {
     if (!content) return '';
 
@@ -2151,6 +2180,8 @@ ${content}
       storyData,
       nextStoryData,
       mode,
+      writerModelProvider,
+      writerModel,
     });
 
     if (mode !== 'novel' || !scopedContent) {
@@ -2176,15 +2207,17 @@ ${content}
       storyData,
       nextStoryData,
       previousEnding,
+      writerModelProvider,
+      writerModel,
     });
   }
 
   async generateChapter(dto: GenerateChapterDto) {
     const mode: 'novel' | 'microdrama' = dto.mode === 'microdrama' ? 'microdrama' : 'novel';
-    const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+    const writerModelSelection = this.normalizeWriterModelSelection(dto);
     const unitLabel = mode === 'microdrama' ? '集' : '章';
     const loopCount = Math.max(1, dto.unitCount ?? (mode === 'microdrama' ? 1 : 8));
-    console.log(`开始循环生成${loopCount}${unitLabel}内容，使用模型: ${writerModelProvider}, 模式: ${mode}`);
+    console.log(`开始循环生成${loopCount}${unitLabel}内容，使用模型: ${writerModelSelection.label}, 模式: ${mode}`);
 
     const startChapter = dto.chapterNumber;
     let fullContent = '';
@@ -2253,11 +2286,11 @@ ${firstNovelChapterSetupRequirement}
 
 注意：不要添加任何多余的说明或格式，直接从章节标题开始输出内容。`;
 
-        // 使用Deepseek模型进行写作
+        // 使用用户选择的正文模型进行写作
 	        const chapterResult = await this.llmService.chatWithWriterModel([
 	          { role: 'system', content: this.getStoryWritingSystemPrompt() },
 	          { role: 'user', content: chapterPrompt }
-	        ], writerModelProvider);
+	        ], writerModelSelection.provider, writerModelSelection.model);
 
         console.log(`第${currentChapterNum}${unitLabel}生成成功，长度: ${chapterResult?.length || 0}`);
 
@@ -2271,6 +2304,8 @@ ${firstNovelChapterSetupRequirement}
             nextStoryData: dto.savedMicroStories?.[currentChapterNum],
             previousEnding,
             mode,
+            writerModelProvider: writerModelSelection.provider,
+            writerModel: writerModelSelection.model,
           })
           : '';
 
@@ -2397,7 +2432,7 @@ ${firstNovelChapterSetupRequirement}
     }
 
 	    const mode: 'novel' | 'microdrama' = dto.mode === 'microdrama' ? 'microdrama' : 'novel';
-	    const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+	    const writerModelSelection = this.normalizeWriterModelSelection(dto);
     const unitLabel = mode === 'microdrama' ? '集' : '章';
     const requestedUnitCount = Math.max(1, dto.unitCount ?? (mode === 'microdrama' ? 1 : 8));
     const loopCount = requestedUnitCount;
@@ -2424,7 +2459,7 @@ ${firstNovelChapterSetupRequirement}
 
       (async () => {
         try {
-	          console.log(`开始流式生成${unitBatchSize}${unitLabel}内容，使用模型: ${writerModelProvider}, 请求ID: ${requestId}, 模式: ${mode}`);
+	          console.log(`开始流式生成${unitBatchSize}${unitLabel}内容，使用模型: ${writerModelSelection.label}, 请求ID: ${requestId}, 模式: ${mode}`);
 
           const startChapter = dto.chapterNumber;
           let contextMemory = dto.context;
@@ -2550,7 +2585,8 @@ ${firstNovelChapterSetupRequirement}
                     chapterContent += chunk;
                     chunkPublisher.update(chapterContent);
                   },
-                  writerModelProvider,
+                  writerModelSelection.provider,
+                  writerModelSelection.model,
                   {
                     signal: abortController.signal,
                     isCancelled: () => this.isCancelled(requestId),
@@ -2568,6 +2604,8 @@ ${firstNovelChapterSetupRequirement}
                     nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
                     previousEnding,
                     mode,
+                    writerModelProvider: writerModelSelection.provider,
+                    writerModel: writerModelSelection.model,
                   })
                   : '';
 
@@ -2653,7 +2691,8 @@ ${firstNovelChapterSetupRequirement}
                   storyContent += chunk;
                   chunkPublisher.update(storyContent);
 	                },
-	                writerModelProvider,
+	                writerModelSelection.provider,
+	                writerModelSelection.model,
                   {
                     signal: abortController.signal,
                     isCancelled: () => this.isCancelled(requestId),
@@ -2684,6 +2723,8 @@ ${firstNovelChapterSetupRequirement}
                     storyData: dto.savedMicroStories?.[chapterStoryIndex] || storyData,
                     nextStoryData: dto.savedMicroStories?.[chapterStoryIndex + 1],
                     mode,
+                    writerModelProvider: writerModelSelection.provider,
+                    writerModel: writerModelSelection.model,
                   });
                   chapters.push(validatedChapter);
 
@@ -2969,7 +3010,7 @@ ${content}
   }
 
   async rewriteChapter(dto: RewriteChapterDto) {
-    const writerModelProvider = dto.writerModelProvider === 'gemini' ? 'gemini' : 'deepseek';
+    const writerModelSelection = this.normalizeWriterModelSelection(dto);
     const mode: 'novel' | 'microdrama' = dto.mode === 'microdrama' ? 'microdrama' : 'novel';
     const currentWords = this.getWordCount(dto.content);
     const targetWords = Math.min(8000, Math.max(300, Math.round(dto.targetWords || currentWords || 1500)));
@@ -3013,7 +3054,7 @@ ${actionFirstRequirement}
       const result = await this.llmService.chatWithWriterModel([
         { role: 'system', content: this.getStoryWritingSystemPrompt() },
         { role: 'user', content: prompt }
-      ], writerModelProvider);
+      ], writerModelSelection.provider, writerModelSelection.model);
 
       return {
         success: true,
@@ -3314,12 +3355,16 @@ ${actionFirstRequirement}
     storyData,
     nextStoryData,
     mode,
+    writerModelProvider = 'deepseek',
+    writerModel,
   }: {
     content: string;
     chapterNumber: number;
     storyData?: any;
     nextStoryData?: any;
     mode: 'novel' | 'microdrama';
+    writerModelProvider?: WriterModelProvider;
+    writerModel?: string;
   }): Promise<string> {
     const sanitizedContent = this.removePlanningLeakLines(content);
     if (!sanitizedContent?.trim() || !storyData?.content) {
@@ -3359,7 +3404,7 @@ ${sanitizedContent}
       const response = await this.llmService.chatWithWriterModel([
         { role: 'system', content: '你只做文本范围校验，必须返回可解析 JSON。' },
         { role: 'user', content: prompt },
-      ], 'deepseek');
+      ], writerModelProvider, writerModel);
 
       const verdict = this.parseScopeVerdict(response || '');
       if (!verdict || verdict.scope_ok || !verdict.delete_from_excerpt?.trim()) {

@@ -66,8 +66,11 @@ function BlueprintPage({
   const [bookName, setBookName] = useState('');
   const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-15' | 'microdrama-30' | 'novel-75'>('microdrama-15');
   const [isAutoSetupOpen, setIsAutoSetupOpen] = useState(false);
-  const [autoPauseMode, setAutoPauseMode] = useState<AutoGenerationPauseMode>('none');
+  const [autoPauseMode, setAutoPauseMode] = useState<AutoGenerationPauseMode>('density');
   const [autoClearExisting, setAutoClearExisting] = useState(true);
+  const [autoWorldviewMode, setAutoWorldviewMode] = useState<'web' | 'realistic'>('web');
+  const [autoNeedsUpgradeSystem, setAutoNeedsUpgradeSystem] = useState(true);
+  const [autoRealisticWorldviewContext, setAutoRealisticWorldviewContext] = useState('');
   const [logicModelValue, setLogicModelValue] = useState(() => {
     try {
       const savedValue = localStorage.getItem(LOGIC_MODEL_STORAGE_KEY);
@@ -173,6 +176,14 @@ function BlueprintPage({
   useEffect(() => {
     persistBlueprintOutlines(outlines, resolvedOutlineIndex);
   }, [outlines, resolvedOutlineIndex]);
+
+  useEffect(() => {
+    if (autoGenerationTarget === 'microdrama-15' || autoGenerationTarget === 'microdrama-30') {
+      setAutoPauseMode('density');
+    } else {
+      setAutoPauseMode('none');
+    }
+  }, [autoGenerationTarget]);
 
   const confirmDiscardOutlineEdits = () => {
     if (!isEditingOutline) return true;
@@ -515,6 +526,10 @@ function BlueprintPage({
   const handleStartAutoLiteraryIteration = () => {
     const outline = getValidatedAutoOutline();
     if (!outline) return;
+    if (autoWorldviewMode === 'realistic' && !autoRealisticWorldviewContext.trim()) {
+      setError('请先填写现实主义背景，例如“上世纪80年代东北县城”或“1990年代广州服装批发市场”。');
+      return;
+    }
 
     const resolvedBookName = bookName.trim() || getOutlineBookName(outline) || '未命名作品';
     setError(null);
@@ -537,6 +552,9 @@ function BlueprintPage({
         target: autoGenerationTarget,
         pauseAfter: autoPauseMode,
         clearExisting: autoClearExisting,
+        useRealisticWorldview: autoWorldviewMode === 'realistic',
+        realisticWorldviewContext: autoWorldviewMode === 'realistic' ? autoRealisticWorldviewContext.trim() : undefined,
+        needsUpgradeSystem: autoWorldviewMode === 'realistic' ? false : autoNeedsUpgradeSystem,
       }
     );
   };
@@ -1084,6 +1102,83 @@ function BlueprintPage({
 
               <div className="space-y-3">
                 <div>
+                  <h4 className="text-sm font-semibold text-secondary-900">题材模式</h4>
+                  <p className="mt-1 text-xs text-secondary-500">
+                    自动生成世界观时会按这里的模式选择模板，后续人物和中故事会继承这套基础设定。
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    { value: 'web' as const, label: '网文化模式', note: '适合系统、异能、玄幻、爽点升级和高概念设定' },
+                    { value: 'realistic' as const, label: '现实主义模式', note: '适合年代、地域、家庭、职场、社会变迁和现实成长' },
+                  ]).map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setAutoWorldviewMode(option.value);
+                        if (option.value === 'realistic') setAutoNeedsUpgradeSystem(false);
+                      }}
+                      className={`text-left px-4 py-3 rounded-lg border transition-colors ${
+                        autoWorldviewMode === option.value
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-secondary-200 bg-white hover:bg-secondary-50'
+                      }`}
+                    >
+                      <span className="block text-sm font-medium text-secondary-900">{option.label}</span>
+                      <span className="mt-1 block text-xs text-secondary-500">{option.note}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {autoWorldviewMode === 'realistic' && (
+                  <div>
+                    <label className="block text-xs font-medium text-secondary-600 mb-1">
+                      现实背景
+                    </label>
+                    <textarea
+                      value={autoRealisticWorldviewContext}
+                      onChange={(event) => setAutoRealisticWorldviewContext(event.target.value)}
+                      rows={3}
+                      placeholder="例如：上世纪80年代东北县城；1990年代广州服装批发市场；2008年前后深圳互联网创业圈"
+                      className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-secondary-900">升级体系</h4>
+                  <p className="mt-1 text-xs text-secondary-500">
+                    关闭后，世界观不会强行设计修炼境界、突破条件、副本和秘境。
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    { value: true, label: '有升级体系', note: '适合修炼、异能、系统、战力成长和资源争夺' },
+                    { value: false, label: '没有升级体系', note: '适合都市、现代、现实、悬疑、职场、家庭和商战' },
+                  ]).map(option => (
+                    <button
+                      key={String(option.value)}
+                      type="button"
+                      disabled={autoWorldviewMode === 'realistic' && option.value}
+                      onClick={() => setAutoNeedsUpgradeSystem(option.value)}
+                      className={`text-left px-4 py-3 rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                        autoNeedsUpgradeSystem === option.value
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-secondary-200 bg-white hover:bg-secondary-50'
+                      }`}
+                    >
+                      <span className="block text-sm font-medium text-secondary-900">{option.label}</span>
+                      <span className="mt-1 block text-xs text-secondary-500">{option.note}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
                   <h4 className="text-sm font-semibold text-secondary-900">运行方式</h4>
                   <p className="mt-1 text-xs text-secondary-500">
                     选择中途暂停后，系统会保存当前项目并跳到对应页面，方便确认、清空重生成或直接参与修改。
@@ -1126,6 +1221,12 @@ function BlueprintPage({
                   </span>
                 </span>
               </label>
+
+              {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-5 bg-secondary-50 border-t border-secondary-100">

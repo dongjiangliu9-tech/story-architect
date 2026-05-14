@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react';
 import { getMacroStoryIndexFromId, SavedMicroStory, sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
+import { DEFAULT_WRITER_MODEL_VALUE, getWriterModelOption, toWriterModelRequest, WRITER_MODEL_OPTIONS } from '../utils/llmModelSelection';
 
 interface WriterPageProps {
   onBack: () => void;
@@ -165,7 +166,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const unitsPerMicroStory = 1;
   const storiesPerBatch = isMicrodrama ? 1 : 8;
   const unitsPerBatch = isMicrodrama ? 1 : 8;
-  const writerModelProvider: 'deepseek' = 'deepseek';
+  const [writerModelValue, setWriterModelValue] = useState(DEFAULT_WRITER_MODEL_VALUE);
+  const writerModelOption = getWriterModelOption(writerModelValue);
+  const writerModelRequest = toWriterModelRequest(writerModelValue);
   const [actionFirstScript, setActionFirstScript] = useState(false);
   const [targetEpisodeWords, setTargetEpisodeWords] = useState(500);
   const [targetNovelWords, setTargetNovelWords] = useState(2100);
@@ -1347,7 +1350,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         previousEnding: effectivePreviousEnding || undefined,
 	        savedMicroStories: microStoriesToUse,
 	        mode: writerMode,
-	        writerModelProvider,
+	        ...writerModelRequest,
 	        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	        targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	        targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
@@ -1678,7 +1681,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       previousEnding: effectivePreviousEnding || undefined,
       savedMicroStories: microStoriesToUse,
       mode: writerMode,
-      writerModelProvider,
+      ...writerModelRequest,
       actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
       targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
       targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
@@ -2272,7 +2275,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       previousEnding: effectivePreviousEnding || undefined,
       savedMicroStories: alignedMicroStoriesForWriting,
       mode: writerMode,
-      writerModelProvider,
+      ...writerModelRequest,
       targetNovelWords: normalizeTargetNovelWords(targetNovelWords),
       nextExistingChapterNumber: nextExistingContent ? segmentEndChapter + 1 : undefined,
       nextExistingChapterContent: nextExistingContent || undefined,
@@ -2659,7 +2662,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            previousEnding: effectivePreviousEnding || undefined,
 	            savedMicroStories: microStoriesToUse,
 	            mode: writerMode,
-	            writerModelProvider,
+	            ...writerModelRequest,
 	            actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	            targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	            targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
@@ -3219,7 +3222,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         adjustmentPercent: rewritePercent,
         context: buildGenerationContext(currentChapter),
         storyData,
-        writerModelProvider,
+        ...writerModelRequest,
         actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
         mode: writerMode,
       });
@@ -3430,11 +3433,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                  </span>
 	                </div>
 
-	                <div className="flex items-center gap-1 px-2 py-1.5 bg-white/80 rounded-lg border border-secondary-200">
+	                <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white/80 rounded-lg border border-secondary-200">
 	                  <span className="text-xs font-medium text-secondary-600">模型</span>
-	                  <span className="px-2 py-1 rounded-md text-xs font-medium bg-primary-600 text-white">
-	                    DeepSeek
-	                  </span>
+	                  <select
+	                    value={writerModelValue}
+	                    onChange={(event) => setWriterModelValue(event.target.value)}
+	                    disabled={hasActiveGeneration || isRewritingChapter}
+	                    className="max-w-[180px] rounded-md border border-secondary-200 bg-white px-2 py-1 text-xs font-medium text-secondary-800 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
+	                    title={`当前正文模型：${writerModelOption.label}（${writerModelOption.description}）`}
+	                  >
+	                    {WRITER_MODEL_OPTIONS.map(option => (
+	                      <option key={option.value} value={option.value}>
+	                        {option.label} · {option.description}
+	                      </option>
+	                    ))}
+	                  </select>
 	                </div>
 
 	                {isMicrodrama && (
@@ -3635,6 +3648,27 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                 <div className="p-3 bg-white/80 border border-secondary-200 rounded-lg">
                   <label className="block text-sm font-medium text-secondary-700 mb-2">
+                    正文生成模型
+                  </label>
+                  <select
+                    value={writerModelValue}
+                    onChange={(event) => setWriterModelValue(event.target.value)}
+                    disabled={hasActiveGeneration || isRewritingChapter}
+                    className="w-full px-3 py-2 border border-secondary-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    {WRITER_MODEL_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} · {option.description}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-secondary-500">
+                    批量生成、单{unitLabel}补写、并行生成和当前{unitLabel}重写都会使用此模型。
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white/80 border border-secondary-200 rounded-lg">
+                  <label className="block text-sm font-medium text-secondary-700 mb-2">
                     每{unitLabel}目标字数
                   </label>
                   <div className="flex items-center gap-2">
@@ -3657,7 +3691,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                     <span className="text-sm text-secondary-600">字/{unitLabel}</span>
                   </div>
                   <p className="mt-2 text-xs text-secondary-500">
-                    生成时以约 {activeTargetWords} 字为目标；网文超过 3000 字会先校验小故事边界并裁剪越界内容，裁剪后仍超再用 DeepSeek 压缩约 30%。
+                    生成时以约 {activeTargetWords} 字为目标；网文超过 3000 字会先校验小故事边界并裁剪越界内容，裁剪后仍超再用当前正文模型压缩约 30%。
                   </p>
                 </div>
 
