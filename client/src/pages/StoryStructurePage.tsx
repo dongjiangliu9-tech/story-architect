@@ -298,6 +298,18 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     }));
   };
 
+  const serializeMicroStoryDraftsToOutline = (storyIndex: number, drafts: MicroStoryDraft[]) => {
+    return drafts
+      .map((draft, index) => {
+        const stableOrder = draft.order ?? index;
+        const title = (draft.title || getSavedStoryTitle(storyIndex, index, stableOrder)).trim();
+        const content = (draft.content || '').trim();
+        return `【${title}】\n${content}`;
+      })
+      .join('\n\n')
+      .trim();
+  };
+
   const parseVariantDrafts = (content: string): MicroStoryDraft[] => {
     const variants: MicroStoryDraft[] = [];
     const variantRegex = /【方案[一二三\d]+】([^\n]*)/g;
@@ -682,6 +694,55 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     });
   };
 
+  const clearCurrentMicroStories = (storyIndex: number) => {
+    if (!currentProject) return;
+    const storyKey = `story_${storyIndex}`;
+    const confirmed = confirm(`确定清空当前${structureLabels.macro}下的所有${savedUnitLabel}吗？其它${structureLabels.macro}不会受影响。`);
+    if (!confirmed) return;
+
+    const updatedOutlines = { ...microStoryOutlines };
+    delete updatedOutlines[storyKey];
+
+    const updatedDrafts = { ...microStoryDraftsByMacro };
+    delete updatedDrafts[storyKey];
+
+    const updatedSelectedIndexes = { ...selectedMicroStoryIndexesByMacro };
+    delete updatedSelectedIndexes[storyKey];
+
+    const updatedVariantStates = { ...variantStates };
+    Object.keys(updatedVariantStates).forEach(key => {
+      if (key.startsWith(`${storyKey}_`)) delete updatedVariantStates[key];
+    });
+
+    const updatedBatchVariantStates = { ...batchVariantStates };
+    delete updatedBatchVariantStates[storyKey];
+
+    const updatedSaved = sortSavedMicroStoriesForChapters(
+      (currentProject.savedMicroStories || []).filter(story => story.macroStoryId !== storyKey)
+    );
+
+    setMicroStoryOutlines(updatedOutlines);
+    setMicroStoryDraftsByMacro(updatedDrafts);
+    setSelectedMicroStoryIndexesByMacro(updatedSelectedIndexes);
+    setVariantStates(updatedVariantStates);
+    setBatchVariantStates(updatedBatchVariantStates);
+    if (editingMicroStory?.storyKey === storyKey) {
+      setEditingMicroStory(null);
+    }
+
+    updateProject(currentProject.id, {
+      microStoryOutlines: updatedOutlines,
+      savedMicroStories: updatedSaved,
+      selectedMicroStories: updatedSaved,
+      microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : currentProject.microStoryEpisodeCount,
+      autoSelectedStories: false,
+      autoGenerationMode: false,
+      autoGenerationStarted: false,
+    });
+
+    alert(`已清空当前${structureLabels.macro}下的${savedUnitLabel}。`);
+  };
+
   // 生成小故事细纲
   const generateMicroStories = async (storyIndex: number, macroStory: string) => {
     if (hasMicrodramaEpisodeCountMismatch) {
@@ -944,6 +1005,72 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     }));
   };
 
+  const initializeManualMicroStoryDrafts = (storyIndex: number) => {
+    if (!currentProject) return;
+    if (hasMicrodramaEpisodeCountMismatch) {
+      alert(`当前分集细纲规格与 ${microdramaEpisodeCount} 集设置不一致。请先清空旧分集，再按最新集数重新填写。`);
+      return;
+    }
+    if (!canGenerateStory(storyIndex)) {
+      alert(`请先按顺序处理前面的${structureLabels.macro}`);
+      return;
+    }
+
+    const storyKey = `story_${storyIndex}`;
+    const chapterRange = getChapterRange(storyIndex);
+    const total = Math.max(1, chapterRange.endChapter - chapterRange.startChapter + 1);
+    const existingDrafts = microStoryDraftsByMacro[storyKey] || [];
+    const existingSaved = (currentProject.savedMicroStories || [])
+      .filter(story => story.macroStoryId === storyKey)
+      .sort((a, b) => a.order - b.order);
+    const existingDraftByOrder = new Map(existingDrafts.map((draft, index) => [draft.order ?? index, draft] as const));
+    const existingSavedByOrder = new Map(existingSaved.map(story => [story.order, story] as const));
+    const hasTypedContent = existingDrafts.some(draft => (draft.content || '').trim());
+
+    if (hasTypedContent) {
+      const confirmed = confirm(`当前已经有手动草稿内容。确定要按当前${structureLabels.unit}数重新补齐空白模板吗？已有草稿会尽量保留。`);
+      if (!confirmed) return;
+    }
+
+    const nextDrafts: MicroStoryDraft[] = Array.from({ length: total }, (_unused, index) => {
+      const stableOrder = index;
+      const saved = existingSavedByOrder.get(stableOrder);
+      const draft = existingDraftByOrder.get(stableOrder);
+      if (draft) {
+        return {
+          title: draft.title || saved?.title || getSavedStoryTitle(storyIndex, index, stableOrder),
+          content: draft.content ?? saved?.content ?? '',
+          order: stableOrder,
+        };
+      }
+      if (saved) {
+        return {
+          title: saved.title || getSavedStoryTitle(storyIndex, index, stableOrder),
+          content: saved.content || '',
+          order: stableOrder,
+        };
+      }
+      return {
+        title: getSavedStoryTitle(storyIndex, index, stableOrder),
+        content: '',
+        order: stableOrder,
+      };
+    });
+
+    setMicroStoryDraftsByMacro(prev => ({
+      ...prev,
+      [storyKey]: nextDrafts,
+    }));
+    setExpandedStories(prev => ({ ...prev, [storyKey]: true }));
+    setEditingMicroStory({
+      storyKey,
+      index: nextDrafts.findIndex(draft => !(draft.content || '').trim()) >= 0
+        ? nextDrafts.findIndex(draft => !(draft.content || '').trim())
+        : 0,
+    });
+    setSelectedMacroStoryIndex(storyIndex);
+  };
+
   // 保存小故事到项目
   const saveMicroStories = (storyIndex: number, macroStory: string) => {
     if (!currentProject) {
@@ -1013,7 +1140,23 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     // 更新项目 - 先删除旧的，再添加新的
     const updatedSaved = sortSavedMicroStoriesForChapters([...filteredSaved, ...savedMicroStories]);
+    const nextOutlineContent = serializeMicroStoryDraftsToOutline(storyIndex, storyDraftsToSave);
+    const updatedOutlines = {
+      ...microStoryOutlines,
+      [storyKey]: nextOutlineContent,
+    };
+    setMicroStoryOutlines(updatedOutlines);
+    setMicroStoryDraftsByMacro(prev => ({
+      ...prev,
+      [storyKey]: storyDraftsToSave.map((draft, index) => ({
+        ...draft,
+        title: (draft.title || getSavedStoryTitle(storyIndex, index, draft.order ?? index)).trim(),
+        content: cleanMicroStoryContent(draft.content || ''),
+        order: draft.order ?? index,
+      })),
+    }));
     updateProject(currentProject.id, {
+      microStoryOutlines: updatedOutlines,
       savedMicroStories: updatedSaved,
       selectedMicroStories: updatedSaved,
       microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
@@ -1888,7 +2031,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                   const storyKey = `story_${index}`;
                   const hasOutline = !!microStoryOutlines[storyKey];
                   const hasSaved = hasSavedMicroStoriesFor(storyKey);
-                  const hasGenerated = hasOutline || hasSaved;
+                  const hasManualDraft = (microStoryDraftsByMacro[storyKey]?.length || 0) > 0;
+                  const hasGenerated = hasOutline || hasSaved || hasManualDraft;
                   const canGenerate = canGenerateStory(index);
                   const canSelect = hasGenerated || canGenerate; // 已有内容可看，或满足顺序可生成
                   const isGenerating = generatingStories[`story_${index}`];
@@ -1932,7 +2076,11 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                               {hasGenerated ? (
                                 <span className="text-xs text-green-600 flex items-center">
                                   <CheckCircle className="w-3 h-3 mr-1" />
-	                              {hasOutline ? '已生成细纲' : isMicrodrama ? '已保存分集' : isLiterature ? '已保存小节' : '已保存章节细纲'}
+	                              {!hasOutline && !hasSaved && hasManualDraft
+	                                ? '手动草稿'
+	                                : hasOutline
+	                                  ? '已生成细纲'
+	                                  : isMicrodrama ? '已保存分集' : isLiterature ? '已保存小节' : '已保存章节细纲'}
                                 </span>
                               ) : canGenerate ? (
                                 <span className="text-xs text-blue-500">
@@ -2036,6 +2184,15 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                           </>
                         )}
                       </button>
+                      <button
+                        onClick={() => initializeManualMicroStoryDrafts(selectedMacroStoryIndex!)}
+                        disabled={!canGenerateStory(selectedMacroStoryIndex!) || generatingStories[`story_${selectedMacroStoryIndex!}`]}
+                        className="flex items-center space-x-2 px-4 py-2 bg-white border border-primary-200 text-primary-700 rounded-lg hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={`按当前${formatChapterRangeLabel(getChapterRange(selectedMacroStoryIndex!))}创建空白${structureLabels.micro}，可手动粘贴后保存`}
+                      >
+                        <PenTool className="w-4 h-4" />
+                        <span>{isMicrodrama ? '手动填写分集' : isLiterature ? '手动填写小节' : '手动填写章节'}</span>
+                      </button>
                     </div>
                   </div>
 
@@ -2086,6 +2243,19 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 	                        <span>{isMicrodrama ? '保存分集' : isLiterature ? '保存小节' : '保存章节细纲'}</span>
                       </button>
                       <button
+                        onClick={() => clearCurrentMicroStories(selectedMacroStoryIndex!)}
+                        disabled={
+                          !(microStoryDraftsByMacro[`story_${selectedMacroStoryIndex!}`]?.length > 0) &&
+                          !microStoryOutlines[`story_${selectedMacroStoryIndex!}`] &&
+                          !hasSavedMicroStoriesFor(`story_${selectedMacroStoryIndex!}`)
+                        }
+                        className="flex items-center space-x-2 px-3 py-1.5 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed text-red-700 rounded-md text-sm font-medium"
+                        title={`清空当前${structureLabels.macro}下已经生成、手动填写或保存的${savedUnitLabel}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>清空当前{savedUnitLabel}</span>
+                      </button>
+                      <button
                         onClick={() => toggleExpanded(selectedMacroStoryIndex!)}
                         className="flex items-center space-x-2 px-3 py-1.5 bg-secondary-100 text-secondary-700 rounded-md text-sm hover:bg-secondary-200"
                       >
@@ -2109,6 +2279,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     const storyKey = `story_${storyIndex}`;
                     const outlineContent = microStoryOutlines[storyKey];
                     const isExpanded = expandedStories[storyKey];
+                    const draftList = microStoryDraftsByMacro[storyKey];
+                    const hasDraftList = (draftList?.length || 0) > 0;
 
                     // 1) 优先展示已保存的小故事（人工修改后也在这里生效）
 	                    const savedForThisMacro = (currentProject.savedMicroStories || [])
@@ -2275,19 +2447,19 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                     }
 
                     // 2) 没有保存过的小故事：显示解析出来的细纲内容，并支持初始化草稿用于编辑后保存
-                    if (!outlineContent) {
+                    if (!outlineContent && !hasDraftList) {
                       return (
                         <div className="text-center py-8 text-secondary-500">
                           <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
                           <p>尚未生成{structureLabels.micro}</p>
-                          <p className="text-sm mt-1">点击上方“{structureLabels.microButton}”按钮</p>
+                          <p className="text-sm mt-1">点击上方“{structureLabels.microButton}”，或用“手动填写”创建空白模板</p>
                         </div>
                       );
                     }
 
-	                    const drafts = microStoryDraftsByMacro[storyKey] !== undefined
-	                      ? microStoryDraftsByMacro[storyKey]
-	                      : buildMicroStoryDraftsFromOutline(outlineContent);
+	                    const drafts = hasDraftList
+	                      ? (draftList || [])
+	                      : buildMicroStoryDraftsFromOutline(outlineContent || '');
 
 	                    return (
 	                      <div className="space-y-4">
