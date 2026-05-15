@@ -133,6 +133,9 @@ export function useAutoGeneration() {
   });
 
   const formatOutlineData = (outline: OutlineData): string => {
+    const finalSection = outline.requiresSpecialPower === false
+      ? ''
+      : `\n金手指设定：\n${outline.themes}`;
     return `### ${outline.title}
 ${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
@@ -146,10 +149,7 @@ ${outline.characters}
 ${outline.world}
 
 主要冲突：
-${outline.hook}
-
-金手指设定：
-${outline.themes}`;
+${outline.hook}${finalSection}`;
   };
 
   const startAutoGeneration = useCallback(async (
@@ -165,7 +165,7 @@ ${outline.themes}`;
     let autoProject: ReturnType<typeof createProject> | null = null;
 
     try {
-      const targetMode = options.target === 'novel-75' ? 'novel' : 'microdrama';
+      const targetMode: 'novel' | 'microdrama' = options.target === 'novel-75' ? 'novel' : 'microdrama';
       const isMicrodrama = targetMode === 'microdrama';
       const microdramaEpisodeCount = options.target === 'microdrama-30' ? 30 : 15;
       const useRealisticWorldview = options.useRealisticWorldview === true;
@@ -184,6 +184,8 @@ ${outline.themes}`;
       const expandedCharactersCacheKey = `${worldModeCacheKey}-characters-expanded-v2`;
       const worldSettingGenerationOptions = {
         needsUpgradeSystem,
+        targetMode,
+        microdramaEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
         useRealisticWorldview,
         realisticWorldviewContext: useRealisticWorldview ? realisticWorldviewContext : undefined,
       };

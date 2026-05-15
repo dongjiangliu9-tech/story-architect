@@ -8,9 +8,10 @@ interface OutlineCardProps {
   outline: OutlineData;
   className?: string;
   finalSectionTitle?: string;
+  hideFinalSection?: boolean;
 }
 
-export function OutlineCard({ outline, className = '', finalSectionTitle = '金手指设定' }: OutlineCardProps) {
+export function OutlineCard({ outline, className = '', finalSectionTitle = '金手指设定', hideFinalSection = false }: OutlineCardProps) {
   const { saveOutline, isOutlineSaved, exportOutline } = useSavedOutlines();
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [localSaved, setLocalSaved] = useState(false);
@@ -59,14 +60,20 @@ export function OutlineCard({ outline, className = '', finalSectionTitle = '金�
       color: 'text-purple-600',
       bgColor: 'bg-purple-50',
     },
-    {
+    hideFinalSection ? null : {
       icon: Heart,
       title: finalSectionTitle,
       content: outline.themes,
       color: 'text-red-600',
       bgColor: 'bg-red-50',
     },
-  ];
+  ].filter(Boolean) as Array<{
+    icon: typeof Target;
+    title: string;
+    content: string;
+    color: string;
+    bgColor: string;
+  }>;
 
   return (
     <div className={`card overflow-hidden ${className}`}>

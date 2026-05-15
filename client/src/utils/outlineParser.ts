@@ -144,6 +144,9 @@ function appendOutlineSection(outline: OutlineData, section: string, content: st
  * 格式化大纲内容用于显示
  */
 export function formatOutlineForDisplay(outline: OutlineData): string {
+  const finalSection = outline.requiresSpecialPower === false
+    ? ''
+    : `\n金手指设定：\n${outline.themes}`;
   return `### ${outline.title}
 ${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
@@ -157,8 +160,5 @@ ${outline.characters}
 ${outline.world}
 
 主要冲突：
-${outline.hook}
-
-金手指设定：
-${outline.themes}`;
+${outline.hook}${finalSection}`;
 }

@@ -22,6 +22,9 @@ import {
  * 将OutlineData格式化为大纲字符串
  */
 function formatOutlineData(outline: OutlineData): string {
+  const finalSection = outline.requiresSpecialPower === false
+    ? ''
+    : `\n金手指设定：\n${outline.themes}`;
   return `### ${outline.title}
 ${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
@@ -35,10 +38,7 @@ ${outline.characters}
 ${outline.world}
 
 主要冲突：
-${outline.hook}
-
-金手指设定：
-${outline.themes}`;
+${outline.hook}${finalSection}`;
 }
 
 function getOutlineBookName(outline?: OutlineData | null): string {
@@ -52,7 +52,7 @@ function hasMeaningfulOutline(outline?: OutlineData | null): outline is OutlineD
     outline.characters,
     outline.world,
     outline.hook,
-    outline.themes,
+    outline.requiresSpecialPower === false ? '' : outline.themes,
     outline.rawContent,
   ].some(value => Boolean((value || '').trim()));
 }
@@ -741,6 +741,8 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   const getWorldSettingGenerationOptions = () => ({
     needsUpgradeSystem: useRealisticWorldview ? false : needsUpgradeSystem,
+    targetMode: outlineMode,
+    microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
     useRealisticWorldview,
     realisticWorldviewContext: useRealisticWorldview ? realisticWorldviewContext.trim() : undefined,
   });

@@ -36,6 +36,9 @@ function getOutlineBookName(outline?: OutlineData | null): string {
 }
 
 function formatOutlineForTitleVariants(outline: OutlineData): string {
+  const finalSection = outline.requiresSpecialPower === false
+    ? ''
+    : `\n金手指设定：\n${outline.themes}`;
   return `### ${outline.title}
 ${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 核心概念：
@@ -48,10 +51,7 @@ ${outline.characters}
 ${outline.world}
 
 主要冲突：
-${outline.hook}
-
-金手指设定：
-${outline.themes}`;
+${outline.hook}${finalSection}`;
 }
 
 function BlueprintPage({
@@ -62,6 +62,7 @@ function BlueprintPage({
   const { updateSavedOutlineIfExists } = useSavedOutlines();
   const [selectedCategory, setSelectedCategory] = useState<NovelCategory | null>(null);
   const [selectedStyles, setSelectedStyles] = useState<NovelStyle[]>([]);
+  const [requiresSpecialPower, setRequiresSpecialPower] = useState(true);
   const [theme, setTheme] = useState('');
   const [bookName, setBookName] = useState('');
   const [autoGenerationTarget, setAutoGenerationTarget] = useState<'microdrama-15' | 'microdrama-30' | 'novel-75'>('microdrama-15');
@@ -125,6 +126,8 @@ function BlueprintPage({
   const finalOutlineSectionPlaceholder = isLiteraryWorkSelected
     ? '作品气质、叙事特色、主题余韵、人物精神困境'
     : '外挂、能力成长路径、资源机制';
+  const shouldShowOutlineFinalSection = (outline?: OutlineData | null) =>
+    isLiteraryWorkSelected || outline?.requiresSpecialPower !== false;
 
   const createCachedOutline = (outline: OutlineData): OutlineData => ({
     id: outline.id,
@@ -138,6 +141,7 @@ function BlueprintPage({
     world: (outline.world || '').slice(0, 2000),
     themes: (outline.themes || '').slice(0, 2000),
     rawContent: '',
+    requiresSpecialPower: outline.requiresSpecialPower,
     preferredLlmModelProvider: outline.preferredLlmModelProvider,
     preferredLlmModel: outline.preferredLlmModel,
   });
@@ -161,6 +165,7 @@ function BlueprintPage({
     world: '',
     themes: '',
     rawContent: '',
+    requiresSpecialPower: isLiteraryWorkSelected ? false : requiresSpecialPower,
     ...toPreferredLogicModelFields(logicModelValue),
   });
 
@@ -211,17 +216,21 @@ function BlueprintPage({
     try {
       // 清除之前保存的selectedOutline，避免混淆
       localStorage.removeItem('story-architect-current-outline');
+      const shouldRequireSpecialPower = !isLiteraryWorkSelected && requiresSpecialPower;
 
       const response = await blueprintApi.generateOutline({
         channel: `${selectedCategory.name}`,
         style: selectedStyles.map(s => s.name).join('、'),
         theme: theme.trim(),
+        requiresSpecialPower: shouldRequireSpecialPower,
         ...toLogicModelRequest(logicModelValue),
       });
 
       // 解析AI返回的Markdown内容
       const parsedOutlines = parseOutlineContent(response.data).map(outline => ({
         ...outline,
+        themes: isLiteraryWorkSelected || shouldRequireSpecialPower ? outline.themes : '',
+        requiresSpecialPower: shouldRequireSpecialPower,
         ...toPreferredLogicModelFields(logicModelValue),
       }));
 
@@ -308,6 +317,7 @@ function BlueprintPage({
       ...outlineDraft,
       id: outlineDraft.id || Date.now(),
       title: outlineDraft.title.trim(),
+      themes: outlineDraft.requiresSpecialPower === false && !isLiteraryWorkSelected ? '' : outlineDraft.themes,
       ...toPreferredLogicModelFields(logicModelValue),
     };
 
@@ -631,6 +641,37 @@ function BlueprintPage({
                     会和频道、主题/角色/情节标签一起发送给 AI
                   </p>
                 </div>
+
+                {!isLiteraryWorkSelected && (
+                  <div className="rounded-lg border border-secondary-200 bg-secondary-50 px-4 py-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-secondary-900">主角是否需要金手指</div>
+                        <p className="mt-1 text-xs text-secondary-500">
+                          关闭后，灵感架构不会要求生成“金手指设定”，也会过滤掉主角专属外挂能力字段。
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRequiresSpecialPower(prev => !prev)}
+                        className={`relative mt-0.5 h-6 w-11 rounded-full transition-colors ${
+                          requiresSpecialPower ? 'bg-primary-600' : 'bg-secondary-300'
+                        }`}
+                        aria-pressed={requiresSpecialPower}
+                        aria-label="切换是否需要金手指"
+                      >
+                        <span
+                          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            requiresSpecialPower ? 'translate-x-5' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <div className="mt-2 text-xs font-medium text-secondary-600">
+                      当前：{requiresSpecialPower ? '需要金手指' : '不需要金手指'}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-secondary-700">
@@ -1002,24 +1043,27 @@ function BlueprintPage({
                           className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-secondary-700 mb-1">
-                          {finalOutlineSectionTitle}
-                        </label>
-                        <textarea
-                          value={outlineDraft.themes}
-                          onChange={(e) => updateOutlineDraft('themes', e.target.value)}
-                          rows={4}
-                          placeholder={finalOutlineSectionPlaceholder}
-                          className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                        />
-                      </div>
+                      {shouldShowOutlineFinalSection(outlineDraft) && (
+                        <div>
+                          <label className="block text-sm font-medium text-secondary-700 mb-1">
+                            {finalOutlineSectionTitle}
+                          </label>
+                          <textarea
+                            value={outlineDraft.themes}
+                            onChange={(e) => updateOutlineDraft('themes', e.target.value)}
+                            rows={4}
+                            placeholder={finalOutlineSectionPlaceholder}
+                            className="w-full px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : currentOutline ? (
                   <OutlineCard
                     outline={currentOutline}
                     finalSectionTitle={finalOutlineSectionTitle}
+                    hideFinalSection={!shouldShowOutlineFinalSection(currentOutline)}
                     className="animate-fade-in"
                   />
                 ) : null}
@@ -1296,6 +1340,7 @@ function App() {
       world: (outline.world || '').slice(0, 2000),
       themes: (outline.themes || '').slice(0, 2000),
       rawContent: '',
+      requiresSpecialPower: outline.requiresSpecialPower,
       preferredLlmModelProvider: outline.preferredLlmModelProvider,
       preferredLlmModel: outline.preferredLlmModel,
     };

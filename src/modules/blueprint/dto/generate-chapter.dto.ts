@@ -1,4 +1,5 @@
 import { IsString, IsNumber, IsOptional, IsArray, IsObject, IsIn, IsBoolean } from 'class-validator';
+import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
 export type WriterModelProvider = 'deepseek' | 'gemini' | 'gateway';
 
@@ -144,4 +145,32 @@ export class ReviewMicrodramaScriptsDto {
   @IsString()
   @IsOptional()
   model?: string;
+}
+
+export class ExportMicrodramaMarkdownDto extends LogicModelSelectionDto {
+  @IsObject()
+  chapters: { [key: number]: string };
+
+  @IsString()
+  bookName: string;
+
+  @IsObject()
+  @IsOptional()
+  outline?: any;
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+
+  @IsString()
+  @IsOptional()
+  detailedOutline?: string;
+
+  @IsArray()
+  @IsOptional()
+  savedMicroStories?: any[];
 }

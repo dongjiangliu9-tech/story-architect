@@ -10,6 +10,13 @@ export class GenerateWorldSettingDto extends LogicModelSelectionDto {
   @IsOptional()
   needsUpgradeSystem?: boolean;
 
+  @IsString()
+  @IsOptional()
+  targetMode?: 'microdrama' | 'novel' | 'literature';
+
+  @IsOptional()
+  microdramaEpisodeCount?: number;
+
   @IsBoolean()
   @IsOptional()
   useRealisticWorldview?: boolean;

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
 export class GenerateOutlineDto extends LogicModelSelectionDto {
@@ -13,4 +13,8 @@ export class GenerateOutlineDto extends LogicModelSelectionDto {
   @IsString()
   @IsNotEmpty()
   theme: string; // 核心主题 (例如：复仇与救赎)
+
+  @IsBoolean()
+  @IsOptional()
+  requiresSpecialPower?: boolean; // 是否需要金手指/主角专属外挂能力
 }

@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto } from './dto/generate-chapter.dto';
+import { ExportMicrodramaMarkdownDto, GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
 
@@ -140,6 +140,11 @@ export class BlueprintController {
   @Post('export-docx')
   async exportDocx(@Body() body: { chapters: { [key: number]: string }, bookName: string }) {
     return this.blueprintService.exportAsDocx(body.chapters, body.bookName);
+  }
+
+  @Post('export-microdrama-markdown')
+  async exportMicrodramaMarkdown(@Body() dto: ExportMicrodramaMarkdownDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.exportMicrodramaMarkdown(dto));
   }
 
   @Post('activation-status')

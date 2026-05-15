@@ -157,6 +157,54 @@ const literatureStyleNames: Record<string, string> = {
   classic_translated: '译制文学感',
 };
 
+function buildFocusedCharacterContext(characters: string, isMicrodrama: boolean): string {
+  const source = String(characters || '').trim();
+  if (!source) return '';
+  const limit = isMicrodrama ? 2200 : 1400;
+  if (source.length <= limit) return source;
+
+  const blocks = source
+    .split(/(?=\n\s*(?:#{1,4}\s*)?(?:【[^】]{1,30}】|[一二三四五六七八九十\d]+[、.．]\s*[^：:\n]{1,30}|[-*]\s*[^：:\n]{1,30}[：:]))/g)
+    .map((block, index) => ({ text: block.trim(), index }))
+    .filter(item => item.text.length > 0);
+
+  const scoreBlock = (text: string) => {
+    let score = 0;
+    if (/【核心人物与主线】|核心人物/.test(text)) score += 16;
+    if (/主角|主人公|男主|女主|protagonist/i.test(text)) score += 14;
+    if (/人物弧线总表|弧线总表|成长弧线/.test(text)) score += 10;
+    if (/核心搭档|感情线|爱情线|主要配角|重要配角/.test(text)) score += 7;
+    if (/贯穿主线|核心压力源|主反派|主要对手/.test(text)) score += 5;
+    if (/反派|幕后|压力方/.test(text)) score += 2;
+    if (/龙套|边缘见证者|普通群众/.test(text)) score -= 4;
+    return score;
+  };
+
+  const selected: string[] = [];
+  const used = new Set<number>();
+  const sorted = blocks
+    .map(item => ({ ...item, score: scoreBlock(item.text) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  let total = 0;
+  const addBlock = (item: { text: string; index: number }) => {
+    if (used.has(item.index) || total >= limit) return;
+    const remaining = limit - total;
+    const clipped = item.text.length > remaining ? `${item.text.slice(0, Math.max(300, remaining))}...` : item.text;
+    selected.push(clipped);
+    used.add(item.index);
+    total += clipped.length + 2;
+  };
+
+  sorted.forEach(addBlock);
+  if (selected.length === 0) {
+    return `${source.slice(0, limit)}...`;
+  }
+
+  return selected.join('\n\n');
+}
+
 export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
   const { currentProject, updateProject, exportProject, clearNovelCacheForProject, syncProjectToCloud } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
@@ -247,6 +295,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [rewritePercent, setRewritePercent] = useState(20);
   const [isRewritingChapter, setIsRewritingChapter] = useState(false);
   const [isReviewingScripts, setIsReviewingScripts] = useState(false);
+  const [isExportingMarkdown, setIsExportingMarkdown] = useState(false);
 
   // 正文编辑：支持编辑已写内容并保存（落库到项目 generatedChapters）
   const [isEditingChapter, setIsEditingChapter] = useState(false);
@@ -1104,8 +1153,21 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     ].join('\n');
   };
 
+  const downloadMarkdownFile = (markdownContent: string, filename: string) => {
+    const normalizedFilename = filename.toLowerCase().endsWith('.md') ? filename : `${filename}.md`;
+    const blob = new Blob([markdownContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = normalizedFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // 导出为精排 Markdown
-  const exportAsMarkdown = () => {
+  const exportAsMarkdown = async () => {
     if (Object.keys(generatedChapters).length === 0) {
       alert('没有可导出的内容');
       return;
@@ -1113,21 +1175,30 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     try {
       const projectTitle = currentProject?.bookName || (isMicrodrama ? '微短剧剧本' : '小说正文');
+      if (isMicrodrama && currentProject) {
+        setIsExportingMarkdown(true);
+        const response = await blueprintApi.exportMicrodramaMarkdown({
+          chapters: generatedChapters,
+          bookName: projectTitle,
+          outline: currentProject.outline,
+          worldSetting: currentProject.worldSetting,
+          characters: currentProject.characters,
+          detailedOutline: currentProject.detailedOutline,
+          savedMicroStories: currentProject.savedMicroStories
+        });
+        downloadMarkdownFile(response.data, response.filename || `${makeSafeExportFilename(projectTitle)}v1.md`);
+        return;
+      }
+
       const markdownContent = buildMarkdownExport();
-      const blob = new Blob([markdownContent], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${makeSafeExportFilename(projectTitle)}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadMarkdownFile(markdownContent, `${makeSafeExportFilename(projectTitle)}.md`);
 
       console.log('Markdown内容已导出');
     } catch (error) {
       console.error('导出Markdown失败:', error);
-      alert('导出失败，请稍后重试');
+      alert(isMicrodrama ? '导出审核Markdown失败，请稍后重试' : '导出失败，请稍后重试');
+    } finally {
+      setIsExportingMarkdown(false);
     }
   };
 
@@ -3007,7 +3078,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	      context += `人物关系：${currentProject.outline.characters}\n`;
 	      context += `世界观设定：${currentProject.outline.world}\n`;
 	      context += `主要冲突：${currentProject.outline.hook}\n`;
-	      context += `${isLiterature ? '文学核心' : '金手指设定'}：${currentProject.outline.themes}\n\n`;
+	      if (isLiterature || currentProject.outline.requiresSpecialPower !== false) {
+	        context += `${isLiterature ? '文学核心' : '金手指设定'}：${currentProject.outline.themes}\n`;
+	      }
+	      context += '\n';
 	    }
 
 	    if (isLiterature) {
@@ -3027,10 +3101,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     // 人物设定 - 精简关键信息
     if (currentProject.characters) {
-      context += '【人物设定】\n';
-      // 只保留前800字符的关键信息
-      const charactersSummary = currentProject.characters.substring(0, 800);
-      context += charactersSummary + (currentProject.characters.length > 800 ? '...' : '') + '\n\n';
+      context += isMicrodrama ? '【核心人物资料优先摘要】\n' : '【人物设定】\n';
+      const charactersSummary = buildFocusedCharacterContext(currentProject.characters, isMicrodrama);
+      context += charactersSummary + '\n\n';
     }
 
     // 详细情节细纲 - 精简到相关部分
@@ -3599,12 +3672,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
                 <button
                   onClick={exportAsMarkdown}
-                  disabled={Object.keys(generatedChapters).length === 0}
-                  title="导出精排 Markdown"
+                  disabled={Object.keys(generatedChapters).length === 0 || isExportingMarkdown}
+                  title={isMicrodrama ? '导出送审 Markdown' : '导出精排 Markdown'}
                   className="flex items-center space-x-2 px-3 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
                 >
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">MD</span>
+                  <Download className={`w-4 h-4 ${isExportingMarkdown ? 'animate-pulse' : ''}`} />
+                  <span className="hidden sm:inline">{isExportingMarkdown ? '生成中' : 'MD'}</span>
                 </button>
               </div>
 

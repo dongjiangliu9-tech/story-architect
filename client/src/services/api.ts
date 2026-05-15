@@ -22,6 +22,7 @@ const AI_ENDPOINTS = new Set([
   '/blueprint/generate-chapter',
   '/blueprint/rewrite-chapter',
   '/blueprint/review-microdrama-scripts',
+  '/blueprint/export-microdrama-markdown',
   '/blueprint/prepare-stream',
 ]);
 
@@ -243,6 +244,8 @@ if (typeof window !== 'undefined') {
 export interface GenerateWorldSettingDto extends LlmModelSelection {
   outline: string;
   needsUpgradeSystem?: boolean;
+  targetMode?: 'microdrama' | 'novel' | 'literature';
+  microdramaEpisodeCount?: number;
   useRealisticWorldview?: boolean;
   realisticWorldviewContext?: string;
   existingWorldSetting?: string;
@@ -358,6 +361,16 @@ export interface ReviewMicrodramaScriptsResponse {
   };
 }
 
+export interface ExportMicrodramaMarkdownDto extends LlmModelSelection {
+  chapters: { [key: number]: string };
+  bookName: string;
+  outline?: any;
+  worldSetting?: string;
+  characters?: string;
+  detailedOutline?: string;
+  savedMicroStories?: any[];
+}
+
 export const blueprintApi = {
   generateOutline: async (data: GenerateOutlineDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate', data);
@@ -406,6 +419,11 @@ export const blueprintApi = {
 
   reviewMicrodramaScripts: async (data: ReviewMicrodramaScriptsDto): Promise<ReviewMicrodramaScriptsResponse> => {
     const response = await api.post('/blueprint/review-microdrama-scripts', data);
+    return response.data;
+  },
+
+  exportMicrodramaMarkdown: async (data: ExportMicrodramaMarkdownDto): Promise<{ success: boolean, data: string, filename: string }> => {
+    const response = await api.post('/blueprint/export-microdrama-markdown', data);
     return response.data;
   },
 

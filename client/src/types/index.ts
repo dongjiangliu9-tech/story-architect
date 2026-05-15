@@ -3,6 +3,7 @@ export interface GenerateOutlineDto {
   channel: string;
   style: string;
   theme: string;
+  requiresSpecialPower?: boolean;
   llmModelProvider?: LlmModelProvider;
   llmModel?: string;
 }
@@ -25,6 +26,7 @@ export interface OutlineData {
   world: string;
   themes: string;
   rawContent: string;
+  requiresSpecialPower?: boolean;
   savedAt?: string; // 保存时间戳（可选）
   preferredLlmModelProvider?: LlmModelProvider;
   preferredLlmModel?: string;
