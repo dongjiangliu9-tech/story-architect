@@ -658,6 +658,117 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     return `第${chapterRange.startChapter + stableOrder}章`;
   };
 
+  const extractMicrodramaDraftsFromMacroStory = (
+    macroStory: string,
+    chapterRange: { startChapter: number; endChapter: number },
+  ): MicroStoryDraft[] => {
+    if (!isMicrodrama) return [];
+
+    const raw = String(macroStory || '').trim();
+    if (!raw) return [];
+
+    const detailedMatch = raw.match(/详细剧情\s*[:：]/);
+    const scopedRaw = detailedMatch?.index !== undefined
+      ? raw.slice(detailedMatch.index + detailedMatch[0].length)
+      : raw;
+    const stopIndex = scopedRaw.search(/\n\s*(?:钩子设计|阶段状态小结|篇幅硬规则|说明)\s*[:：]/);
+    const scoped = stopIndex >= 0 ? scopedRaw.slice(0, stopIndex) : scopedRaw;
+    const episodeRegex = /(?:^|\n)\s*(?:[-*]\s*)?(?:【\s*)?第\s*([一二三四五六七八九十百\d]{1,6})\s*集\s*(?:】)?\s*[：:、.．-]?\s*/g;
+    const matches = [...scoped.matchAll(episodeRegex)];
+    if (!matches.length) return [];
+
+    const draftsByOrder = new Map<number, MicroStoryDraft>();
+    matches.forEach((match, index) => {
+      const episodeNumber = /^\d+$/.test(match[1] || '')
+        ? Number(match[1])
+        : chineseNumberToInt(match[1] || '');
+      if (
+        !Number.isFinite(episodeNumber) ||
+        episodeNumber < chapterRange.startChapter ||
+        episodeNumber > chapterRange.endChapter
+      ) {
+        return;
+      }
+
+      const startIndex = (match.index || 0) + match[0].length;
+      const endIndex = matches[index + 1]?.index ?? scoped.length;
+      const content = cleanMicroStoryContent(scoped.slice(startIndex, endIndex));
+      if (content.length < 12) return;
+
+      const order = episodeNumber - chapterRange.startChapter;
+      draftsByOrder.set(order, {
+        title: `第${episodeNumber}集`,
+        content,
+        order,
+      });
+    });
+
+    const expectedCount = chapterRange.endChapter - chapterRange.startChapter + 1;
+    const drafts: MicroStoryDraft[] = [];
+    for (let order = 0; order < expectedCount; order++) {
+      const draft = draftsByOrder.get(order);
+      if (!draft) return [];
+      drafts.push(draft);
+    }
+
+    return drafts;
+  };
+
+  const applyMicroStoryDraftsToProject = (storyIndex: number, macroStory: string, drafts: MicroStoryDraft[]) => {
+    if (!currentProject || drafts.length === 0) return 0;
+
+    const storyKey = `story_${storyIndex}`;
+    const nowIso = new Date().toISOString();
+    const normalizedDrafts = drafts.map((draft, index) => {
+      const stableOrder = draft.order ?? index;
+      return {
+        ...draft,
+        title: (draft.title || getSavedStoryTitle(storyIndex, index, stableOrder)).trim(),
+        content: cleanMicroStoryContent(draft.content || ''),
+        order: stableOrder,
+      };
+    });
+    const nextOutline = serializeMicroStoryDraftsToOutline(storyIndex, normalizedDrafts);
+    const newOutlines = { ...microStoryOutlines, [storyKey]: nextOutline };
+    const existingSaved = currentProject.savedMicroStories || [];
+    const existingForMacro = existingSaved
+      .filter(story => story.macroStoryId === storyKey)
+      .sort((a, b) => a.order - b.order);
+    const existingByOrder = new Map(existingForMacro.map(story => [story.order, story] as const));
+    const savedMicroStories: SavedMicroStory[] = normalizedDrafts.map((draft, index) => {
+      const stableOrder = draft.order ?? index;
+      const prev = existingByOrder.get(stableOrder) || existingByOrder.get(index);
+      return {
+        id: prev?.id || `${storyKey}_micro_${stableOrder}_${Date.now()}_${Math.random()}`,
+        title: draft.title,
+        content: draft.content,
+        macroStoryId: storyKey,
+        macroStoryTitle: `中故事 ${storyIndex + 1}`,
+        macroStoryContent: macroStory,
+        order: stableOrder,
+        createdAt: prev?.createdAt || nowIso,
+      };
+    });
+    const filteredSaved = existingSaved.filter(story => story.macroStoryId !== storyKey);
+    const updatedSaved = sortSavedMicroStoriesForChapters([...filteredSaved, ...savedMicroStories]);
+
+    setMicroStoryOutlines(newOutlines);
+    setMicroStoryDraftsByMacro(prev => ({ ...prev, [storyKey]: normalizedDrafts }));
+    setExpandedStories(prev => ({ ...prev, [storyKey]: true }));
+    setSelectedMacroStoryIndex(storyIndex);
+    updateProject(currentProject.id, {
+      microStoryOutlines: newOutlines,
+      savedMicroStories: updatedSaved,
+      selectedMicroStories: updatedSaved,
+      microStoryEpisodeCount: isMicrodrama ? microdramaEpisodeCount : undefined,
+      autoSelectedStories: false,
+      autoGenerationMode: false,
+      autoGenerationStarted: false,
+    });
+
+    return savedMicroStories.length;
+  };
+
   const formatChapterRangeLabel = (range: { startChapter: number; endChapter: number }) =>
     range.startChapter === range.endChapter
       ? `第${range.startChapter}${structureLabels.unit}`
@@ -756,12 +867,23 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     }
 
     const storyKey = `story_${storyIndex}`;
+    const chineseIndex = getChineseNumber(storyIndex + 1);
+    const chapterRange = getChapterRange(storyIndex);
+    const existingDrafts = extractMicrodramaDraftsFromMacroStory(macroStory, chapterRange);
+
+    if (existingDrafts.length > 0) {
+      const confirmed = confirm(
+        `当前${structureLabels.macro}里已经包含 ${formatChapterRangeLabel(chapterRange)} 的 ${existingDrafts.length} 条分集内容，可以直接引用为分集细纲。\n\n点击“确定”直接引用；点击“取消”则重新调用 AI 生成。`
+      );
+      if (confirmed) {
+        const savedCount = applyMicroStoryDraftsToProject(storyIndex, macroStory, existingDrafts);
+        alert(`已从当前${structureLabels.macro}直接引用并保存 ${savedCount} 个${savedUnitLabel}。`);
+        return;
+      }
+    }
+
     setGeneratingStories(prev => ({ ...prev, [storyKey]: true }));
-
     try {
-      const chineseIndex = getChineseNumber(storyIndex + 1);
-      const chapterRange = getChapterRange(storyIndex);
-
       const response = await blueprintApi.generateMicroStories({
         ...getLogicModelRequest(),
         macroStory,
