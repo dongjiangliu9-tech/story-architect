@@ -980,6 +980,17 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     }
   };
 
+  const exportCurrentProjectJson = () => {
+    const project = currentProjectRef.current;
+    if (!project) {
+      alert('未找到当前项目');
+      return;
+    }
+
+    saveGeneratedContent({ silent: true });
+    exportProject(currentProjectRef.current || project);
+  };
+
   // 恢复保存的版本
   const restoreSavedVersion = (versionId: string) => {
     if (!currentProject?.savedVersions) return;
@@ -3678,6 +3689,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                 >
                   <Download className={`w-4 h-4 ${isExportingMarkdown ? 'animate-pulse' : ''}`} />
                   <span className="hidden sm:inline">{isExportingMarkdown ? '生成中' : 'MD'}</span>
+                </button>
+
+                <button
+                  onClick={exportCurrentProjectJson}
+                  disabled={!currentProject}
+                  title="导出当前完整项目 JSON"
+                  className="flex items-center space-x-2 px-3 py-2 bg-slate-600 hover:bg-slate-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">JSON</span>
                 </button>
               </div>
 

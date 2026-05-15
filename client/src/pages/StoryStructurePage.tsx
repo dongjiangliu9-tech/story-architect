@@ -673,7 +673,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       : raw;
     const stopIndex = scopedRaw.search(/\n\s*(?:钩子设计|阶段状态小结|篇幅硬规则|说明)\s*[:：]/);
     const scoped = stopIndex >= 0 ? scopedRaw.slice(0, stopIndex) : scopedRaw;
-    const episodeRegex = /(?:^|\n)\s*(?:[-*]\s*)?(?:【\s*)?第\s*([一二三四五六七八九十百\d]{1,6})\s*集\s*(?:】)?\s*[：:、.．-]?\s*/g;
+    const episodeRegex = /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*\s*)?(?:【\s*)?第\s*([一二三四五六七八九十百\d]{1,6})\s*集\s*(?:】)?\s*(?:[：:、.．-]\s*)?(?:\*\*)?\s*/g;
     const matches = [...scoped.matchAll(episodeRegex)];
     if (!matches.length) return [];
 
@@ -696,6 +696,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       if (content.length < 12) return;
 
       const order = episodeNumber - chapterRange.startChapter;
+      if (draftsByOrder.has(order)) return;
       draftsByOrder.set(order, {
         title: `第${episodeNumber}集`,
         content,
