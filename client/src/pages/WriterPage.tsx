@@ -45,7 +45,7 @@ function getWordCount(content: string): number {
 
 function normalizeTargetEpisodeWords(value: unknown): number {
   const numericValue = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numericValue)) return 500;
+  if (!Number.isFinite(numericValue)) return 800;
   return Math.min(5000, Math.max(500, Math.round(numericValue)));
 }
 
@@ -218,7 +218,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const writerModelOption = getWriterModelOption(writerModelValue);
   const writerModelRequest = toWriterModelRequest(writerModelValue);
   const [actionFirstScript, setActionFirstScript] = useState(false);
-  const [targetEpisodeWords, setTargetEpisodeWords] = useState(500);
+  const [targetEpisodeWords, setTargetEpisodeWords] = useState(800);
   const [targetNovelWords, setTargetNovelWords] = useState(2100);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [isGenerating] = useState(false);
