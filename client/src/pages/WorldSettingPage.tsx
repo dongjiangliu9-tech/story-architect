@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw, SlidersHorizontal, FilePlus2 } from 'lucide-react';
+import { ArrowLeft, Users, BookOpen, Sparkles, Wand2, CheckCircle, FileText, Map as MapIcon, Save, FolderOpen, Trash2, Download, PenTool, X, RefreshCw, SlidersHorizontal, FilePlus2 } from 'lucide-react';
 import { blueprintApi } from '../services/api';
 import { DensityTuningKey, DensityTuningLevels, OutlineData } from '../types';
 import { sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
@@ -91,6 +91,12 @@ function chineseNumberToInt(value: string): number {
   const digitMap: Record<string, number> = {
     一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
   };
+  if (normalized.includes('百')) {
+    const [hundredsPart, restPart = ''] = normalized.split('百');
+    const hundreds = digitMap[hundredsPart] || 1;
+    const rest = restPart.startsWith('零') ? restPart.slice(1) : restPart;
+    return hundreds * 100 + (rest ? chineseNumberToInt(rest) : 0);
+  }
   if (normalized === '十') return 10;
   if (normalized.startsWith('十')) return 10 + (digitMap[normalized.slice(1)] || 0);
   if (normalized.includes('十')) {
@@ -101,8 +107,18 @@ function chineseNumberToInt(value: string): number {
 }
 
 function parseMacroStories(content: string): string[] {
-  const storyRegex = /【中故事([一二三四五六七八九十\d]+)】/g;
-  const matches = [...content.matchAll(storyRegex)];
+  const boundaries = getOrderedMacroStoryBoundaries(content);
+  return boundaries.map((currentMatch, index) => {
+    const nextMatch = boundaries[index + 1];
+    const startIndex = currentMatch.index! + currentMatch[0].length;
+    const endIndex = nextMatch ? nextMatch.index! : content.length;
+    return content.slice(startIndex, endIndex).trim();
+  }).filter(Boolean);
+}
+
+function getOrderedMacroStoryBoundaries(content: string) {
+  const storyRegex = /【中故事([一二三四五六七八九十百\d]+)】/g;
+  const matches = [...String(content || '').matchAll(storyRegex)];
   const boundaries: Array<RegExpMatchArray & { storyNumber: number }> = [];
   let lastStoryNumber = 0;
 
@@ -114,12 +130,62 @@ function parseMacroStories(content: string): string[] {
     }
   });
 
-  return boundaries.map((currentMatch, index) => {
-    const nextMatch = boundaries[index + 1];
-    const startIndex = currentMatch.index! + currentMatch[0].length;
+  return boundaries;
+}
+
+function getLastMacroStoryNumber(content: string): number {
+  const storyRegex = /【中故事([一二三四五六七八九十百\d]+)】/g;
+  return [...content.matchAll(storyRegex)].reduce((maxNumber, match) => {
+    const storyNumber = chineseNumberToInt(match[1] || '');
+    return storyNumber > maxNumber ? storyNumber : maxNumber;
+  }, 0);
+}
+
+function replaceMacroStoriesByIndex(detailedOutline: string, replacements: Map<number, string>): string {
+  const boundaries = getOrderedMacroStoryBoundaries(detailedOutline);
+  if (boundaries.length === 0) return detailedOutline;
+
+  let result = '';
+  let cursor = 0;
+  boundaries.forEach((match, orderedIndex) => {
+    const nextMatch = boundaries[orderedIndex + 1];
+    const startIndex = match.index!;
+    const contentStart = startIndex + match[0].length;
+    const contentEnd = nextMatch ? nextMatch.index! : detailedOutline.length;
+    result += detailedOutline.slice(cursor, contentStart);
+    result += replacements.has(orderedIndex)
+      ? `\n${(replacements.get(orderedIndex) || '').trim()}\n`
+      : detailedOutline.slice(contentStart, contentEnd);
+    cursor = contentEnd;
+  });
+
+  result += detailedOutline.slice(cursor);
+  return result.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function parseMacroStoryReplacementMap(content: string, fallbackIndexes: number[]): Map<number, string> {
+  const boundaries = getOrderedMacroStoryBoundaries(content);
+  const replacements = new Map<number, string>();
+
+  if (boundaries.length === 0) {
+    if (fallbackIndexes.length === 1 && content.trim()) {
+      replacements.set(fallbackIndexes[0], content.trim());
+    }
+    return replacements;
+  }
+
+  boundaries.forEach((match, orderedIndex) => {
+    const nextMatch = boundaries[orderedIndex + 1];
+    const startIndex = match.index! + match[0].length;
     const endIndex = nextMatch ? nextMatch.index! : content.length;
-    return content.slice(startIndex, endIndex).trim();
-  }).filter(Boolean);
+    const storyNumber = match.storyNumber;
+    const targetIndex = storyNumber > 0 ? storyNumber - 1 : fallbackIndexes[orderedIndex];
+    if (fallbackIndexes.includes(targetIndex)) {
+      replacements.set(targetIndex, content.slice(startIndex, endIndex).trim());
+    }
+  });
+
+  return replacements;
 }
 
 interface WorldSettingPageProps {
@@ -173,7 +239,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
   const [isGeneratingWorldSetting, setIsGeneratingWorldSetting] = useState(false);
   const [isGeneratingCharacters, setIsGeneratingCharacters] = useState(false);
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
+  const [isSupplementingOutline, setIsSupplementingOutline] = useState(false);
+  const [supplementOutlineAsFinal, setSupplementOutlineAsFinal] = useState(false);
   const [isRegeneratingOutlineWithSuggestion, setIsRegeneratingOutlineWithSuggestion] = useState(false);
+  const [isRefiningSelectedOutlineStories, setIsRefiningSelectedOutlineStories] = useState(false);
+  const [selectedOutlineStoryIndexes, setSelectedOutlineStoryIndexes] = useState<number[]>([]);
+  const [selectedOutlineRefineNote, setSelectedOutlineRefineNote] = useState('');
   const [outlineRevisionSuggestion, setOutlineRevisionSuggestion] = useState('');
   const [worldSettingGenerated, setWorldSettingGenerated] = useState(false);
   const [charactersGenerated, setCharactersGenerated] = useState(false);
@@ -554,6 +625,77 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     }
   };
 
+  const handleSupplementOutlineBatch = async () => {
+    if (outlineMode !== 'novel') {
+      alert('增补中故事目前只用于网文情节细纲');
+      return;
+    }
+    if (!activeInspirationOutline) {
+      alert('未找到选中的故事大纲，请返回第一步重新选择');
+      return;
+    }
+    if (!worldSetting || !characters) {
+      alert('请先生成世界观和人物设定');
+      return;
+    }
+    if (!outline.trim()) {
+      alert('请先生成首批10个中故事');
+      return;
+    }
+
+    const existingCount = parseMacroStories(outline).length;
+    if (existingCount <= 0) {
+      alert('未检测到已有中故事，请先生成首批10个中故事');
+      return;
+    }
+
+    const lastStoryNumber = getLastMacroStoryNumber(outline);
+    const startNumber = lastStoryNumber > 0 ? lastStoryNumber + 1 : existingCount + 1;
+    const endNumber = startNumber + 9;
+    const nextBatchIndex = Math.floor((startNumber - 1) / 10) + 1;
+
+    setIsSupplementingOutline(true);
+    try {
+      const outlineData = formatOutlineData(activeInspirationOutline);
+      const response = await blueprintApi.generateDetailedOutline({
+        ...getLogicModelRequest(),
+        outline: outlineData,
+        worldSetting,
+        characters,
+        mode: 'novel',
+        reduceSensitiveContent,
+        outlineBatchIndex: nextBatchIndex,
+        outlineStartNumber: startNumber,
+        existingDetailedOutline: outline,
+        isFinalBatch: supplementOutlineAsFinal,
+      });
+
+      const cleanedSupplement = cleanPublicOutlineMetadata(response.data);
+      const nextOutline = [outline.trim(), cleanedSupplement.trim()].filter(Boolean).join('\n\n');
+      setOutline(nextOutline);
+      setActiveTab('outline');
+
+      if (currentProject) {
+        updateProject(currentProject.id, {
+          detailedOutline: nextOutline,
+          detailedOutlineMode: 'novel',
+          reduceSensitiveContent,
+        });
+      }
+
+      alert(`已增补【中故事${startNumber}】到【中故事${endNumber}】。`);
+    } catch (error) {
+      console.error('增补中故事失败:', error);
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '增补中故事失败，请稍后重试';
+      alert(errorMessage);
+    } finally {
+      setIsSupplementingOutline(false);
+    }
+  };
+
   const handleImportOutlineSuggestion = async (file: File | null) => {
     if (!file) return;
     try {
@@ -617,6 +759,83 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
       alert('根据建议重生成情节细纲失败，请稍后重试');
     } finally {
       setIsRegeneratingOutlineWithSuggestion(false);
+    }
+  };
+
+  const toggleSelectedOutlineStory = (index: number) => {
+    setSelectedOutlineStoryIndexes(prev => {
+      if (prev.includes(index)) {
+        return prev.filter(item => item !== index);
+      }
+      if (prev.length >= 5) {
+        alert('一次最多选择5个中故事做局部细化');
+        return prev;
+      }
+      return [...prev, index].sort((a, b) => a - b);
+    });
+  };
+
+  const handleRefineSelectedOutlineStories = async () => {
+    if (!activeInspirationOutline) {
+      alert('未找到故事大纲，请返回第一步重新选择或加载项目');
+      return;
+    }
+    if (!worldSetting || !characters || !outline) {
+      alert('请先准备好世界观基础设定、人物设定和当前情节细纲');
+      return;
+    }
+    if (selectedOutlineStoryIndexes.length < 1 || selectedOutlineStoryIndexes.length > 5) {
+      alert('请选择1到5个中故事进行局部细化');
+      return;
+    }
+
+    setIsRefiningSelectedOutlineStories(true);
+    try {
+      const outlineData = formatOutlineData(activeInspirationOutline);
+      const response = await blueprintApi.generateDetailedOutline({
+        ...getLogicModelRequest(),
+        outline: outlineData,
+        worldSetting,
+        characters,
+        mode: outlineMode,
+        microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+        reduceSensitiveContent,
+        existingDetailedOutline: outline,
+        outlineRevisionSuggestion: selectedOutlineRefineNote.trim() || '按三密度滑块迭代方式局部强化：详细剧情更足，冲突更密，人物弧线更清晰，结尾钩子更强。',
+        partialOutlineTargetIndexes: selectedOutlineStoryIndexes,
+      });
+
+      const cleanedResult = cleanPublicOutlineMetadata(response.data);
+      const replacements = parseMacroStoryReplacementMap(cleanedResult, selectedOutlineStoryIndexes);
+      if (replacements.size === 0) {
+        alert('AI没有返回可识别的中故事编号，请重试一次');
+        return;
+      }
+
+      const nextOutline = replaceMacroStoriesByIndex(outline, replacements);
+      setOutline(nextOutline);
+      setSelectedOutlineStoryIndexes([]);
+      setSelectedOutlineRefineNote('');
+
+      if (currentProject) {
+        updateProject(currentProject.id, {
+          detailedOutline: nextOutline,
+          detailedOutlineMode: outlineMode,
+          microdramaEpisodeCount: outlineMode === 'microdrama' ? microdramaEpisodeCount : undefined,
+          reduceSensitiveContent,
+        });
+      }
+
+      alert(`已局部细化 ${replacements.size} 个中故事。`);
+    } catch (error) {
+      console.error('局部细化中故事失败:', error);
+      const errorMessage =
+        (error as any)?.response?.data?.message ||
+        (error as any)?.message ||
+        '局部细化中故事失败，请稍后重试';
+      alert(errorMessage);
+    } finally {
+      setIsRefiningSelectedOutlineStories(false);
     }
   };
 
@@ -1213,6 +1432,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     );
   };
 
+  const outlineMacroStoryCount = outlineMode === 'novel' ? parseMacroStories(outline).length : 0;
+  const outlineStoryContents = outline ? parseMacroStories(outline) : [];
+  const lastMacroStoryNumber = outlineMode === 'novel' ? getLastMacroStoryNumber(outline) : 0;
+  const nextSupplementStart = lastMacroStoryNumber > 0 ? lastMacroStoryNumber + 1 : outlineMacroStoryCount + 1;
+  const nextSupplementEnd = nextSupplementStart + 9;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100">
       {/* Header */}
@@ -1322,7 +1547,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
             <div className="card p-6">
               <div className="flex items-center space-x-3 mb-6">
-                <Map className="w-5 h-5 text-primary-600" />
+                <MapIcon className="w-5 h-5 text-primary-600" />
                 <h2 className="text-lg font-semibold text-secondary-900">世界观基础设定</h2>
               </div>
 
@@ -1564,6 +1789,49 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <p className="text-xs text-secondary-600">
                   {outlineModeMeta.generateHint}
                 </p>
+                {outlineMode === 'novel' && (
+                  <div className="rounded-lg border border-primary-100 bg-primary-50/60 p-4 space-y-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-secondary-900">增补下一批中故事</div>
+                        <div className="mt-1 text-xs text-secondary-600">
+                          当前检测到 {outlineMacroStoryCount} 个中故事，下一批将生成第 {nextSupplementStart}-{nextSupplementEnd} 个。
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSupplementOutlineBatch}
+                        disabled={
+                          isSupplementingOutline ||
+                          isGeneratingOutline ||
+                          outlineMacroStoryCount <= 0 ||
+                          !charactersGenerated ||
+                          !canUseAIGeneration
+                        }
+                        className="btn btn-secondary inline-flex items-center justify-center gap-2 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <FilePlus2 className="h-4 w-4" />
+                        {isSupplementingOutline
+                          ? '增补中...'
+                          : supplementOutlineAsFinal
+                            ? '增补大结局10个中故事'
+                            : '增补10个中故事'}
+                      </button>
+                    </div>
+                    <label className="flex items-start gap-2 text-xs text-secondary-700">
+                      <input
+                        type="checkbox"
+                        checked={supplementOutlineAsFinal}
+                        onChange={(event) => setSupplementOutlineAsFinal(event.target.checked)}
+                        disabled={isSupplementingOutline || !canUseAIGeneration}
+                        className="mt-0.5 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+                      />
+                      <span>
+                        本次作为大结局批次。未勾选时，AI 必须承接上一个中故事结尾继续推进，但不能进入终局收束。
+                      </span>
+                    </label>
+                  </div>
+                )}
                 <div className="text-xs text-secondary-500">
                   <CheckCircle className="w-3 h-3 inline mr-1" />
                   自动优化情节连贯性
@@ -1659,7 +1927,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                         : 'text-secondary-600 hover:text-secondary-900'
                     }`}
                   >
-                    <Map className="w-4 h-4" />
+                    <MapIcon className="w-4 h-4" />
                     <span>世界观基础</span>
                   </button>
                   <button
@@ -1696,7 +1964,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     <>
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-3">
-                          <Map className="w-5 h-5 text-primary-600" />
+                          <MapIcon className="w-5 h-5 text-primary-600" />
                           <h3 className="text-lg font-semibold text-secondary-900">世界观基础设定结果</h3>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -1772,7 +2040,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                     </>
                   ) : (
                     <div className="text-center py-12">
-                      <Map className="w-16 h-16 text-secondary-400 mx-auto mb-4" />
+                      <MapIcon className="w-16 h-16 text-secondary-400 mx-auto mb-4" />
                       <h3 className="text-lg font-medium text-secondary-900 mb-2">
                         尚未生成世界观基础设定
                       </h3>
@@ -1975,6 +2243,59 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                             className="w-full min-h-[96px] p-3 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-secondary-800 bg-white"
                             placeholder="粘贴修改建议，或导入txt/md文件。比如：减少副线、强化男主事业线、保留爱情线但降低血腥桥段、第3个中故事改成更强反转..."
                           />
+                          {outlineStoryContents.length > 0 && (
+                            <div className="rounded-lg border border-indigo-200 bg-white p-4 space-y-3">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-medium text-indigo-900">选中中故事局部细化</div>
+                                  <div className="text-xs text-indigo-700 mt-1">
+                                    可选1-5个中故事，只替换选中段落；适合像滑块迭代一样单独加强某几个中故事。
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={handleRefineSelectedOutlineStories}
+                                  disabled={isRefiningSelectedOutlineStories || selectedOutlineStoryIndexes.length === 0 || !canUseAIGeneration}
+                                  className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                                >
+                                  {isRefiningSelectedOutlineStories ? <RefreshCw className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
+                                  局部细化选中项
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 max-h-40 overflow-y-auto pr-1">
+                                {outlineStoryContents.map((storyContent, index) => {
+                                  const isSelected = selectedOutlineStoryIndexes.includes(index);
+                                  return (
+                                    <button
+                                      key={index}
+                                      type="button"
+                                      onClick={() => toggleSelectedOutlineStory(index)}
+                                      className={`text-left rounded-lg border p-2 transition-all ${
+                                        isSelected
+                                          ? 'border-indigo-500 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-100'
+                                          : 'border-secondary-200 bg-secondary-50 text-secondary-700 hover:border-indigo-300'
+                                      }`}
+                                    >
+                                      <div className="text-xs font-semibold">中故事 {index + 1}</div>
+                                      <div className="mt-1 text-[11px] leading-snug line-clamp-2 opacity-80">
+                                        {storyContent.slice(0, 56)}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <textarea
+                                value={selectedOutlineRefineNote}
+                                onChange={(e) => setSelectedOutlineRefineNote(e.target.value)}
+                                className="w-full min-h-[72px] p-3 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-secondary-800 bg-white"
+                                placeholder="可写局部细化要求：比如只强化第7-8中故事的反派压迫、补足女主主动性、让结尾对齐下一个中故事开局。留空则按三密度自动强化。"
+                              />
+                              {selectedOutlineStoryIndexes.length > 0 && (
+                                <div className="text-xs text-indigo-700">
+                                  已选：{selectedOutlineStoryIndexes.map(index => index + 1).join('、')}，本次会只替换这些中故事。
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {renderDensityTuningPanel()}
                         </div>
                       )}

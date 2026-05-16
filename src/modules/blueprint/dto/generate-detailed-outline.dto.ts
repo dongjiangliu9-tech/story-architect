@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsIn, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsIn, IsInt, Min, Max, IsBoolean, IsArray } from 'class-validator';
 import { LogicModelSelectionDto } from './logic-model-selection.dto';
 
 export class GenerateDetailedOutlineDto extends LogicModelSelectionDto {
@@ -26,9 +26,15 @@ export class GenerateDetailedOutlineDto extends LogicModelSelectionDto {
 
   @IsInt()
   @Min(1)
-  @Max(4)
+  @Max(99)
   @IsOptional()
   outlineBatchIndex?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  @IsOptional()
+  outlineStartNumber?: number;
 
   @IsString()
   @IsOptional()
@@ -37,6 +43,10 @@ export class GenerateDetailedOutlineDto extends LogicModelSelectionDto {
   @IsString()
   @IsOptional()
   outlineRevisionSuggestion?: string;
+
+  @IsArray()
+  @IsOptional()
+  partialOutlineTargetIndexes?: number[];
 
   @IsBoolean()
   @IsOptional()

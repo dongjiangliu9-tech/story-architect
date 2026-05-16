@@ -161,6 +161,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [selectedMicroStoryIndexesByMacro, setSelectedMicroStoryIndexesByMacro] = useState<Record<string, number[]>>({});
   const [batchVariantStates, setBatchVariantStates] = useState<Record<string, MicroStoryBatchVariantState>>({});
   const [macroVariantStates, setMacroVariantStates] = useState<Record<string, MicroStoryVariantState>>({});
+  const [batchStartMacroStoryInput, setBatchStartMacroStoryInput] = useState('');
   const editingMicroStoryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedMacroStory = selectedMacroStoryIndex !== null ? macroStories[selectedMacroStoryIndex] : null;
@@ -199,6 +200,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     const digitMap: Record<string, number> = {
       一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
     };
+    if (normalized.includes('百')) {
+      const [hundredsPart, restPart = ''] = normalized.split('百');
+      const hundreds = digitMap[hundredsPart] || 1;
+      const rest = restPart.startsWith('零') ? restPart.slice(1) : restPart;
+      return hundreds * 100 + (rest ? chineseNumberToInt(rest) : 0);
+    }
     if (normalized === '十') return 10;
     if (normalized.startsWith('十')) return 10 + (digitMap[normalized.slice(1)] || 0);
     if (normalized.includes('十')) {
@@ -209,7 +216,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   const getOrderedMacroStoryBoundaries = (content: string) => {
-    const storyRegex = /【中故事([一二三四五六七八九十\d]+)】/g;
+    const storyRegex = /【中故事([一二三四五六七八九十百\d]+)】/g;
     const matches = [...content.matchAll(storyRegex)];
     const boundaries: Array<RegExpMatchArray & { storyNumber: number }> = [];
     let lastStoryNumber = 0;
@@ -575,7 +582,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     if (num < 20) return `十${digits[num - 10]}`;
     const tens = Math.floor(num / 10);
     const ones = num % 10;
-    return `${digits[tens]}十${ones ? digits[ones] : ''}`;
+    if (num < 100) return `${digits[tens]}十${ones ? digits[ones] : ''}`;
+    if (num < 1000) {
+      const hundreds = Math.floor(num / 100);
+      const rest = num % 100;
+      return `${digits[hundreds]}百${rest ? (rest < 10 ? `零${digits[rest]}` : getChineseNumber(rest)) : ''}`;
+    }
+    return String(num);
   };
 
   const getMicroStoryDefaultTitle = (num: number): string => (
@@ -777,10 +790,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
   // 检查中故事是否可以生成（前一个中故事必须已生成）
   const canGenerateStory = (storyIndex: number) => {
-    if (storyIndex === 0) return true; // 第一个中故事总是可以生成
-    const prevStoryKey = `story_${storyIndex - 1}`;
-    // 兼容：如果 prev 的小故事已保存（savedMicroStories），也视为“已完成前序”
-    return !!microStoryOutlines[prevStoryKey] || hasSavedMicroStoriesFor(prevStoryKey);
+    return storyIndex >= 0 && storyIndex < macroStories.length;
   };
 
   const clearMicroStoriesForLatestEpisodeCount = () => {
@@ -863,7 +873,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     }
     // 检查是否可以生成
     if (!canGenerateStory(storyIndex)) {
-      alert('请先按顺序生成前面的中故事');
+      alert(`没有找到这个${structureLabels.macro}`);
       return;
     }
 
@@ -943,7 +953,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   // 一键批量生成下一个3个中故事的小故事细纲并保存
-  const batchGenerateAndSaveMicroStories = async (opts: { continueToWriter?: boolean } = {}) => {
+  const batchGenerateAndSaveMicroStories = async (opts: { continueToWriter?: boolean; startIndex?: number } = {}) => {
     if (!currentProject) {
       alert('未找到当前项目');
       return;
@@ -954,8 +964,8 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       return;
     }
 
-    if (macroStories.length < 3) {
-      alert('需要至少3个中故事才能使用一键生成功能');
+    if (macroStories.length < 1) {
+      alert(`需要至少1个${structureLabels.macro}才能使用一键生成功能`);
       return;
     }
 
@@ -963,7 +973,11 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       // 根据已保存的小故事所属中故事，计算应该生成哪几个中故事。
       const savedMicroStoriesCount = currentProject.savedMicroStories?.length || 0;
       const savedMacroStoryIds = new Set((currentProject.savedMicroStories || []).map(story => story.macroStoryId));
-      const startMacroStoryIndex = macroStories.findIndex((_, index) => !savedMacroStoryIds.has(`story_${index}`));
+      const requestedStartIndex =
+        opts.startIndex !== undefined && Number.isFinite(opts.startIndex)
+          ? Math.max(0, Math.min(macroStories.length - 1, Math.floor(opts.startIndex)))
+          : undefined;
+      const startMacroStoryIndex = requestedStartIndex ?? macroStories.findIndex((_, index) => !savedMacroStoryIds.has(`story_${index}`));
 
       // 检查是否有足够的未生成中故事
       const availableMacroStories = macroStories.length - startMacroStoryIndex;
@@ -1135,7 +1149,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       return;
     }
     if (!canGenerateStory(storyIndex)) {
-      alert(`请先按顺序处理前面的${structureLabels.macro}`);
+      alert(`没有找到这个${structureLabels.macro}`);
       return;
     }
 
@@ -1921,6 +1935,33 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     );
   };
 
+  const getManualBatchStartIndex = () => {
+    const raw = batchStartMacroStoryInput.trim();
+    if (!raw) return undefined;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return undefined;
+    return Math.max(0, Math.min(macroStories.length - 1, Math.floor(value) - 1));
+  };
+
+  const getBatchPreviewRange = () => {
+    const manualStart = getManualBatchStartIndex();
+    if (manualStart !== undefined) {
+      return {
+        start: manualStart,
+        end: Math.min(manualStart + 2, macroStories.length - 1),
+        availableCount: Math.max(0, macroStories.length - manualStart),
+      };
+    }
+
+    const savedMacroStoryIds = new Set((currentProject?.savedMicroStories || []).map(story => story.macroStoryId));
+    const nextIndex = macroStories.findIndex((_, index) => !savedMacroStoryIds.has(`story_${index}`));
+    return {
+      start: nextIndex,
+      end: nextIndex < 0 ? -1 : Math.min(nextIndex + 2, macroStories.length - 1),
+      availableCount: nextIndex < 0 ? 0 : Math.max(0, macroStories.length - nextIndex),
+    };
+  };
+
   if (!currentProject) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100 flex items-center justify-center">
@@ -1961,11 +2002,24 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-2 rounded-lg bg-white border border-purple-100 px-2 py-1">
+                <span className="text-xs text-secondary-500 whitespace-nowrap">批量起点</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, macroStories.length)}
+                  value={batchStartMacroStoryInput}
+                  onChange={(e) => setBatchStartMacroStoryInput(e.target.value)}
+                  className="w-16 px-2 py-1 text-sm border border-secondary-200 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  placeholder="自动"
+                  title={`输入要开始细化的${structureLabels.macro}序号，留空则自动找下一个未生成`}
+                />
+              </div>
               <button
-                onClick={() => batchGenerateAndSaveMicroStories()}
-                disabled={batchGenerating || macroStories.length < 3}
+                onClick={() => batchGenerateAndSaveMicroStories({ startIndex: getManualBatchStartIndex() })}
+                disabled={batchGenerating || macroStories.length < 1}
                 className="flex items-center space-x-2 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-purple-700 text-sm font-medium transition-colors"
-                title="根据已保存小故事数量，生成接下来的3个中故事的小故事细纲并保存"
+                title="留空则根据已保存数量生成接下来的3个；填写起点后，从指定中故事开始批量生成3个"
               >
                 {batchGenerating ? (
                   <>
@@ -1974,11 +2028,10 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
                   </>
                 ) : (
 	                  (() => {
-	                    const savedMacroStoryIds = new Set((currentProject?.savedMicroStories || []).map(story => story.macroStoryId));
-	                    const nextIndex = macroStories.findIndex((_, index) => !savedMacroStoryIds.has(`story_${index}`));
-	                    const availableCount = nextIndex < 0 ? 0 : Math.max(0, macroStories.length - nextIndex);
-	                    const nextStart = nextIndex + 1;
-	                    const nextEnd = nextIndex < 0 ? 0 : Math.min(nextIndex + 3, macroStories.length);
+	                    const preview = getBatchPreviewRange();
+	                    const availableCount = preview.availableCount;
+	                    const nextStart = preview.start + 1;
+	                    const nextEnd = preview.end + 1;
 
                     if (availableCount === 0) {
                       return (

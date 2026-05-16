@@ -278,8 +278,10 @@ export interface GenerateDetailedOutlineDto extends LlmModelSelection {
   mode?: 'novel' | 'microdrama' | 'literature';
   microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   outlineBatchIndex?: number;
+  outlineStartNumber?: number;
   existingDetailedOutline?: string;
   outlineRevisionSuggestion?: string;
+  partialOutlineTargetIndexes?: number[];
   isFinalBatch?: boolean;
   reduceSensitiveContent?: boolean;
 }

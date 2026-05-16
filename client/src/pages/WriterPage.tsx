@@ -236,6 +236,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const [isSegmentGenerating, setIsSegmentGenerating] = useState(false);
   const [isSingleUnitGenerating, setIsSingleUnitGenerating] = useState(false);
   const [parallelLaneCount, setParallelLaneCount] = useState(5);
+  const [segmentStartChapterInput, setSegmentStartChapterInput] = useState('');
   const [currentRequestId, setCurrentRequestId] = useState<string>('');
   const currentRequestIdRef = useRef('');
   const activeRequestIdsRef = useRef<Set<string>>(new Set());
@@ -620,7 +621,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           if (isMicrodrama) {
             generateFullCycleContent();
           } else {
-            generateSegmentParallelContent({ skipConfirm: true, requestedLaneCount: 5 });
+            generateSegmentParallelContent({ skipConfirm: true, requestedLaneCount: 5, startChapter: 1 });
           }
         }
       }, 1000);
@@ -2252,13 +2253,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     laneCount: number,
     chapters: {[key: number]: string},
     availableChapters: Set<number> = new Set(Array.from({ length: totalChapters }, (_unused, offset) => offset + 1)),
+    startChapter: number = 1,
   ) => {
     const segmentSize = 15;
-    const possibleLaneCount = Math.ceil(totalChapters / segmentSize);
+    const normalizedStart = Math.min(totalChapters, Math.max(1, Math.floor(startChapter || 1)));
+    const possibleLaneCount = Math.ceil(Math.max(0, totalChapters - normalizedStart + 1) / segmentSize);
     const normalizedLaneCount = Math.min(Math.max(1, laneCount), Math.max(1, possibleLaneCount));
 
     return Array.from({ length: normalizedLaneCount }, (_, index) => {
-      const start = index * segmentSize + 1;
+      const start = normalizedStart + index * segmentSize;
       const end = Math.min(totalChapters, start + segmentSize - 1);
       const remaining = Array.from({ length: end - start + 1 }, (_unused, offset) => start + offset)
         .filter(chapter => availableChapters.has(chapter) && !chapters[chapter]);
@@ -2478,7 +2481,15 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     });
   };
 
-  const generateSegmentParallelContent = async (opts: { skipConfirm?: boolean; requestedLaneCount?: number } = {}) => {
+  const getSegmentStartChapter = () => {
+    const raw = segmentStartChapterInput.trim();
+    if (!raw) return 1;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return 1;
+    return Math.min(Math.max(1, Math.floor(value)), Math.max(1, maxAvailableChapter));
+  };
+
+  const generateSegmentParallelContent = async (opts: { skipConfirm?: boolean; requestedLaneCount?: number; startChapter?: number } = {}) => {
     if (isMicrodrama) {
       alert('15章线程并行生成目前只用于网文正文，微短剧继续使用单集生成。');
       return;
@@ -2500,16 +2511,20 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     const totalChapters = maxAvailableChapter;
     const initialChapters = getActiveGeneratedChapters();
     const requestedLaneCount = opts.requestedLaneCount || parallelLaneCount;
-    const lanes = buildSegmentLanes(totalChapters, requestedLaneCount, initialChapters, availableChapterNumberSet);
+    const startChapter = Math.min(
+      totalChapters,
+      Math.max(1, Math.floor(opts.startChapter || 1)),
+    );
+    const lanes = buildSegmentLanes(totalChapters, requestedLaneCount, initialChapters, availableChapterNumberSet, startChapter);
     const remainingTotal = lanes.reduce((sum, lane) => sum + lane.total, 0);
     if (remainingTotal <= 0) {
-      alert('所有章节都已生成完毕。');
+      alert(`从第${startChapter}${unitLabel}开始的并行区段都已生成完毕。`);
       return;
     }
 
     if (!opts.skipConfirm) {
       const confirmed = confirm(
-        `将按${requestedLaneCount}线程并行静默生成，当前拆成${lanes.length}个15章区段，共补写 ${remainingTotal} 章。\n\n每个区段只负责自己的15章范围，例如1-15写完后不会越界写16章。确定继续吗？`
+        `将从第${startChapter}${unitLabel}开始，按${requestedLaneCount}线程并行静默生成，当前拆成${lanes.length}个15章区段，共补写 ${remainingTotal} 章。\n\n每个区段只负责自己的15章范围，例如第${startChapter}-${Math.min(totalChapters, startChapter + 14)}${unitLabel}写完后不会越界写下一段。确定继续吗？`
       );
       if (!confirmed) return;
     }
@@ -2523,7 +2538,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       requestedLaneCount,
       completed: 0,
       total: remainingTotal,
-      message: `正在启动${requestedLaneCount}线程并行生成，当前拆成${lanes.length}个15章区段...`,
+      message: `正在从第${startChapter}${unitLabel}启动${requestedLaneCount}线程并行生成，当前拆成${lanes.length}个15章区段...`,
     });
     setGenerationState({
       isGenerating: true,
@@ -3942,21 +3957,51 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-sm font-semibold text-secondary-900">15章线程并行生成</div>
-                          <div className="text-xs text-secondary-500 mt-1">每条线程写15章，75章可一次开5线程跑完</div>
+                          <div className="text-xs text-secondary-500 mt-1">每条线程写15章，可指定从任意章节作为并行起点</div>
                         </div>
-                        <select
-                          value={parallelLaneCount}
-                          onChange={(event) => setParallelLaneCount(Number(event.target.value))}
-                          disabled={hasActiveGeneration || isRewritingChapter}
-                          className="px-2 py-1.5 border border-secondary-300 rounded-lg text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
-                          title="选择并行线程数量"
-                        >
-                          <option value={5}>5线程</option>
-                          <option value={10}>10线程</option>
-                        </select>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <label className="inline-flex items-center gap-1 text-xs text-secondary-600">
+                            起点第
+                            <input
+                              type="number"
+                              min={1}
+                              max={Math.max(1, maxAvailableChapter)}
+                              value={segmentStartChapterInput}
+                              onChange={(event) => setSegmentStartChapterInput(event.target.value)}
+                              disabled={hasActiveGeneration || isRewritingChapter}
+                              className="w-20 px-2 py-1.5 border border-secondary-300 rounded-lg text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                              placeholder="1"
+                              title="指定5/10线程并行生成从哪一章开始；留空从第1章开始"
+                            />
+                            章
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setSegmentStartChapterInput(String(currentChapter))}
+                            disabled={hasActiveGeneration || isRewritingChapter}
+                            className="px-2 py-1.5 text-xs rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 disabled:bg-gray-100 disabled:text-gray-400"
+                            title="把当前正在查看的章节设为并行起点"
+                          >
+                            用当前章
+                          </button>
+                          <select
+                            value={parallelLaneCount}
+                            onChange={(event) => setParallelLaneCount(Number(event.target.value))}
+                            disabled={hasActiveGeneration || isRewritingChapter}
+                            className="px-2 py-1.5 border border-secondary-300 rounded-lg text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                            title="选择并行线程数量"
+                          >
+                            <option value={5}>5线程</option>
+                            <option value={10}>10线程</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="text-xs text-secondary-500 bg-secondary-50 border border-secondary-100 rounded-lg px-3 py-2">
+                        当前并行范围预览：第{getSegmentStartChapter()}-{Math.min(maxAvailableChapter || getSegmentStartChapter(), getSegmentStartChapter() + parallelLaneCount * 15 - 1)}章。
+                        已写过的章节会自动跳过，只补空白章节。
                       </div>
                       <button
-                        onClick={() => generateSegmentParallelContent()}
+                        onClick={() => generateSegmentParallelContent({ startChapter: getSegmentStartChapter() })}
                         disabled={isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter || !currentProject?.savedMicroStories?.length}
                         className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-slate-700 to-cyan-700 hover:from-slate-800 hover:to-cyan-800 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-lg font-semibold transition-all duration-200 disabled:cursor-not-allowed"
                       >
@@ -4559,11 +4604,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {(chapterListOrder === 'desc'
-                      ? microStoriesInOrder.map((story, storyIndex) => ({ story, storyIndex })).reverse()
-                      : microStoriesInOrder.map((story, storyIndex) => ({ story, storyIndex }))
-                    ).map(({ story, storyIndex }) => {
-                      const chapterStart = storyIndex * unitsPerMicroStory + 1;
-                      const chapterEnd = storyIndex * unitsPerMicroStory + unitsPerMicroStory;
+                      ? chapterStoryEntries.slice().reverse()
+                      : chapterStoryEntries
+                    ).map(({ story, chapterNumber, originalIndex }) => {
+                      const storyIndex = originalIndex;
+                      const chapterStart = chapterNumber;
+                      const chapterEnd = chapterNumber;
                       const isGenerated = isMicrodrama
                         ? !!generatedChapters[chapterStart]
                         : !!(generatedChapters[chapterStart] && generatedChapters[chapterEnd]);
