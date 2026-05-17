@@ -12,7 +12,7 @@ export class GenerateWorldSettingDto extends LogicModelSelectionDto {
 
   @IsString()
   @IsOptional()
-  targetMode?: 'microdrama' | 'novel' | 'literature';
+  targetMode?: 'microdrama' | 'novel' | 'literature' | 'film';
 
   @IsOptional()
   microdramaEpisodeCount?: number;

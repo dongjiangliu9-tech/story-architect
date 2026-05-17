@@ -36,8 +36,8 @@ export class GenerateChapterDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['novel', 'microdrama'])
-  mode?: 'novel' | 'microdrama';
+  @IsIn(['novel', 'microdrama', 'film'])
+  mode?: 'novel' | 'microdrama' | 'film';
 
   @IsString()
   @IsOptional()
@@ -97,8 +97,8 @@ export class RewriteChapterDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['novel', 'microdrama'])
-  mode?: 'novel' | 'microdrama';
+  @IsIn(['novel', 'microdrama', 'film'])
+  mode?: 'novel' | 'microdrama' | 'film';
 }
 
 export class ValidateChapterScopeDto {
@@ -118,8 +118,8 @@ export class ValidateChapterScopeDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['novel', 'microdrama'])
-  mode?: 'novel' | 'microdrama';
+  @IsIn(['novel', 'microdrama', 'film'])
+  mode?: 'novel' | 'microdrama' | 'film';
 }
 
 export class ReviewMicrodramaScriptsDto {

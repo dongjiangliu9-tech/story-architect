@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 // import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { Sparkles, BookOpen, Wand2, Bookmark, PenTool, FilePlus2, Save, X } from 'lucide-react';
+import { Sparkles, BookOpen, Wand2, Bookmark, PenTool, FilePlus2, Save, X, Moon, Sun } from 'lucide-react';
 import { NovelCategory, NovelStyle, OutlineData, TitleVariant } from './types';
 import { CreativeConfigSelector } from './components/CreativeConfigSelector';
 import { GenerateButton } from './components/GenerateButton';
@@ -30,6 +30,7 @@ const LOGIC_MODEL_STORAGE_KEY = 'story-architect-logic-model';
 const LOGIC_MODEL_DEFAULT_MIGRATION_KEY = 'story-architect-logic-model-default-migrated';
 const BLUEPRINT_OUTLINES_STORAGE_KEY = 'story-architect-blueprint-outlines';
 const BLUEPRINT_OUTLINE_INDEX_STORAGE_KEY = 'story-architect-blueprint-current-index';
+const THEME_STORAGE_KEY = 'story-architect-theme';
 
 function getOutlineBookName(outline?: OutlineData | null): string {
   return (outline?.aliasTitle || outline?.title || '').trim();
@@ -87,6 +88,15 @@ function BlueprintPage({
       return DEFAULT_LOGIC_MODEL_VALUE;
     }
   });
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    try {
+      const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+      if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme;
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [outlines, setOutlines] = useState<OutlineData[]>(() => {
     try {
@@ -122,12 +132,15 @@ function BlueprintPage({
       : 0;
   const currentOutline = outlines[resolvedOutlineIndex] ?? null;
   const isLiteraryWorkSelected = selectedCategory?.id === 'literature' || selectedCategory?.name === '文学作品';
-  const finalOutlineSectionTitle = isLiteraryWorkSelected ? '文学核心' : '金手指设定';
-  const finalOutlineSectionPlaceholder = isLiteraryWorkSelected
+  const isFilmSelected = selectedCategory?.id === 'film' || selectedCategory?.name === '电影剧本';
+  const finalOutlineSectionTitle = isFilmSelected ? '电影核心' : isLiteraryWorkSelected ? '文学核心' : '金手指设定';
+  const finalOutlineSectionPlaceholder = isFilmSelected
+    ? '类型卖点、主题命题、视听风格、核心情绪和商业看点'
+    : isLiteraryWorkSelected
     ? '作品气质、叙事特色、主题余韵、人物精神困境'
     : '外挂、能力成长路径、资源机制';
   const shouldShowOutlineFinalSection = (outline?: OutlineData | null) =>
-    isLiteraryWorkSelected || outline?.requiresSpecialPower !== false;
+    isFilmSelected || isLiteraryWorkSelected || outline?.requiresSpecialPower !== false;
 
   const createCachedOutline = (outline: OutlineData): OutlineData => ({
     id: outline.id,
@@ -165,7 +178,7 @@ function BlueprintPage({
     world: '',
     themes: '',
     rawContent: '',
-    requiresSpecialPower: isLiteraryWorkSelected ? false : requiresSpecialPower,
+    requiresSpecialPower: (isLiteraryWorkSelected || isFilmSelected) ? false : requiresSpecialPower,
     ...toPreferredLogicModelFields(logicModelValue),
   });
 
@@ -177,6 +190,16 @@ function BlueprintPage({
       // Ignore localStorage failures so model selection never blocks generation.
     }
   }, [logicModelValue]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', themeMode === 'dark');
+    document.documentElement.style.colorScheme = themeMode;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [themeMode]);
 
   useEffect(() => {
     persistBlueprintOutlines(outlines, resolvedOutlineIndex);
@@ -216,7 +239,7 @@ function BlueprintPage({
     try {
       // 清除之前保存的selectedOutline，避免混淆
       localStorage.removeItem('story-architect-current-outline');
-      const shouldRequireSpecialPower = !isLiteraryWorkSelected && requiresSpecialPower;
+      const shouldRequireSpecialPower = !isLiteraryWorkSelected && !isFilmSelected && requiresSpecialPower;
 
       const response = await blueprintApi.generateOutline({
         channel: `${selectedCategory.name}`,
@@ -229,7 +252,7 @@ function BlueprintPage({
       // 解析AI返回的Markdown内容
       const parsedOutlines = parseOutlineContent(response.data).map(outline => ({
         ...outline,
-        themes: isLiteraryWorkSelected || shouldRequireSpecialPower ? outline.themes : '',
+        themes: isLiteraryWorkSelected || isFilmSelected || shouldRequireSpecialPower ? outline.themes : '',
         requiresSpecialPower: shouldRequireSpecialPower,
         ...toPreferredLogicModelFields(logicModelValue),
       }));
@@ -594,6 +617,16 @@ function BlueprintPage({
             </div>
             <div className="flex items-center space-x-4">
               <button
+                type="button"
+                onClick={() => setThemeMode(prev => prev === 'dark' ? 'light' : 'dark')}
+                className="flex items-center space-x-2 px-3 py-1.5 bg-secondary-100 hover:bg-secondary-200 rounded-lg text-secondary-700 text-sm font-medium transition-colors"
+                aria-label={themeMode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+                title={themeMode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+              >
+                {themeMode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                <span>{themeMode === 'dark' ? '日间' : '夜间'}</span>
+              </button>
+              <button
                 onClick={() => setIsSavedPanelOpen(true)}
                 className="flex items-center space-x-2 px-3 py-1.5 bg-secondary-100 hover:bg-secondary-200 rounded-lg text-secondary-700 text-sm font-medium transition-colors"
               >
@@ -634,15 +667,17 @@ function BlueprintPage({
                   <textarea
                     value={theme}
                     onChange={(e) => setTheme(e.target.value)}
-                    placeholder="可以选择或组合这些核心主题：成长崛起、雪耻复仇、逆袭打脸、身份反转、强者归来、废柴觉醒、权力争夺、财富逆袭、爱情救赎、破镜重圆、婚恋博弈、家族恩怨、生死逃亡、末世求生、守护牺牲。也可以写自定义创意方向。"
+                    placeholder={isFilmSelected
+                      ? "可以写电影创意方向：旧案重启、时间循环里的父女和解、女性复仇悬疑、低成本密室惊悚、灾难救援、爱情喜剧、科幻伦理、神话新编、公路治愈、体育励志。也可以只写一句高概念。"
+                      : "可以选择或组合这些核心主题：成长崛起、雪耻复仇、逆袭打脸、身份反转、强者归来、废柴觉醒、权力争夺、财富逆袭、爱情救赎、破镜重圆、婚恋博弈、家族恩怨、生死逃亡、末世求生、守护牺牲。也可以写自定义创意方向。"}
                     className="w-full min-h-[96px] px-3 py-2 border border-secondary-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
                   />
                   <p className="text-xs text-secondary-500">
-                    会和频道、主题/角色/情节标签一起发送给 AI
+                    {isFilmSelected ? '会和电影类型、人物、情节标签一起发送给 AI，生成不同类型片方向的灵感架构' : '会和频道、主题/角色/情节标签一起发送给 AI'}
                   </p>
                 </div>
 
-                {!isLiteraryWorkSelected && (
+                {!isLiteraryWorkSelected && !isFilmSelected && (
                   <div className="rounded-lg border border-secondary-200 bg-secondary-50 px-4 py-3">
                     <div className="flex items-start justify-between gap-4">
                       <div>

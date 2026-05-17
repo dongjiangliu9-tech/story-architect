@@ -109,7 +109,7 @@ function getOutlineSectionKey(label: string): keyof Pick<OutlineData, 'logline' 
   if (['主要冲突', '核心冲突', '主线冲突', 'mainconflict', 'conflict'].includes(normalized)) {
     return 'hook';
   }
-  if (['金手指设定', '金手指', '独特能力', '爽点机制', '文学核心', '文学气质', '审美表达', '叙事特色', '主题余韵', 'specialpower', 'cheat', 'power', 'hook'].includes(normalized)) {
+  if (['金手指设定', '金手指', '独特能力', '爽点机制', '文学核心', '文学气质', '审美表达', '叙事特色', '主题余韵', '电影核心', '类型赛道', '类型组合', '电影类型', '主类型副类型', 'specialpower', 'cheat', 'power', 'hook', 'genre'].includes(normalized)) {
     return 'themes';
   }
 

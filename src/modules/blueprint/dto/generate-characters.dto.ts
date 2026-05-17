@@ -16,8 +16,8 @@ export class GenerateCharactersDto extends LogicModelSelectionDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['novel', 'microdrama', 'literature'])
-  mode?: 'novel' | 'microdrama' | 'literature';
+  @IsIn(['novel', 'microdrama', 'literature', 'film'])
+  mode?: 'novel' | 'microdrama' | 'literature' | 'film';
 
   @IsInt()
   @IsIn([15, 30, 60, 100])

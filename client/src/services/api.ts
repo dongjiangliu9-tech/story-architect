@@ -244,7 +244,7 @@ if (typeof window !== 'undefined') {
 export interface GenerateWorldSettingDto extends LlmModelSelection {
   outline: string;
   needsUpgradeSystem?: boolean;
-  targetMode?: 'microdrama' | 'novel' | 'literature';
+  targetMode?: 'microdrama' | 'novel' | 'literature' | 'film';
   microdramaEpisodeCount?: number;
   useRealisticWorldview?: boolean;
   realisticWorldviewContext?: string;
@@ -265,7 +265,7 @@ export interface GenerateCharactersDto extends LlmModelSelection {
   outline: string;
   worldSetting: string;
   useEnglishNames?: boolean;
-  mode?: 'novel' | 'microdrama' | 'literature';
+  mode?: 'novel' | 'microdrama' | 'literature' | 'film';
   microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   existingCharacters?: string;
   note?: string;
@@ -275,7 +275,7 @@ export interface GenerateDetailedOutlineDto extends LlmModelSelection {
   outline: string;
   worldSetting: string;
   characters: string;
-  mode?: 'novel' | 'microdrama' | 'literature';
+  mode?: 'novel' | 'microdrama' | 'literature' | 'film';
   microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   outlineBatchIndex?: number;
   outlineStartNumber?: number;
@@ -290,7 +290,7 @@ export interface GenerateMicroStoriesDto extends LlmModelSelection {
   macroStory: string;
   storyIndex: string;
   chapterRange?: string;
-  mode?: 'novel' | 'microdrama' | 'literature';
+  mode?: 'novel' | 'microdrama' | 'literature' | 'film';
 }
 
 export interface GenerateMicroStoryVariantsDto extends LlmModelSelection {
@@ -309,7 +309,7 @@ export interface GenerateMicroStoryVariantsDto extends LlmModelSelection {
   note?: string;
   storyIndex?: string;
   microIndex?: string;
-  mode?: 'novel' | 'microdrama';
+  mode?: 'novel' | 'microdrama' | 'film';
 }
 
 export interface GenerateChapterDto {
@@ -321,7 +321,7 @@ export interface GenerateChapterDto {
   generatedChapters?: { [key: number]: string };
   nextExistingChapterNumber?: number;
   nextExistingChapterContent?: string;
-  mode?: 'novel' | 'microdrama';
+  mode?: 'novel' | 'microdrama' | 'film';
   writerModelProvider?: WriterModelProvider;
   writerModel?: string;
   actionFirstScript?: boolean;
@@ -339,7 +339,7 @@ export interface RewriteChapterDto {
   writerModelProvider?: WriterModelProvider;
   writerModel?: string;
   actionFirstScript?: boolean;
-  mode?: 'novel' | 'microdrama';
+  mode?: 'novel' | 'microdrama' | 'film';
 }
 
 export interface ReviewMicrodramaScriptsDto {

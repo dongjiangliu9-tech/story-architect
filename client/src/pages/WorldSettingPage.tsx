@@ -21,10 +21,14 @@ import {
 /**
  * 将OutlineData格式化为大纲字符串
  */
-function formatOutlineData(outline: OutlineData): string {
-  const finalSection = outline.requiresSpecialPower === false
-    ? ''
-    : `\n金手指设定：\n${outline.themes}`;
+function formatOutlineData(outline: OutlineData, mode?: OutlineMode): string {
+  const finalSection = mode === 'film'
+    ? `\n电影核心：\n${outline.themes || '未填写，请从类型卖点、主题命题和视听风格中自行提炼'}`
+    : mode === 'literature'
+      ? `\n文学核心：\n${outline.themes || '未填写，请从作品气质、主题余韵和人物精神困境中自行提炼'}`
+      : outline.requiresSpecialPower === false
+        ? ''
+        : `\n金手指设定：\n${outline.themes}`;
   return `### ${outline.title}
 ${outline.aliasTitle ? `又名：${outline.aliasTitle}\n` : ''}${outline.aliasSynopsis ? `简介：${outline.aliasSynopsis}\n` : ''}${outline.aliasTags?.length ? `标签：${outline.aliasTags.join('、')}\n` : ''}
 
@@ -197,7 +201,7 @@ interface WorldSettingPageProps {
   setAutoFlowProgress?: (progress: number) => void;
 }
 
-type OutlineMode = 'novel' | 'microdrama' | 'literature';
+type OutlineMode = 'novel' | 'microdrama' | 'literature' | 'film';
 
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
   const { currentProject, createProject, updateProject, deleteProject, loadProject, clearCurrentProject, exportProject, exportAllProjects, importFromJsonText, pullCloudProjects, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
@@ -296,6 +300,15 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           emptyTitle: '尚未生成文学作品细纲',
           emptyActionText: '手动填写文学作品细纲',
         }
+    : outlineMode === 'film'
+      ? {
+          shortName: '电影剧本节拍',
+          buttonText: '生成电影15节拍大纲',
+          generateHint: '电影模式使用《救猫咪》15个故事节拍作为骨架，后续每个节拍拆成可拍场景并按节拍写标准电影剧本',
+          resultTitle: '电影15节拍大纲结果',
+          emptyTitle: '尚未生成电影15节拍大纲',
+          emptyActionText: '手动填写电影节拍大纲',
+        }
     : {
         shortName: '网文情节细纲',
         buttonText: '生成首批10个中故事',
@@ -338,7 +351,9 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           ? 'microdrama'
           : currentProject.detailedOutlineMode === 'literature'
             ? 'literature'
-            : 'novel'
+            : currentProject.detailedOutlineMode === 'film'
+              ? 'film'
+              : 'novel'
       );
       setMicrodramaEpisodeCount(
         currentProject.microdramaEpisodeCount === 15 || currentProject.microdramaEpisodeCount === 30 || currentProject.microdramaEpisodeCount === 60 || currentProject.microdramaEpisodeCount === 100
@@ -426,7 +441,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsGeneratingWorldSetting(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
 
       const response = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
@@ -457,7 +472,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsGeneratingCharacters(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
 
       const response = await blueprintApi.generateCharacters({
         ...getLogicModelRequest(),
@@ -498,7 +513,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsSupplementingWorldSetting(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const response = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -552,7 +567,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsSupplementingCharacters(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const response = await blueprintApi.generateCharacters({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -596,7 +611,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsGeneratingOutline(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
 
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
@@ -656,7 +671,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsSupplementingOutline(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -726,7 +741,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsRegeneratingOutlineWithSuggestion(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -791,7 +806,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     setIsRefiningSelectedOutlineStories(true);
     try {
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -883,7 +898,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
         }
       });
 
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const response = await blueprintApi.generateDetailedOutline({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -1226,7 +1241,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
     try {
       // 第一步：生成世界观基础设定
-      const outlineData = formatOutlineData(activeInspirationOutline);
+      const outlineData = formatOutlineData(activeInspirationOutline, outlineMode);
       const worldResponse = await blueprintApi.generateWorldSetting({
         ...getLogicModelRequest(),
         outline: outlineData,
@@ -1725,6 +1740,17 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
 	                    >
 	                      文学作品细纲
+	                    </button>
+	                    <button
+	                      onClick={() => setOutlineMode('film')}
+	                      disabled={!canUseAIGeneration}
+	                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+	                        outlineMode === 'film'
+	                          ? 'bg-primary-600 text-white shadow-sm'
+	                          : 'bg-white text-secondary-700 border border-secondary-200 hover:border-primary-300'
+	                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+	                    >
+	                      电影剧本节拍
 	                    </button>
 	                  </div>
                   {outlineMode === 'microdrama' && (

@@ -102,9 +102,12 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     ? 'microdrama'
     : currentProject?.detailedOutlineMode === 'literature'
       ? 'literature'
-      : 'novel';
+      : currentProject?.detailedOutlineMode === 'film'
+        ? 'film'
+        : 'novel';
   const isMicrodrama = detailedOutlineMode === 'microdrama';
   const isLiterature = detailedOutlineMode === 'literature';
+  const isFilm = detailedOutlineMode === 'film';
   const selectedLiteratureStyle = currentProject?.literatureWritingStyle || literatureWritingStyles[0].id;
   const microdramaEpisodeCount: 15 | 30 | 60 | 100 =
     currentProject?.microdramaEpisodeCount === 15 || currentProject?.microdramaEpisodeCount === 30 || currentProject?.microdramaEpisodeCount === 60 || currentProject?.microdramaEpisodeCount === 100
@@ -126,6 +129,14 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
           microButton: '拆分小节',
           emptyHint: '点击左侧的大章，查看或生成这一章的小节细纲',
         }
+    : isFilm
+      ? {
+          unit: '节拍',
+          macro: '故事节拍',
+          micro: '场景细纲',
+          microButton: '拆分场景',
+          emptyHint: '点击左侧的故事节拍，查看或生成这一节拍的场景细纲',
+        }
     : {
         unit: '章',
         macro: '中故事',
@@ -133,7 +144,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         microButton: '生成单章细纲',
         emptyHint: '点击左侧的中故事列表，选择要查看的单章小故事细纲',
   };
-  const savedUnitLabel = isMicrodrama ? '分集' : isLiterature ? '小节细纲' : '章节细纲';
+  const savedUnitLabel = isMicrodrama ? '分集' : isLiterature ? '小节细纲' : isFilm ? '节拍场景包' : '章节细纲';
   const projectMicroStoryEpisodeCount = currentProject?.microStoryEpisodeCount;
   const projectHasMicroStoryData = Boolean(
     currentProject?.savedMicroStories?.length ||
@@ -216,7 +227,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   const getOrderedMacroStoryBoundaries = (content: string) => {
-    const storyRegex = /【中故事([一二三四五六七八九十百\d]+)】/g;
+    const storyRegex = isFilm
+      ? /【第\s*([一二三四五六七八九十百\d]+)\s*节拍[^】]*】/g
+      : /【中故事([一二三四五六七八九十百\d]+)】/g;
     const matches = [...content.matchAll(storyRegex)];
     const boundaries: Array<RegExpMatchArray & { storyNumber: number }> = [];
     let lastStoryNumber = 0;
@@ -238,7 +251,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     const matches = getOrderedMacroStoryBoundaries(content);
 
     if (matches.length === 0) {
-      console.warn('未找到任何中故事标记');
+      console.warn(`未找到任何${structureLabels.macro}标记`);
       return [];
     }
 
@@ -255,19 +268,19 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       }
     }
 
-    console.log('正确解析出中故事数量:', stories.length);
-    console.log('中故事内容:', stories);
+    console.log(`正确解析出${structureLabels.macro}数量:`, stories.length);
+    console.log(`${structureLabels.macro}内容:`, stories);
     return stories;
   };
 
   // 解析小故事内容，正确提取【小故事X】/【第X章】标记之间的内容
   const parseMicroStoriesFromOutline = (content: string): string[] => {
     const stories: string[] = [];
-    const microStoryRegex = /【(?:(?:小故事|分集|单集)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*章\s*第?\s*[一二三四五六七八九十\d]+\s*小节|第\s*[一二三四五六七八九十\d]+\s*[章节集]|第?\s*[一二三四五六七八九十\d]+\s*小节)】/g;
+    const microStoryRegex = /【(?:(?:小故事|分集|单集|场景)[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*章\s*第?\s*[一二三四五六七八九十\d]+\s*小节|第\s*[一二三四五六七八九十\d]+\s*[章节集场]|第?\s*[一二三四五六七八九十\d]+\s*小节)】/g;
     const matches = [...content.matchAll(microStoryRegex)];
 
     if (matches.length === 0) {
-      const sceneLikeEpisodeRegex = /(?:^|\n)(?:第\s*[一二三四五六七八九十\d]+\s*[章节集]|[一二三四五六七八九十\d]+-\d+\s+(?:日|夜))/g;
+      const sceneLikeEpisodeRegex = /(?:^|\n)(?:第\s*[一二三四五六七八九十\d]+\s*[章节集场]|[一二三四五六七八九十\d]+-\d+\s+(?:日|夜)|场景\s*[一二三四五六七八九十\d]+)/g;
       const sceneMatches = [...content.matchAll(sceneLikeEpisodeRegex)];
       if (sceneMatches.length > 0) {
         for (let i = 0; i < sceneMatches.length; i++) {
@@ -592,7 +605,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   };
 
   const getMicroStoryDefaultTitle = (num: number): string => (
-    isMicrodrama ? `第${num}集` : isLiterature ? `第${getChineseNumber(num)}小节` : `小故事 ${getChineseNumber(num)}`
+    isMicrodrama ? `第${num}集` : isLiterature ? `第${getChineseNumber(num)}小节` : isFilm ? `第${num}场` : `小故事 ${getChineseNumber(num)}`
   );
 
   const getMicrodramaMacroPlans = (episodeCount: 15 | 30 | 60 | 100) => {
@@ -657,6 +670,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     if (isLiterature) {
       return { startChapter: storyIndex + 1, endChapter: storyIndex + 1 };
     }
+    if (isFilm) {
+      return { startChapter: storyIndex + 1, endChapter: storyIndex + 1 };
+    }
 
     const chaptersPerMacroStory = isMicrodrama ? 10 : 15;
     const startChapter = storyIndex * chaptersPerMacroStory + 1;
@@ -668,6 +684,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     const chapterRange = getChapterRange(storyIndex);
     if (isMicrodrama) return `第${chapterRange.startChapter + stableOrder}集`;
     if (isLiterature) return `第${chapterRange.startChapter}章 第${getChineseNumber(stableOrder + 1)}小节`;
+    if (isFilm) return `第${chapterRange.startChapter}节拍`;
     return `第${chapterRange.startChapter + stableOrder}章`;
   };
 
@@ -757,7 +774,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         title: draft.title,
         content: draft.content,
         macroStoryId: storyKey,
-        macroStoryTitle: `中故事 ${storyIndex + 1}`,
+        macroStoryTitle: isFilm ? `第${storyIndex + 1}节拍` : `中故事 ${storyIndex + 1}`,
         macroStoryContent: macroStory,
         order: stableOrder,
         createdAt: prev?.createdAt || nowIso,
@@ -917,13 +934,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
       // 保存到项目
       if (currentProject) {
-        const microStoriesParsed = parseMicroStoriesFromOutline(response.data);
+        const microStoriesParsed = isFilm ? [response.data] : parseMicroStoriesFromOutline(response.data);
         const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
           id: `${storyKey}_micro_${index}_${Date.now()}_${Math.random()}`,
 	          title: getSavedStoryTitle(storyIndex, index),
           content: cleanMicroStoryContent(content),
           macroStoryId: storyKey,
-          macroStoryTitle: `中故事 ${storyIndex + 1}`,
+          macroStoryTitle: isFilm ? `第${storyIndex + 1}节拍` : `中故事 ${storyIndex + 1}`,
           macroStoryContent: macroStory,
           order: index,
           createdAt: new Date().toISOString()
@@ -1046,7 +1063,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         const outlineContent = generatedOutlines[storyKey];
         if (outlineContent) {
 	          // 解析小故事内容
-		          const microStoriesParsed = parseMicroStoriesFromOutline(outlineContent);
+		          const microStoriesParsed = isFilm ? [outlineContent] : parseMicroStoriesFromOutline(outlineContent);
 
 	          // 创建保存的小故事数据
           const savedMicroStories: SavedMicroStory[] = microStoriesParsed.map((content, index) => ({
@@ -1054,7 +1071,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 	            title: getSavedStoryTitle(storyIndex, index),
             content: cleanMicroStoryContent(content),
             macroStoryId: storyKey,
-            macroStoryTitle: `中故事 ${storyIndex + 1}`,
+            macroStoryTitle: isFilm ? `第${storyIndex + 1}节拍` : `中故事 ${storyIndex + 1}`,
             macroStoryContent: macroStory,
             order: index,
             createdAt: new Date().toISOString()
@@ -1232,6 +1249,13 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       alert('没有找到小故事内容，请先生成小故事细纲或先编辑后再保存');
       return;
     }
+    if (isFilm) {
+      storyDraftsToSave = [{
+        title: getSavedStoryTitle(storyIndex, 0, 0),
+        content: serializeMicroStoryDraftsToOutline(storyIndex, storyDraftsToSave),
+        order: 0,
+      }];
+    }
 
     const existingSaved = currentProject.savedMicroStories || [];
     const existingForMacro = existingSaved
@@ -1258,7 +1282,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 	        title: (draft.title || getSavedStoryTitle(storyIndex, index, stableOrder)).trim(),
         content: draft.content ?? '',
         macroStoryId: storyKey,
-        macroStoryTitle: `中故事 ${storyIndex + 1}`,
+        macroStoryTitle: isFilm ? `第${storyIndex + 1}节拍` : `中故事 ${storyIndex + 1}`,
         macroStoryContent: macroStory,
         order: stableOrder,
         createdAt: prev?.createdAt || nowIso
@@ -1323,13 +1347,15 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
 
     const nextDetailedOutline = currentProject.detailedOutline
       ? replaceMacroStoryInDetailedOutline(currentProject.detailedOutline, idx, newContent)
-      : updatedMacroStories.map((s, i) => `【中故事${getChineseNumber(i + 1)}】\n${s.trim()}\n`).join('\n').trim();
+      : updatedMacroStories.map((s, i) => isFilm
+        ? `【第${getChineseNumber(i + 1)}节拍】\n${s.trim()}\n`
+        : `【中故事${getChineseNumber(i + 1)}】\n${s.trim()}\n`).join('\n').trim();
 
     // 同步更新已保存的小故事里对 macroStoryContent 的引用
     const saved = currentProject.savedMicroStories || [];
     const updatedSaved = saved.map(s => (
       s.macroStoryId === storyKey
-        ? { ...s, macroStoryContent: newContent, macroStoryTitle: `中故事 ${idx + 1}` }
+        ? { ...s, macroStoryContent: newContent, macroStoryTitle: isFilm ? `第${idx + 1}节拍` : `中故事 ${idx + 1}` }
         : s
     ));
 
@@ -1337,7 +1363,7 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
     const updatedSelected = selected
       ? selected.map(s => (
           s.macroStoryId === storyKey
-            ? { ...s, macroStoryContent: newContent, macroStoryTitle: `中故事 ${idx + 1}` }
+            ? { ...s, macroStoryContent: newContent, macroStoryTitle: isFilm ? `第${idx + 1}节拍` : `中故事 ${idx + 1}` }
             : s
         ))
       : undefined;

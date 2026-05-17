@@ -19,12 +19,13 @@ interface CreativeConfigSelectorProps {
 }
 
 const groupOrder: CreativeTagGroup[] = ['popular', 'theme', 'role', 'plot'];
-const channelOrder: CreativeChannel[] = ['male', 'female', 'tiktok', 'literature'];
+const channelOrder: CreativeChannel[] = ['male', 'female', 'tiktok', 'literature', 'film'];
 const CUSTOM_TAG_PREFIX = 'custom_tag_';
 
 function resolveChannel(category: NovelCategory | null): CreativeChannel {
   if (category?.id === 'tiktok') return 'tiktok';
   if (category?.id === 'literature') return 'literature';
+  if (category?.id === 'film') return 'film';
   return category?.id === 'female' ? 'female' : 'male';
 }
 

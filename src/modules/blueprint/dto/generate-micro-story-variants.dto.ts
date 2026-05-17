@@ -68,6 +68,6 @@ export class GenerateMicroStoryVariantsDto extends LogicModelSelectionDto {
 
   @IsString()
   @IsOptional()
-  @IsIn(['novel', 'microdrama'])
-  mode?: 'novel' | 'microdrama';
+  @IsIn(['novel', 'microdrama', 'film'])
+  mode?: 'novel' | 'microdrama' | 'film';
 }

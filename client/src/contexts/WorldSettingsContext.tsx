@@ -81,7 +81,7 @@ export interface WorldSettingsProject {
   worldSettingTransferRef?: string;
   charactersTransferRef?: string;
   detailedOutlineTransferRef?: string;
-  detailedOutlineMode?: 'novel' | 'microdrama' | 'literature';
+  detailedOutlineMode?: 'novel' | 'microdrama' | 'literature' | 'film';
   microdramaEpisodeCount?: 15 | 30 | 60 | 100;
   densityTuningLevels?: Partial<DensityTuningLevels>;
   reduceSensitiveContent?: boolean;
@@ -328,7 +328,9 @@ export function WorldSettingsProvider({ children }: { children: ReactNode }) {
         ? 'microdrama'
         : base.detailedOutlineMode === 'literature'
           ? 'literature'
-          : 'novel',
+          : base.detailedOutlineMode === 'film'
+            ? 'film'
+            : 'novel',
       microdramaEpisodeCount: base.microdramaEpisodeCount === 15 || base.microdramaEpisodeCount === 30 || base.microdramaEpisodeCount === 60 || base.microdramaEpisodeCount === 100
         ? base.microdramaEpisodeCount
         : 30,

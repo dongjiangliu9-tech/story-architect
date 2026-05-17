@@ -55,6 +55,12 @@ function normalizeTargetNovelWords(value: unknown): number {
   return Math.min(5000, Math.max(800, Math.round(numericValue)));
 }
 
+function normalizeTargetFilmWords(value: unknown): number {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue)) return 3600;
+  return Math.min(5000, Math.max(2500, Math.round(numericValue)));
+}
+
 function extractChapterEnding(content: string, linesCount: number = 10): string {
   if (!content) return '';
   const lines = content.split('\n').filter(l => l !== undefined);
@@ -125,9 +131,13 @@ function buildChapterAlignedStories(entries: Array<{ story: SavedMicroStory; cha
   return aligned;
 }
 
-function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentProject']): 'novel' | 'microdrama' {
+function inferWriterMode(project: ReturnType<typeof useWorldSettings>['currentProject']): 'novel' | 'microdrama' | 'film' {
   if (!project) return 'novel';
-  return project.detailedOutlineMode === 'microdrama' ? 'microdrama' : 'novel';
+  return project.detailedOutlineMode === 'microdrama'
+    ? 'microdrama'
+    : project.detailedOutlineMode === 'film'
+      ? 'film'
+      : 'novel';
 }
 
 const WRITER_AUTO_FLOW_MAX_AGE_MS = 5 * 60 * 1000;
@@ -209,11 +219,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const { currentProject, updateProject, exportProject, clearNovelCacheForProject, syncProjectToCloud } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
   const isMicrodrama = writerMode === 'microdrama';
+  const isFilm = writerMode === 'film';
   const isLiterature = currentProject?.detailedOutlineMode === 'literature';
-  const unitLabel = isMicrodrama ? '集' : '章';
+  const unitLabel = isMicrodrama ? '集' : isFilm ? '节拍' : '章';
   const unitsPerMicroStory = 1;
-  const storiesPerBatch = isMicrodrama ? 1 : 8;
-  const unitsPerBatch = isMicrodrama ? 1 : 8;
+  const storiesPerBatch = isMicrodrama || isFilm ? 1 : 8;
+  const unitsPerBatch = isMicrodrama || isFilm ? 1 : 8;
   const [writerModelValue, setWriterModelValue] = useState(DEFAULT_WRITER_MODEL_VALUE);
   const writerModelOption = getWriterModelOption(writerModelValue);
   const writerModelRequest = toWriterModelRequest(writerModelValue);
@@ -343,6 +354,12 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     currentRequestIdRef.current = currentRequestId;
   }, [currentRequestId]);
+
+  useEffect(() => {
+    if (isFilm && targetNovelWords < 2500) {
+      setTargetNovelWords(3600);
+    }
+  }, [isFilm, targetNovelWords]);
 
   useEffect(() => {
     currentChapterRef.current = currentChapter;
@@ -495,6 +512,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const rewriteTargetWords = Math.max(300, Math.round(visibleChapterWords * (1 + rewritePercent / 100)));
   const activeTargetWords = isMicrodrama
     ? normalizeTargetEpisodeWords(targetEpisodeWords)
+    : isFilm
+      ? normalizeTargetFilmWords(targetNovelWords)
     : normalizeTargetNovelWords(targetNovelWords);
 
   const hasChapter = (chapterNumber: number): boolean => {
@@ -1436,7 +1455,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	        ...writerModelRequest,
 	        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	        targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
-	        targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
+	        targetNovelWords: !isMicrodrama ? (isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords)) : undefined,
 	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
 	        generatedChapters: startChapter > 1 ? activeGeneratedChapters : undefined
       });
@@ -1767,7 +1786,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       ...writerModelRequest,
       actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
       targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
-      targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
+      targetNovelWords: !isMicrodrama ? (isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords)) : undefined,
       generatedChapters: undefined,
       nextExistingChapterNumber: undefined,
       nextExistingChapterContent: undefined,
@@ -2361,7 +2380,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       savedMicroStories: alignedMicroStoriesForWriting,
       mode: writerMode,
       ...writerModelRequest,
-      targetNovelWords: normalizeTargetNovelWords(targetNovelWords),
+      targetNovelWords: isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords),
       nextExistingChapterNumber: nextExistingContent ? segmentEndChapter + 1 : undefined,
       nextExistingChapterContent: nextExistingContent || undefined,
       generatedChapters: undefined,
@@ -2762,7 +2781,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            ...writerModelRequest,
 	            actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
 	            targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
-	            targetNovelWords: !isMicrodrama ? normalizeTargetNovelWords(targetNovelWords) : undefined,
+	            targetNovelWords: !isMicrodrama ? (isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords)) : undefined,
 	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
           });
 
@@ -3104,8 +3123,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	      context += `人物关系：${currentProject.outline.characters}\n`;
 	      context += `世界观设定：${currentProject.outline.world}\n`;
 	      context += `主要冲突：${currentProject.outline.hook}\n`;
-	      if (isLiterature || currentProject.outline.requiresSpecialPower !== false) {
-	        context += `${isLiterature ? '文学核心' : '金手指设定'}：${currentProject.outline.themes}\n`;
+	      if (isLiterature || isFilm || currentProject.outline.requiresSpecialPower !== false) {
+	        context += `${isFilm ? '电影核心' : isLiterature ? '文学核心' : '金手指设定'}：${currentProject.outline.themes}\n`;
 	      }
 	      context += '\n';
 	    }
@@ -3115,6 +3134,10 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	      context += `【文学作品正文模式】\n`;
 	      context += `文风选择：${styleName}\n`;
 	      context += `写作要求：这是文学作品，不按网文章节爽点写法处理；不要金手指、系统、外挂、升级、打脸爽点、强钩子和过度情绪拉扯。正文以正常叙事讲清故事，以人物刻画、生活细节、关系变化、环境压力和主题余韵为核心。小节细纲属于同一大章内部段落，写作时要保留“第X章 / 第X小节”的层次感。\n\n`;
+	    }
+	    if (isFilm) {
+	      context += `【电影剧本正文模式】\n`;
+	      context += `写作要求：这是标准中文电影剧本，不写小说正文。每个“节拍”作为一次写作单位，需把该节拍下的所有场景细纲整合成约3000-4000字的可拍剧本段落。格式使用场号、内外景、时间、地点、人物、动作说明和对白；重点是镜头可拍、场景切换清楚、人物行动明确。\n\n`;
 	    }
 
     // 世界观设定 - 精简关键信息
@@ -3127,8 +3150,8 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 
     // 人物设定 - 精简关键信息
     if (currentProject.characters) {
-      context += isMicrodrama ? '【核心人物资料优先摘要】\n' : '【人物设定】\n';
-      const charactersSummary = buildFocusedCharacterContext(currentProject.characters, isMicrodrama);
+      context += isMicrodrama || isFilm ? '【核心人物资料优先摘要】\n' : '【人物设定】\n';
+      const charactersSummary = buildFocusedCharacterContext(currentProject.characters, isMicrodrama || isFilm);
       context += charactersSummary + '\n\n';
     }
 
@@ -3150,14 +3173,16 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       );
 
       if (relevantStories.length > 0) {
-	        context += `【本批次${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}细纲】\n`;
+	        context += `【本批次${isMicrodrama ? '分集' : isLiterature ? '小节' : isFilm ? '节拍场景' : '小故事'}细纲】\n`;
         relevantStories.forEach(({ story, chapterNumber }, index) => {
 	          const rangeText = isMicrodrama
 	            ? `第${chapterNumber}集`
+	            : isFilm
+	              ? `第${chapterNumber}节拍`
 	            : isLiterature
 	              ? story.title
 	              : `第${chapterNumber}章`;
-	          context += `${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}${index + 1}（${rangeText}）：\n`;
+	          context += `${isMicrodrama ? '分集' : isLiterature ? '小节' : isFilm ? '节拍' : '小故事'}${index + 1}（${rangeText}）：\n`;
           context += `标题：${story.title}\n`;
           context += `内容：${story.content}\n\n`;
         });
@@ -3170,16 +3195,18 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       const currentStory = getMicroStoryForChapter(currentStoryChapter);
 
       if (currentStory) {
-	        context += `【当前${unitLabel === '集' ? '单集' : isLiterature ? '小节' : '章节'}剧情边界参考】\n`;
+	        context += `【当前${unitLabel === '集' ? '单集' : isLiterature ? '小节' : isFilm ? '节拍' : '章节'}剧情边界参考】\n`;
         context += isMicrodrama
           ? `当前集：第${currentStoryChapter}集\n`
+	          : isFilm
+	            ? `当前节拍：第${currentStoryChapter}节拍\n`
 	          : isLiterature
 	            ? `当前小节：${currentStory.title}\n`
 	            : `章节：第${currentStoryChapter}章\n`;
-	        context += `对应${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}：${currentStory.title}\n`;
-	        context += `${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}详细内容：${currentStory.content}\n`;
+	        context += `对应${isMicrodrama ? '分集' : isLiterature ? '小节' : isFilm ? '节拍场景包' : '小故事'}：${currentStory.title}\n`;
+	        context += `${isMicrodrama ? '分集' : isLiterature ? '小节' : isFilm ? '节拍场景包' : '小故事'}详细内容：${currentStory.content}\n`;
         context += `所属中故事：${currentStory.macroStoryTitle}\n\n`;
-	        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : isLiterature ? '小节' : '小故事'}内容进行创作，确保正文与剧情边界吻合；正文中不得出现“小故事卡”“技法卡”“一级结构”“阶段状态小结”等创作后台信息。\n\n`;
+	        context += `重要提示：请严格按照上述${isMicrodrama ? '分集' : isLiterature ? '小节' : isFilm ? '节拍场景包' : '小故事'}内容进行创作，确保正文与剧情边界吻合；正文中不得出现“小故事卡”“技法卡”“一级结构”“阶段状态小结”等创作后台信息。\n\n`;
       }
     }
 
@@ -3783,7 +3810,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      min={isMicrodrama ? 500 : 800}
+                      min={isMicrodrama ? 500 : isFilm ? 2500 : 800}
                       max="5000"
                       step="100"
                       value={isMicrodrama ? targetEpisodeWords : targetNovelWords}
