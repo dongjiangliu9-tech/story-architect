@@ -918,6 +918,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
         storyIndex: chineseIndex,
         chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
 	        mode: detailedOutlineMode,
+	        previousMacroStory: macroStories[storyIndex - 1],
+	        previousMicroStories: microStoryOutlines[`story_${storyIndex - 1}`],
+	        nextMacroStory: macroStories[storyIndex + 1],
       });
 
       console.log(`生成中故事${chineseIndex}的小故事细纲成功 (${structureLabels.unit}: ${chapterRange.startChapter}-${chapterRange.endChapter})`);
@@ -1039,6 +1042,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
             storyIndex: chineseIndex,
             chapterRange: `${chapterRange.startChapter}-${chapterRange.endChapter}`,
 	            mode: detailedOutlineMode,
+	            previousMacroStory: macroStories[storyIndex - 1],
+	            previousMicroStories: generatedOutlines[`story_${storyIndex - 1}`] || microStoryOutlines[`story_${storyIndex - 1}`],
+	            nextMacroStory: macroStories[storyIndex + 1],
           });
 
           console.log(`批量生成：中故事${chineseIndex}的小故事细纲成功`);

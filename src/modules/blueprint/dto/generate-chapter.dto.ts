@@ -52,6 +52,10 @@ export class GenerateChapterDto {
   @IsOptional()
   actionFirstScript?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  dialogueFirstScript?: boolean;
+
   @IsNumber()
   @IsOptional()
   targetEpisodeWords?: number;
@@ -94,6 +98,10 @@ export class RewriteChapterDto {
   @IsBoolean()
   @IsOptional()
   actionFirstScript?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  dialogueFirstScript?: boolean;
 
   @IsString()
   @IsOptional()

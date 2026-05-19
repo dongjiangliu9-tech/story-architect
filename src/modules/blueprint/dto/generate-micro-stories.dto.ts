@@ -14,6 +14,18 @@ export class GenerateMicroStoriesDto extends LogicModelSelectionDto {
 
   @IsString()
   @IsOptional()
+  previousMacroStory?: string; // 上一个中故事内容，用于跨中故事衔接
+
+  @IsString()
+  @IsOptional()
+  previousMicroStories?: string; // 已生成的上一组分集/小故事细纲，用于承接
+
+  @IsString()
+  @IsOptional()
+  nextMacroStory?: string; // 下一个中故事内容，用于自然递交目标
+
+  @IsString()
+  @IsOptional()
   @IsIn(['novel', 'microdrama', 'literature', 'film'])
   mode?: 'novel' | 'microdrama' | 'literature' | 'film';
 }

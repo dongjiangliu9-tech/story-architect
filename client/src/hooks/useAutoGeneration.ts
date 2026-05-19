@@ -554,6 +554,9 @@ ${outline.hook}${finalSection}`;
             storyIndex: getChineseNumber(macroIndex + 1),
             chapterRange: `${chapterRange.start}-${chapterRange.end}`,
             mode: targetMode,
+            previousMacroStory: macroStories[macroIndex - 1]?.content,
+            previousMicroStories: microStoryOutlines[`story_${macroIndex - 1}`],
+            nextMacroStory: macroStories[macroIndex + 1]?.content,
           });
 
           microStoryOutlines[`story_${macroIndex}`] = microResponse.data;

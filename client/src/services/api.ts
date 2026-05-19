@@ -94,16 +94,13 @@ function renderActivationBadge(status: ActivationStatusResponse) {
   if (!badge) {
     badge = document.createElement('div');
     badge.id = ACTIVATION_BADGE_ID;
+    badge.className = 'activation-quota-badge';
     badge.style.position = 'fixed';
     badge.style.right = '16px';
     badge.style.bottom = '16px';
     badge.style.zIndex = '9999';
     badge.style.padding = '10px 12px';
     badge.style.borderRadius = '10px';
-    badge.style.border = '1px solid rgba(37, 99, 235, 0.24)';
-    badge.style.background = 'rgba(255, 255, 255, 0.94)';
-    badge.style.boxShadow = '0 10px 30px rgba(15, 23, 42, 0.16)';
-    badge.style.color = '#1f2937';
     badge.style.fontSize = '12px';
     badge.style.lineHeight = '1.5';
     badge.style.backdropFilter = 'blur(10px)';
@@ -119,7 +116,8 @@ function renderActivationBadge(status: ActivationStatusResponse) {
       <button
         type="button"
         data-activation-action="show-code"
-        style="border: 0; border-radius: 6px; padding: 1px 6px; cursor: pointer; color: #1d4ed8; background: #dbeafe; font-size: 11px;"
+        class="activation-quota-badge__button"
+        style="border: 0; border-radius: 6px; padding: 1px 6px; cursor: pointer; font-size: 11px;"
       >查看</button>
     </div>
     <div>Gemini：${status.gemini.remaining}/${status.gemini.limit}</div>
@@ -291,6 +289,9 @@ export interface GenerateMicroStoriesDto extends LlmModelSelection {
   storyIndex: string;
   chapterRange?: string;
   mode?: 'novel' | 'microdrama' | 'literature' | 'film';
+  previousMacroStory?: string;
+  previousMicroStories?: string;
+  nextMacroStory?: string;
 }
 
 export interface GenerateMicroStoryVariantsDto extends LlmModelSelection {
@@ -325,6 +326,7 @@ export interface GenerateChapterDto {
   writerModelProvider?: WriterModelProvider;
   writerModel?: string;
   actionFirstScript?: boolean;
+  dialogueFirstScript?: boolean;
   targetEpisodeWords?: number;
   targetNovelWords?: number;
 }
@@ -339,6 +341,7 @@ export interface RewriteChapterDto {
   writerModelProvider?: WriterModelProvider;
   writerModel?: string;
   actionFirstScript?: boolean;
+  dialogueFirstScript?: boolean;
   mode?: 'novel' | 'microdrama' | 'film';
 }
 

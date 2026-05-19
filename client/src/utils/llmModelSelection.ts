@@ -50,7 +50,7 @@ export const LOGIC_MODEL_OPTIONS: Array<{
   },
 ];
 
-export const DEFAULT_WRITER_MODEL_VALUE = 'gateway:gemini-3.1-pro-preview';
+export const DEFAULT_WRITER_MODEL_VALUE = 'deepseek:deepseek-v4-pro';
 
 export const WRITER_MODEL_OPTIONS: Array<{
   value: string;

@@ -229,6 +229,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   const writerModelOption = getWriterModelOption(writerModelValue);
   const writerModelRequest = toWriterModelRequest(writerModelValue);
   const [actionFirstScript, setActionFirstScript] = useState(false);
+  const [dialogueFirstScript, setDialogueFirstScript] = useState(false);
   const [targetEpisodeWords, setTargetEpisodeWords] = useState(800);
   const [targetNovelWords, setTargetNovelWords] = useState(2100);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
@@ -679,7 +680,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setCurrentChapter(restoredChapter);
           setJumpToChapter(restoredChapter.toString());
           setPreviousChapterEnding(state.previousChapterEnding || '');
+          setWriterModelValue(getWriterModelOption(state.writerModelValue)?.value || DEFAULT_WRITER_MODEL_VALUE);
           setActionFirstScript(Boolean(state.actionFirstScript));
+          setDialogueFirstScript(Boolean(state.dialogueFirstScript));
           setTargetEpisodeWords(normalizeTargetEpisodeWords(state.targetEpisodeWords));
           setTargetNovelWords(normalizeTargetNovelWords(state.targetNovelWords));
           // 合并项目中的章节和localStorage中的章节
@@ -717,7 +720,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
           setGeneratedContent(state.generatedContent || '');
           setCurrentChapter(state.currentChapter || 1);
           setPreviousChapterEnding(state.previousChapterEnding || '');
+          setWriterModelValue(getWriterModelOption(state.writerModelValue)?.value || DEFAULT_WRITER_MODEL_VALUE);
           setActionFirstScript(Boolean(state.actionFirstScript));
+          setDialogueFirstScript(Boolean(state.dialogueFirstScript));
           setTargetEpisodeWords(normalizeTargetEpisodeWords(state.targetEpisodeWords));
           setTargetNovelWords(normalizeTargetNovelWords(state.targetNovelWords));
           setGeneratedChapters(state.generatedChapters || {});
@@ -739,7 +744,9 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
     generatedContent: isEditingChapter ? chapterDraft : generatedContent,
     currentChapter,
     previousChapterEnding,
+    writerModelValue,
     actionFirstScript,
+    dialogueFirstScript,
     targetEpisodeWords,
     targetNovelWords,
     generatedChapters: chapters,
@@ -869,7 +876,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
   useEffect(() => {
     const interval = setInterval(saveWriterState, 30000);
     return () => clearInterval(interval);
-  }, [generatedContent, currentChapter, previousChapterEnding, actionFirstScript, targetEpisodeWords, targetNovelWords, generatedChapters, generationState]);
+  }, [generatedContent, currentChapter, previousChapterEnding, writerModelValue, actionFirstScript, dialogueFirstScript, targetEpisodeWords, targetNovelWords, generatedChapters, generationState]);
 
   // 离开页面时保存状态
   useEffect(() => {
@@ -1454,6 +1461,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	        mode: writerMode,
 	        ...writerModelRequest,
 	        actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+	        dialogueFirstScript: isMicrodrama ? dialogueFirstScript : undefined,
 	        targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	        targetNovelWords: !isMicrodrama ? (isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords)) : undefined,
 	        // 只要不是从第1章开始，就把已保存的正文一并传给后端，保证“引用”走最新文档
@@ -1785,6 +1793,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
       mode: writerMode,
       ...writerModelRequest,
       actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+      dialogueFirstScript: isMicrodrama ? dialogueFirstScript : undefined,
       targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
       targetNovelWords: !isMicrodrama ? (isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords)) : undefined,
       generatedChapters: undefined,
@@ -2780,6 +2789,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	            mode: writerMode,
 	            ...writerModelRequest,
 	            actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+	            dialogueFirstScript: isMicrodrama ? dialogueFirstScript : undefined,
 	            targetEpisodeWords: isMicrodrama ? normalizeTargetEpisodeWords(targetEpisodeWords) : undefined,
 	            targetNovelWords: !isMicrodrama ? (isFilm ? normalizeTargetFilmWords(targetNovelWords) : normalizeTargetNovelWords(targetNovelWords)) : undefined,
 	            generatedChapters: undefined // 总是传递undefined，让后端完全依赖chapterNumber参数
@@ -3350,6 +3360,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
         storyData,
         ...writerModelRequest,
         actionFirstScript: isMicrodrama ? actionFirstScript : undefined,
+        dialogueFirstScript: isMicrodrama ? dialogueFirstScript : undefined,
         mode: writerMode,
       });
 
@@ -3577,20 +3588,48 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
 	                </div>
 
 	                {isMicrodrama && (
-	                  <button
-	                    type="button"
-	                    onClick={() => setActionFirstScript(prev => !prev)}
-	                    disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter}
-	                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:cursor-not-allowed ${
-	                      actionFirstScript
-	                        ? 'bg-emerald-600 border-emerald-600 text-white'
-	                        : 'bg-white/80 border-secondary-200 text-secondary-700 hover:bg-secondary-50 disabled:text-secondary-400'
-	                    }`}
-	                    title="开启后，微短剧剧本会以动作、镜头和人物行为为主，台词为辅"
-	                  >
-	                    <PenTool className="w-3.5 h-3.5" />
-	                    <span>动作主导</span>
-	                  </button>
+	                  <>
+	                    <button
+	                      type="button"
+	                      onClick={() => {
+	                        setActionFirstScript(prev => {
+	                          const next = !prev;
+	                          if (next) setDialogueFirstScript(false);
+	                          return next;
+	                        });
+	                      }}
+	                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter}
+	                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+	                        actionFirstScript
+	                          ? 'bg-emerald-600 border-emerald-600 text-white'
+	                          : 'bg-white/80 border-secondary-200 text-secondary-700 hover:bg-secondary-50 disabled:text-secondary-400'
+	                      }`}
+	                      title="开启后，微短剧剧本会以动作、镜头和人物行为为主，台词为辅"
+	                    >
+	                      <PenTool className="w-3.5 h-3.5" />
+	                      <span>动作主导</span>
+	                    </button>
+	                    <button
+	                      type="button"
+	                      onClick={() => {
+	                        setDialogueFirstScript(prev => {
+	                          const next = !prev;
+	                          if (next) setActionFirstScript(false);
+	                          return next;
+	                        });
+	                      }}
+	                      disabled={generationState.isGenerating || isBatchGenerating || isFullCycleGenerating || isSegmentGenerating || isRewritingChapter}
+	                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+	                        dialogueFirstScript
+	                          ? 'bg-violet-600 border-violet-600 text-white'
+	                          : 'bg-white/80 border-secondary-200 text-secondary-700 hover:bg-secondary-50 disabled:text-secondary-400'
+	                      }`}
+	                      title="开启后，微短剧剧本会提高对白密度，用台词推进冲突、情感拉扯和信息揭露"
+	                    >
+	                      <FileText className="w-3.5 h-3.5" />
+	                      <span>台词主导</span>
+	                    </button>
+	                  </>
 	                )}
 	              </div>
 
@@ -4503,7 +4542,7 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                   {isMicrodrama ? (
                     <>
                       <p>• 每集按你设置的目标字数生成，成稿完整但不拖长</p>
-                      <p>• {actionFirstScript ? '动作和镜头为主，台词为辅' : '对话与可见动作并重'}，强推进、强情绪、强钩子</p>
+                      <p>• {actionFirstScript ? '动作和镜头为主，台词为辅' : dialogueFirstScript ? '台词主导，情感拉扯和信息揭露更密' : '对话与可见动作并重'}，强推进、强情绪、强钩子</p>
                       <p>• 结尾必须切黑场或留致命悬念</p>
                       <p>• 延续上一集的动作与情绪，不要断档</p>
                     </>
