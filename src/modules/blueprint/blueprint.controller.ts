@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { ExportMicrodramaMarkdownDto, GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto } from './dto/generate-chapter.dto';
+import { ExportMicrodramaMarkdownDto, GenerateChapterDto, GenerateCharacterPromptsDto, GenerateSeedancePromptsDto, GenerateSupplementalAssetPromptDto, ReviewMicrodramaScriptsDto, ReviseCharacterPromptDto, RewriteChapterDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
 
@@ -95,6 +95,26 @@ export class BlueprintController {
   @Post('review-microdrama-scripts')
   async reviewMicrodramaScripts(@Body() dto: ReviewMicrodramaScriptsDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.reviewMicrodramaScripts(dto));
+  }
+
+  @Post('generate-character-prompts')
+  async generateCharacterPrompts(@Body() dto: GenerateCharacterPromptsDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateCharacterPrompts(dto));
+  }
+
+  @Post('revise-character-prompt')
+  async reviseCharacterPrompt(@Body() dto: ReviseCharacterPromptDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.reviseCharacterPrompt(dto));
+  }
+
+  @Post('generate-supplemental-asset-prompt')
+  async generateSupplementalAssetPrompt(@Body() dto: GenerateSupplementalAssetPromptDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateSupplementalAssetPrompt(dto));
+  }
+
+  @Post('generate-seedance-prompts')
+  async generateSeedancePrompts(@Body() dto: GenerateSeedancePromptsDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateSeedancePrompts(dto));
   }
 
   @Post('prepare-stream')

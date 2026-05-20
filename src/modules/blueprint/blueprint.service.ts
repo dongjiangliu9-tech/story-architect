@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { ExportMicrodramaMarkdownDto, GenerateChapterDto, ReviewMicrodramaScriptsDto, RewriteChapterDto, WriterModelProvider } from './dto/generate-chapter.dto';
+import { ExportMicrodramaMarkdownDto, GenerateChapterDto, GenerateCharacterPromptsDto, GenerateSeedancePromptsDto, GenerateSupplementalAssetPromptDto, ReviewMicrodramaScriptsDto, ReviseCharacterPromptDto, RewriteChapterDto, WriterModelProvider } from './dto/generate-chapter.dto';
 import { LogicModelSelectionDto } from './dto/logic-model-selection.dto';
 import { Observable, Subscriber } from 'rxjs';
 
@@ -149,6 +149,58 @@ export class BlueprintService {
 - 所有关键事件都要有明确因果链：触发原因、人物动机、行动过程、结果与余波。
 - 正文必须有成稿感，不能写成提纲扩写、桥段清单、后台规划说明或流水账。
 - 场景、动作、对话、情绪、因果必须彼此咬合，不要为了赶速度省略必要承接句、反应句和镜头落点。`;
+  }
+
+  private getMicrodramaWorldOpeningRule(): string {
+    return `【微短剧开局世界观铺垫硬规则】
+- 中故事一必须把“这个世界为什么会发生这种事”写进剧情本身。第1集结束前，观众至少要看懂：时代/城市或空间、人物所在阶层/行业/家族/组织、最关键的一条世界规则或社会潜规则、主角被这条规则逼到什么处境。
+- 世界观铺垫不能停下来讲设定，也不能只靠一句旁白糊过去；必须通过可拍场面嵌入危机：他人视角议论、新闻/直播/公告/广播、审判/会议/宴席/祭坛/公司制度、债务单/病历/契约/遗嘱/任命书/身份牌/弹幕/系统提示等。
+- 可以使用角色内心OS、旁观者画外音、短促旁白或字幕，但只能作为情绪化、视角化的信息补刀，必须和镜头里的冲突、道具、动作互相印证；禁止百科式背景介绍。
+- 中故事一不能一下子只写追杀、濒死、打脸或暧昧刺激。刺激必须和世界规则、主角身份、主线目标形成因果，让观众知道“他/她为什么不能输”。`;
+  }
+
+  private getMicrodramaCharacterDepthRule(): string {
+    return `【微短剧人物复杂度硬规则】
+- 人物动机禁止只写成拜金、自私、恶毒、恋爱脑或工具人。每个重要人物至少要有两层动机：外在利益/生存压力 + 内在恐惧、羞耻、亏欠、保护欲、创伤、误判、价值观或自我辩护。
+- 反派和压力方可以狠，但必须有现实利益逻辑、人性弱点和自我合理化；他们的压迫行为要能被“资源、身份、旧怨、恐惧、亲情、阶层或名声”解释，而不是单纯为了坏。
+- 主角、感情线核心人物、主要配角必须在剧情里体现挣扎和成长弧光：犹豫、试探、误判、付出代价、拒绝诱惑、承认软肋、改变信任、主动承担或保护他人。
+- 后续中故事、分集细纲和正文必须把人物弧光落成具体剧情行为，不能只写“变成熟/成长/醒悟”。`;
+  }
+
+  private getMicrodramaDialogueRealityRule(): string {
+    return `【微短剧台词真实感硬规则】
+- 台词要像真人在具体压力场里说话，短、准、有潜台词、有情绪方向；每句对白都要服务冲突、试探、隐瞒、逼问、护短、退让、揭穿或选择。
+- 禁止过度网文化、霸总腔、尬爽宣言和鸡皮疙瘩式表达，例如空泛狠话、土味情话、端着说教、连续金句、角色替作者解释设定、所有人同一种网文腔。
+- 角色说话必须贴合身份、年龄、关系距离、当下场合和情绪逻辑。亲密关系要有分寸和真实拉扯，不能用浮夸调戏代替情感推进。
+- 重要台词前后必须有动作、停顿、眼神、道具或对方反应承接；不要连续堆对白，也不要让对白承担整段设定说明。`;
+  }
+
+  private getCharacterPortraitPromptRule(): string {
+    return `【核心人物立绘提示词格式硬规则】
+- 立绘提示词必须模仿用户指定的句型结构，而不是照抄具体服装和颜色。
+- 句型顺序固定为：画风定位 → 人物身份与体貌 → 面容神情 → 服装材质/剪裁/颜色 → 身份标志物或随身道具 → 中性定妆站姿与轻微可见细节 → 避免项或色调控制 → 全身照/正面/纯白背景/电影级质感。
+- 男性角色句型骨架：[视觉风格]，一名[身材/气质]的[时代/身份]中国男性，[身高或体格特征]，面容[具体五官气质]，眼神[情绪与性格底色]。他穿着一套[颜色][材质][服装类型]，外罩/腰间/手边带有[身份标志物]，整体色调以[2-3个颜色]为主。他自然站立或负手而立，姿态端正克制，[手部/肩背/佩饰等轻微可见细节]透露出[职业、权势或性格底色]。全身照，正面面向镜头，背景为纯净的无影白墙，极高画质，电影级质感。
+- 女性角色句型骨架：[视觉风格]，一位[时代/身份/气质]的中国女性，容貌[具体美感]，神情[冷艳/温柔/疲惫/警惕/神秘等]。她身穿一套[颜色][材质][服装类型]，服装上有[纹样/绣样/结构设计]，腰间/发间/手边配有[首饰、信物或道具]。她自然正面站立，表情克制稳定，[皮肤、眼神、站姿、手势]体现[人物处境、欲望或隐藏危险]。纯白色背景，全身照，正面面向镜头，电影级质感，极度复杂但符合人物身份的设计感。
+- 现代、现实、校园、职场、悬疑、商战、年代、古装等不同题材必须换成对应真实服饰、道具、阶层质感和职业细节，不能所有人都古装华服。
+- 这是全剧通用的定妆照提示词，不是某一集的剧情瞬间。禁止写受伤、血迹、破衣、战斗动作、哭喊、跪地、跌倒、奔跑、挥刀、拥抱、亲吻、被绑、被追杀等强情节化动作或临时状态。
+- 姿态越大众、越稳定、越可长期复用越好；只保留能体现身份和气质的轻微细节。
+- 提示词必须是一段完整成品句子，不要输出“参考模板”“字段说明”或括号占位。`;
+  }
+
+  private getAssetVisualStylePrompt(style?: string): string {
+    if (style === 'guofeng_2d') {
+      return `【视觉模式：2D国风动漫微短剧】
+- 所有人物提示词使用“2D国风动漫角色立绘，精致国风线稿，细腻赛璐璐上色，东方审美，高清角色设定图”作为画风定位。
+- 所有场景提示词使用“2D国风动漫场景设定图，精致国风线稿，细腻光影，东方色彩，高清背景美术”作为画风定位。`;
+    }
+    if (style === 'guofeng_3d') {
+      return `【视觉模式：3D国风动漫微短剧】
+- 所有人物提示词使用“3D国风动漫角色立绘，高精度角色模型质感，电影级灯光，东方审美，高清角色设定图”作为画风定位。
+- 所有场景提示词使用“3D国风动漫场景概念图，高精度模型质感，电影级灯光，东方色彩，高清背景美术”作为画风定位。`;
+    }
+    return `【视觉模式：真人微短剧】
+- 所有人物提示词使用“电影写实主义真人微短剧定妆照，真实摄影质感，电影级灯光，高清角色立绘”作为画风定位。
+- 所有场景提示词使用“电影写实主义真人微短剧场景空镜，真实摄影质感，电影级灯光，高清场景概念图”作为画风定位。`;
   }
 
   private getMicrodramaTypePoolPrompt(): string {
@@ -323,6 +375,8 @@ export class BlueprintService {
   } {
     const typePool = this.getMicrodramaTypePoolPrompt();
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
+    const worldOpeningRule = this.getMicrodramaWorldOpeningRule();
+    const characterDepthRule = this.getMicrodramaCharacterDepthRule();
     const episodeCount = this.normalizeMicrodramaEpisodeCount(dto.microdramaEpisodeCount);
     const macroPlans = this.getMicrodramaMacroPlans(episodeCount);
     const macroCount = macroPlans.length;
@@ -368,6 +422,11 @@ ${planLines}
 5. 生成一版可继续拆成 ${episodeCount} 集微短剧的完整大纲时，有两个额外硬约束必须严格执行：
    - 第一，${episodeCount} 集完结时，主角不一定要成为这个世界里的最强者，只需要完成阶段性的成功，并形成一个收束合理、足够爽的阶段性结局。
    - 第二，${variableCardRule}
+   - 第三，中故事一必须承担世界观入场职责，让观众在具体危机里看懂世界规则和主角处境，不能突兀开打或突兀进入情节。
+
+${worldOpeningRule}
+
+${characterDepthRule}
 
 一、故事线整体结构（必须先确定）：
 本剧主结构仍采用以下两种结构之一：
@@ -471,6 +530,8 @@ ${planLines}
 - ${episodeCount} 集完结时，主角不一定成为世界最强者，但必须取得阶段性成功，并有合理爽点收束。
 - ${variableCardRule}
 - ${firstMacroStoryOpeningRule.replace(/\n/g, '\n- ')}
+- ${worldOpeningRule.replace(/\n/g, '\n- ')}
+- ${characterDepthRule.replace(/\n/g, '\n- ')}
 - 之后每个中故事必须以重大危局开头，新颖且富有戏剧张力的情节层出不穷，爽点直达剧情高潮，结尾必须留扣子。
 - 红果向微短剧要强情绪、快冲突、快反转、快打脸，每集必须有集首危机和集尾黑场钩子，不能有平淡过渡集。
 - 每集只按约1分钟可拍剧情容量设计：一个核心场景、一次主要冲突推进、一个爽点/反转、一个钩子；不要把单集写成2-3分钟多场戏。
@@ -503,6 +564,8 @@ ${planLines}
 - ${episodeCount} 集版本里，主角不必直接成为世界最强者，但必须取得阶段性成功，并形成合理爽点收束。
 - ${variableCardRule}
 - ${firstMacroStoryOpeningRule.replace(/\n/g, '\n- ')}
+- ${worldOpeningRule.replace(/\n/g, '\n- ')}
+- ${characterDepthRule.replace(/\n/g, '\n- ')}
 - 之后每个中故事必须以重大危局开头，新颖且富有戏剧张力的情节层出不穷，爽点直达剧情高潮，结尾必须留扣子。
 - 红果向微短剧必须高情绪密度、高冲突密度、快反转、快打脸，每集有集首危机和集尾钩子，不写平淡过渡集。
 - 每集只按约1分钟可拍剧情容量设计：一个核心场景、一次主要冲突推进、一个爽点/反转、一个钩子；不要把单集写成2-3分钟多场戏。
@@ -1557,7 +1620,7 @@ ${dto.outline}
       : `⚠️ 生成的主角不可以姓叶、不可以姓陈、不可以姓顾
 ⚠️ 名字里不可有默字`;
     const characterArcModeBlock = mode === 'microdrama'
-      ? `\n【微短剧人物弧线硬要求】\n- 本次人物设定必须能支撑 ${episodeCount} 集微短剧，不要只生成人物功能表。\n- 必须设置一个贯穿全剧的主反派/核心压力源：可以是个人、家族、公司、组织、旧案真凶或利益集团。它必须从开局就与主角目标发生因果冲突，并能通过代理人、资源封锁、舆论操控、关系离间、证据陷阱、权力压迫等方式持续参与每个阶段，不能每个中故事都换一批互不相关的敌人。\n- 主反派/核心压力源必须写清：公开身份、隐藏动机、掌握资源、压迫手段、与主角的旧账或利益冲突、阶段性升级路线、最终败局或关系反转可能。\n- 主角必须有长线成长弧线：初始缺陷/执念/误判、每个阶段被迫做出的选择、能力/心态/关系变化、终局蜕变。\n- 重要配角必须有自己的弧光：至少6-10个重要配角要写清“初始立场 -> 被触发的关键事件 -> 中段选择 -> 关系变化 -> 结局位置”。他们不能只是送信息、制造危机或被打脸的工具人。\n- 爱情线相关人物要有关系弧线：信任、误会、试探、护短、吃醋、并肩破局或牺牲选择，都要改变双方关系和后续行动。`
+      ? `\n【微短剧人物弧线硬要求】\n- 本次人物设定必须能支撑 ${episodeCount} 集微短剧，不要只生成人物功能表。\n- 必须设置一个贯穿全剧的主反派/核心压力源：可以是个人、家族、公司、组织、旧案真凶或利益集团。它必须从开局就与主角目标发生因果冲突，并能通过代理人、资源封锁、舆论操控、关系离间、证据陷阱、权力压迫等方式持续参与每个阶段，不能每个中故事都换一批互不相关的敌人。\n- 主反派/核心压力源必须写清：公开身份、隐藏动机、掌握资源、压迫手段、与主角的旧账或利益冲突、阶段性升级路线、最终败局或关系反转可能。\n- 主角必须有长线成长弧线：初始缺陷/执念/误判、每个阶段被迫做出的选择、能力/心态/关系变化、终局蜕变。\n- 重要配角必须有自己的弧光：至少6-10个重要配角要写清“初始立场 -> 被触发的关键事件 -> 中段选择 -> 关系变化 -> 结局位置”。他们不能只是送信息、制造危机或被打脸的工具人。\n- 爱情线相关人物要有关系弧线：信任、误会、试探、护短、吃醋、并肩破局或牺牲选择，都要改变双方关系和后续行动。\n- 人物动机必须避免“只有拜金与自私”。每个核心人物至少写出两层动机：外在利益/生存压力 + 内在恐惧、羞耻、亏欠、创伤、保护欲、价值观误判或自我辩护。\n- 反派、情敌、家人、同事、资本方或施压者都必须有可表演的人性裂缝：他们可以做错事，但要有短暂犹豫、软肋、被触发的底线或可能被事件改变的立场。\n- 输出中必须明确这些复杂动机会在哪些中故事/集数里通过选择、代价、退让、反击、护短、背叛或醒悟体现出来。`
       : mode === 'literature'
         ? `\n【文学作品人物弧线硬要求】\n- 本次人物设定的核心目标是人物塑造、人物命运和主题承载，不是生成网文功能牌。\n- 主要人物必须有贯穿全书的成长、退化、妥协、醒悟、自我和解或精神破裂弧线；每条弧线都要写清初始困境、内在矛盾、现实压力、关键选择、不可逆后果和最终状态。\n- 重要配角也要有弧光：至少8-12个重要人物要写出他们如何受时代、家庭、职业、地域、阶层、亲密关系或旧事影响，并在故事中发生立场、情感或命运变化。\n- 对手、施压者和误解者也必须立得住：他们要有生活来源、利益逻辑、情感软肋、自我辩护和可能的悲剧性，不能写成单纯坏人。\n- 人物设定要能服务10个中故事的完整闭合：每个主要人物最好标明适合在哪几个中故事承担关键转折，最终命运必须能形成文学余韵。`
         : mode === 'film'
@@ -2395,6 +2458,9 @@ ${reviewRiskRule}
       : `第${rangeUnitCount}集`;
 	    const romanceLineRules = this.getRomanceLineHardRulesPrompt();
 	    const filmStoryCardRules = this.getFilmStoryCardRulesPrompt();
+    const microdramaWorldOpeningRule = this.getMicrodramaWorldOpeningRule();
+    const microdramaCharacterDepthRule = this.getMicrodramaCharacterDepthRule();
+    const microdramaDialogueRealityRule = this.getMicrodramaDialogueRealityRule();
     const microdramaContinuityContext = mode === 'microdrama'
       ? `\n【跨中故事连续性参考】\n上一中故事内容：\n${dto.previousMacroStory?.trim() || '无'}\n\n上一组已生成分集细纲：\n${dto.previousMicroStories?.trim() || '无'}\n\n下一中故事内容（只用于递交方向，不得提前消耗核心爆点）：\n${dto.nextMacroStory?.trim() || '无'}\n`
       : '';
@@ -2408,6 +2474,9 @@ ${microdramaContinuityContext}
 
 **任务要求：**
 ${romanceLineRules}
+${microdramaWorldOpeningRule}
+${microdramaCharacterDepthRule}
+${microdramaDialogueRealityRule}
 
 1. 输出必须是${rangeUnitCount}个单集细纲，顺序连续、集数连续、逻辑闭环清晰；在微短剧模式下，每个单集细纲对应 1 集，且每集只承载约1分钟可拍剧情
 2. 每个小故事都必须包含清楚的前因后果：上一集/上一阶段留下了什么问题，本集人物为什么必须出场，人物带着什么目的或误会进入场景，冲突如何因对话升级，最终留下什么结果和余波。
@@ -2418,11 +2487,11 @@ ${romanceLineRules}
 7. 微短剧节奏硬约束（必须遵守）：
    - 每一集开头要直接进入“有压力的场面”，可以是争执、试探、逼问、公开羞辱、证据摆上桌、暧昧误会、利益交换、身份错位或危险逼近；禁止把所有开头都写成濒死、追杀、爆炸、绑架、坠楼、献祭等生死危机。
    - 危机必须来自前文因果、人物欲望、利益冲突或关系误会，不能凭空砸下来。除首集或中故事明确要求外，优先使用社会性危机、身份危机、情感危机、资源危机、舆论危机、限时选择、证据反转和关系破裂。
-   - 如果本组包含【第1集】，第1集细纲必须在危机中简短带出主角身份、所在时代/城市/世界空间、当前处境和最关键世界规则；不要只写“主角濒死/被追杀/被献祭”这类孤立刺激
+   - 如果本组包含【第1集】，第1集细纲必须在危机中简短带出主角身份、所在时代/城市/世界空间、当前处境和最关键世界规则；不要只写“主角濒死/被追杀/被献祭”这类孤立刺激。第1集必须有一个明确的“世界规则入场镜头/道具/声音/他人视角”，让世界观不是突兀背景。
    - 每一集都要完成一次“压力提出 → 对话交锋 → 情绪拉扯/信息揭露 → 选择或反击 → 阶段结果”的闭环
    - 每一集都必须有钩子，集尾不能平；结尾要给下一集留下明确的黑场问题、误会升级、身份揭露、危机倒计时或情感悬念
    - 中段剧情推进必须快，但不能省略动机和承接；每集只安排1个最核心的打压/高燃点/爽点释放/反转打脸，不要堆多个事件
-   - 台词是细纲重点：每集至少写出2-4句关键对白或对白方向，必须体现人物立场、欲望、试探、隐瞒、威胁、吃醋、护短或反击。其余描写从简，不要大段环境说明。
+   - 台词是细纲重点：每集至少写出2-4句关键对白或对白方向，必须体现人物立场、欲望、试探、隐瞒、威胁、吃醋、护短或反击。其余描写从简，不要大段环境说明。对白方向必须真实口语化，禁止网文化狠话、霸总腔、尬爽宣言和土味情话。
    - 女频向内容要强化爱情线桥段：允许并鼓励打情骂俏、互动调戏、试探拉扯、吃醋误会、英雄救场、暧昧反差，但不得让关系推进过快或跳过必要铺垫
    - 男频、事业向、升级流或复仇向微短剧也必须保留少量爱情线推进：甜宠照顾、互相调侃、打情骂俏、并肩破局、吃醋护短、暧昧误会、救场后的反向调戏等桥段可以点缀，但比例要少，不能抢走主线爽点
    - 每一集都应至少解决一个当前矛盾，并埋下一个新伏笔/新危机；人物弧线不要求每集都推进，但本组${rangeUnitCount}集里至少必须有1集用明确的剧情行为推进人物弧线
@@ -2545,6 +2614,9 @@ ${romanceLineRules}
   async generateMicroStoryVariants(dto: GenerateMicroStoryVariantsDto) {
     const mode: 'novel' | 'microdrama' | 'film' = dto.mode === 'microdrama' ? 'microdrama' : dto.mode === 'film' ? 'film' : 'novel';
     const romanceLineRules = this.getRomanceLineHardRulesPrompt();
+    const microdramaWorldOpeningRule = this.getMicrodramaWorldOpeningRule();
+    const microdramaCharacterDepthRule = this.getMicrodramaCharacterDepthRule();
+    const microdramaDialogueRealityRule = this.getMicrodramaDialogueRealityRule();
     if (dto.targetType === 'macro') {
       const selectedBase = dto.selectedVariantContent
         ? `\n【用户当前更认可的中故事候选版本】\n标题：${dto.selectedVariantTitle || dto.currentTitle}\n内容：${dto.selectedVariantContent}\n`
@@ -2554,7 +2626,7 @@ ${romanceLineRules}
         : '';
       const isOpeningMacroStory = mode === 'microdrama' && !String(dto.previousContent || '').trim();
       const openingMacroRule = isOpeningMacroStory
-        ? `\n【首个中故事开局硬要求】\n当前是首个中故事时，必须同时做到：介绍清楚主角是谁、交代清楚本剧主线追什么、制造清楚会毁掉主角的生死/命运危机。人物介绍和主线介绍必须嵌入同一条危机事件链里，不能先硬介绍再硬危机。允许使用追杀、濒死、献祭、爆炸、绑架、坠楼、战斗等强刺激手段，但这些手段必须服务人物和主线。第1集详细剧情必须写出主角姓名/身份、家庭或职业处境、所在时代/城市/世界空间、主角当前最想保住或夺回的东西、本剧后续核心方向，以及危机如何把这些东西逼到不可逆。危机可以是生命危险、社会性死亡、亲密关系毁灭、身份被夺、事业彻底断送或命运被锁死，但必须让观众知道这个人为什么不能输。\n`
+        ? `\n【首个中故事开局硬要求】\n当前是首个中故事时，必须同时做到：介绍清楚主角是谁、交代清楚本剧主线追什么、制造清楚会毁掉主角的生死/命运危机，并把世界观背景嵌进同一条危机事件链。人物介绍、主线介绍和世界规则不能先硬介绍再硬危机。允许使用追杀、濒死、献祭、爆炸、绑架、坠楼、战斗等强刺激手段，但这些手段必须服务人物和主线。第1集详细剧情必须写出主角姓名/身份、家庭或职业处境、所在时代/城市/世界空间、主角当前最想保住或夺回的东西、本剧后续核心方向、最关键世界规则，以及危机如何把这些东西逼到不可逆。危机可以是生命危险、社会性死亡、亲密关系毁灭、身份被夺、事业彻底断送或命运被锁死，但必须让观众知道这个人为什么不能输。\n${microdramaWorldOpeningRule}\n`
         : '';
       const prompt = `请基于以下资料，为当前中故事重构 3 个新的方案。
 
@@ -2577,6 +2649,7 @@ ${selectedBase}${noteText}
 感情线硬规则：
 ${romanceLineRules}
 ${openingMacroRule}
+${mode === 'microdrama' ? `${microdramaCharacterDepthRule}\n${microdramaDialogueRealityRule}` : ''}
 
 重构目标：
 1. 一次性输出 3 个候选中故事方案，三条必须明显不同，不能只是换说法。
@@ -2584,7 +2657,7 @@ ${openingMacroRule}
 3. 必须结合世界观和人物设定，不能脱离已有角色动机、能力边界、势力关系和世界规则。
 4. 必须兼顾上下中故事连续性：承接前文已经发生的结果，不提前消耗后文核心爆点。
 5. ${mode === 'microdrama'
-        ? '按爆款微短剧中故事设计：必须承接当前中故事已标注的对应集数，内部每集都要有惊艳开场、快节奏推进、打压、高潮、反转、打脸和最后一集黑场钩子；每一集只承载约1分钟可拍剧情，详细剧情要精准但不要过厚；本中故事内部至少要有一处明确的剧情行为推进人物弧线，例如选择、牺牲、反击、护短、示弱、拒绝诱惑或改变信任，不能只写状态变化；女频内容要强化爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯和情感误会，但不得让关系推进过快；结尾必须追加「阶段状态小结」。'
+        ? '按爆款微短剧中故事设计：必须承接当前中故事已标注的对应集数，内部每集都要有惊艳开场、快节奏推进、打压、高潮、反转、打脸和最后一集黑场钩子；每一集只承载约1分钟可拍剧情，详细剧情要精准但不要过厚；本中故事内部至少要有一处明确的剧情行为推进人物弧线，例如选择、牺牲、反击、护短、示弱、拒绝诱惑或改变信任，不能只写状态变化；人物动机不能只剩拜金、自私或单纯作恶，必须让关键选择带出人性挣扎；女频内容要强化爱情线桥段、打情骂俏、男女主互动试探拉扯和情感误会，但台词必须真实口语化，不得霸总腔、土味化、网文尬爽化，也不得让关系推进过快；结尾必须追加「阶段状态小结」。'
           : '按小说中故事设计：默认能继续拆成15个单章小故事；首个中故事以生死为局开头，后续中故事以重大危局开头，内部要有完整目标、阻碍、升级、高燃点/爽点释放、阶段高潮、结尾扣子和阶段收束；详细剧情必须写到可继续拆成单章细纲的程度。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础。
 7. 当前中故事开头必须精准承接【上一个中故事】结尾的结果、主角状态、关系变化、当前压力与“目标方向”；如果上一个中故事为空，则按本作品开局逻辑处理。
@@ -2653,6 +2726,7 @@ ${dto.nextContent || '无'}
 ${selectedBatchBase}${noteText}
 感情线硬规则：
 ${romanceLineRules}
+${mode === 'microdrama' ? `${microdramaCharacterDepthRule}\n${microdramaDialogueRealityRule}` : ''}
 
 生成目标：
 1. 一次性输出 3 套候选方案，每套都必须覆盖用户选中的全部${targetStories.length}个${unitLabel}，不能漏项，不能只改其中一个。
@@ -2661,7 +2735,7 @@ ${romanceLineRules}
 4. 必须兼顾选中段落前后的连续性，不能改坏前文动机，也不能提前消耗后文核心爆点。
 5. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
 6. ${mode === 'microdrama'
-        ? '按爆款微短剧连续单集思维设计：每集都要有压力场面、快节奏升级、人物性格外化、打压、高潮、反转、打脸和结尾钩子；但危机必须来自前后因果、人物欲望、利益冲突或关系误会，禁止把所有开头都写成濒死、追杀、爆炸、绑架等孤立生死刺激。每集只写约1分钟可拍剧情容量，单集细纲控制在220-360字，最多不超过420字；必须写清人物为什么此刻出场，至少给出2-4句关键对白或对白方向，用台词承载情感拉扯、试探、威胁、隐瞒、护短或反击；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会，同时整段形成更大的连续推进；这一组连续单集里至少有一集必须通过具体剧情行为推动人物弧线，不能只写“主角成长/关系变化”这类概括。'
+        ? '按爆款微短剧连续单集思维设计：每集都要有压力场面、快节奏升级、人物性格外化、打压、高潮、反转、打脸和结尾钩子；但危机必须来自前后因果、人物欲望、利益冲突或关系误会，禁止把所有开头都写成濒死、追杀、爆炸、绑架等孤立生死刺激。每集只写约1分钟可拍剧情容量，单集细纲控制在220-360字，最多不超过420字；必须写清人物为什么此刻出场，至少给出2-4句关键对白或对白方向，用台词承载情感拉扯、试探、威胁、隐瞒、护短或反击；台词必须真实口语化，有潜台词和情绪逻辑，禁止霸总腔、网文狠话和土味调戏；女频内容要加入爱情线桥段、男女主互动试探拉扯或暧昧误会，同时整段形成更大的连续推进；这一组连续单集里至少有一集必须通过具体剧情行为推动人物弧线，不能只写“主角成长/关系变化”这类概括。'
         : '按小说连续小故事思维设计：每个小故事都要以危机开头，推进中释放高燃点或爽点，结尾留下钩子；同时整段形成章节群推进。'}
 7. 若提供了用户批注，必须显著响应批注；若提供了用户认可的一整套候选版本，以它为优化基础。
 
@@ -2695,6 +2769,7 @@ ${dto.nextContent || '无'}
 ${selectedBase}${noteText}
 感情线硬规则：
 ${romanceLineRules}
+${mode === 'microdrama' ? `${microdramaCharacterDepthRule}\n${microdramaDialogueRealityRule}` : ''}
 
 生成目标：
 1. 一次性输出 3 个候选方案，三条必须明显不同，不能只是换说法。
@@ -2702,7 +2777,7 @@ ${romanceLineRules}
 3. 必须兼顾前后连续性：不能改坏上一${unitLabel}已经建立的动机，也不能提前消耗下一${unitLabel}的核心爆点。
 4. 必须服从所属中故事的主线卡点，不要跳出当前中故事。
 5. ${mode === 'microdrama'
-      ? '按爆款微短剧单集思维设计：开场必须有压力并立即抓人，但危机必须来自前后因果、人物欲望、利益冲突或关系误会，禁止凭空塞濒死、追杀、爆炸、绑架等孤立生死刺激；中段快节奏推进，人物性格鲜明，有打压、有高潮、有反转、有打脸，结尾为下一集留下强钩子；必须写清人物为什么此刻出场，至少给出2-4句关键对白或对白方向，用台词承载情感拉扯、试探、威胁、隐瞒、护短或反击；若当前单集承担本中故事的人物弧线推进，必须用具体剧情行为体现，例如选择、牺牲、反击、护短、示弱、拒绝诱惑或改变信任，而不是写一句状态变化；女频内容要加入爱情线桥段、打情骂俏、男女主互动调戏、试探拉扯或暧昧误会；内容应便于继续扩成单集剧本。'
+      ? '按爆款微短剧单集思维设计：开场必须有压力并立即抓人，但危机必须来自前后因果、人物欲望、利益冲突或关系误会，禁止凭空塞濒死、追杀、爆炸、绑架等孤立生死刺激；中段快节奏推进，人物性格鲜明，有打压、有高潮、有反转、有打脸，结尾为下一集留下强钩子；必须写清人物为什么此刻出场，至少给出2-4句关键对白或对白方向，用台词承载情感拉扯、试探、威胁、隐瞒、护短或反击；台词必须真实口语化，有潜台词和情绪逻辑，禁止霸总腔、网文狠话和土味调戏；若当前单集承担本中故事的人物弧线推进，必须用具体剧情行为体现，例如选择、牺牲、反击、护短、示弱、拒绝诱惑或改变信任，而不是写一句状态变化；女频内容要加入爱情线桥段、男女主互动试探拉扯或暧昧误会；内容应便于继续扩成单集剧本。'
         : '按小说单章小故事思维设计：每个小故事只服务1章，写清危机开头、冲突递进、高燃点/爽点释放、阶段反转、章尾钩子和当章收束。'}
 6. 若提供了用户批注，必须显著响应批注；若提供了用户认可的候选版本，以它为优化基础，而不是退回原方案。
 
@@ -2749,8 +2824,11 @@ ${romanceLineRules}
       : 800;
     const minTargetWords = Math.max(450, Math.round(normalizedTargetWords * 0.9));
     const maxTargetWords = Math.round(normalizedTargetWords * 1.1);
+    const worldOpeningRule = this.getMicrodramaWorldOpeningRule();
+    const characterDepthRule = this.getMicrodramaCharacterDepthRule();
+    const dialogueRealityRule = this.getMicrodramaDialogueRealityRule();
     const firstEpisodeSetupRequirement = episodeNumber === 1
-      ? `\n首集开场特别要求（必须执行，优先级高于普通爆点规则）：\n- 第1集必须同时完成三件事：介绍清楚主角是谁、交代清楚本剧主线追什么、制造清楚会毁掉主角的生死/命运危机。三者必须融合在同一条事件链里，不能分成硬介绍和硬危机。\n- 允许使用追杀、濒死、献祭、爆炸、绑架、坠楼、战斗等强刺激手段，但这些手段必须服务人物和主线；首场必须通过可拍细节让观众看懂：主角姓名/身份、家庭或职业处境、所处时代/城市/世界空间、主角当前最想保住或夺回的东西。\n- 主线介绍必须嵌入动作和冲突里，例如一张欠款单/退婚书/公司任命/家族遗嘱/入学通知/病例/契约/审判书/直播弹幕/祭坛规则，让观众知道后续故事的核心方向：复仇、翻身、守护、查真相、夺回身份、改变命运或完成某个目标。\n- 生死危机仍然必须体现。危机可以是生命危险、社会性死亡、亲密关系毁灭、身份被夺、事业彻底断送或命运被锁死；它必须和主角身份、目标、主线方向发生因果关系。\n- 推荐首集结构：第1场用危机前沿事件介绍人物与主线目标；第2场让压力方出手，把主线目标逼成不可逆危局；第3场如有，只用于主角第一次选择/反击或更大黑场钩子。\n- 禁止用旁白或大段设定说明介绍世界观；所有背景都要通过工牌、债务单、祭坛规则、校园广播、公司会议、家族宴席、系统提示、群众议论、新闻字幕、道具或对方台词自然带出。\n`
+      ? `\n首集开场特别要求（必须执行，优先级高于普通爆点规则）：\n- 第1集必须同时完成四件事：介绍清楚主角是谁、交代清楚本剧主线追什么、制造清楚会毁掉主角的生死/命运危机、让观众理解这个世界最关键的背景规则。四者必须融合在同一条事件链里，不能分成硬介绍、硬设定和硬危机。\n- 允许使用追杀、濒死、献祭、爆炸、绑架、坠楼、战斗等强刺激手段，但这些手段必须服务人物和主线；首场必须通过可拍细节让观众看懂：主角姓名/身份、家庭或职业处境、所处时代/城市/世界空间、主角当前最想保住或夺回的东西。\n- 主线和世界观介绍必须嵌入动作和冲突里，例如一张欠款单/退婚书/公司任命/家族遗嘱/入学通知/病例/契约/审判书/直播弹幕/祭坛规则/行业公告/校园广播/新闻字幕，让观众知道后续故事的核心方向：复仇、翻身、守护、查真相、夺回身份、改变命运或完成某个目标。\n- 生死危机仍然必须体现。危机可以是生命危险、社会性死亡、亲密关系毁灭、身份被夺、事业彻底断送或命运被锁死；它必须和主角身份、目标、主线方向发生因果关系。\n- 推荐首集结构：第1场用危机前沿事件介绍人物、世界规则与主线目标；第2场让压力方出手，把主线目标逼成不可逆危局；第3场如有，只用于主角第一次选择/反击或更大黑场钩子。\n- 禁止用旁白或大段设定说明介绍世界观；所有背景都要通过工牌、债务单、祭坛规则、校园广播、公司会议、家族宴席、系统提示、群众议论、新闻字幕、道具或对方台词自然带出。\n${worldOpeningRule}\n`
       : '';
     const actionFirstRequirement = actionFirstScript
       ? `\n动作主导模式（用户已开启，必须优先执行）：\n- 本集剧本以动作、镜头调度、人物行为、场面变化、道具使用、身体距离、表情反应和环境压力为主，台词为辅。\n- 每场戏至少 60% 篇幅写可拍摄动作/镜头/反应，台词只负责制造冲突、反讽、信息增量和情绪爆点，不要用长台词解释剧情。\n- 连续台词不能超过 2 行；每 1-2 句台词后必须插入可见动作、表情、走位、道具或镜头反应。\n- 关键爽点、反转、打脸、暧昧拉扯和危机升级都要优先通过“看得见的行为”呈现，而不是靠角色把结果说出来。\n`
@@ -2770,14 +2848,16 @@ ${storyReference}
 
 感情线硬规则：
 ${romanceLineRules}
+${characterDepthRule}
+${dialogueRealityRule}
 ${firstEpisodeSetupRequirement}
 
 本集主线施工图（只在内部执行，最终严禁输出）：
 - 先用一句话确定本集唯一主线：主角本集想要什么、谁/什么阻止、主角采取什么关键行动、得到什么阶段结果、留下什么下一集问题。
 - 再确定2-3场戏的因果顺序：因为上一场发生了什么，所以这一场才发生什么；每一场都必须承接上一场的结果。
-- 检查每句对白和每个动作是否服务本集主线；不服务主线的桥段、玩笑、反转、设定解释、恋爱互动必须删除或压缩。
+- 检查每句对白和每个动作是否服务本集主线；不服务主线的桥段、玩笑、反转、设定解释、恋爱互动必须删除或压缩。对白不能只追求“爽句”，必须符合人物身份、关系距离和当下情绪逻辑。
 - 如果当前分集细纲本身信息较散，必须把它收束成一条清晰行动线，不要并排堆多个事件。
-- 如果这是第1集，内部施工图必须先确认：主角身份、主线目标、主角最怕失去的东西、危机如何把主线目标逼到不可逆；不能把“生死危机”当成唯一主线。
+- 如果这是第1集，内部施工图必须先确认：主角身份、世界关键规则、主线目标、主角最怕失去的东西、危机如何把主线目标逼到不可逆；不能把“生死危机”当成唯一主线。
 
 写作目标：
 1. 输出标准微短剧拍摄剧本格式，不要写成小说正文、散文旁白或分集梗概。
@@ -2787,10 +2867,10 @@ ${firstEpisodeSetupRequirement}
 5. 严格遵循当前分集细纲，不能跑去写下一集的内容。
 6. 单集主线优先级高于爆点密度：必须让观众清楚“本集谁要做什么、为什么受阻、怎么反击、结果如何”。禁止为了塞爆点牺牲主线连贯。
 7. 开场第一场必须直接进入本集主冲突：可以有冲突、羞辱、生死压力、身份失衡、强压局面、暧昧误会、关系爆雷或危险逼近，但必须同时交代主角处境和本集行动目标，不能只给孤立刺激。若是第1集，人物介绍和主线介绍比危机强度更优先，但危机必须自然压进来。
-8. 对话必须口语化、有情绪方向和信息增量，禁止连续三句平直陈述，禁止长篇解释设定。
+8. 对话必须口语化、有情绪方向和信息增量，禁止连续三句平直陈述，禁止长篇解释设定；严禁过度网文化、霸总腔、尬爽宣言、鸡皮疙瘩式土味情话和“作者替角色说教”的台词。
 9. 每场戏只承担一个清晰功能：第一场承接上一集并建立本集主冲突；第二场推动冲突升级并让主角采取关键行动；第三场如有，则用于结果反转、阶段收束和下一集钩子。不要要求每场同时解决矛盾、埋伏笔、完成人物弧光。
 10. 中段推进必须快，但要按因果升级：压力升级 -> 主角行动 -> 对方反制或局势反转 -> 阶段结果。禁止突然换场、突然出现新人物、突然抛新设定、突然完成反转。
-11. 人物性格要鲜明外化，主角要有可见反击、选择或态度变化，反派/压力方要有具体打压动作；所有行为必须能看出动机，不能只为制造爽点。
+11. 人物性格要鲜明外化，主角要有可见反击、选择或态度变化，反派/压力方要有具体打压动作；所有行为必须能看出动机，不能只为制造爽点。人物不能只剩拜金、自私或单纯作恶，必须通过短动作、停顿、回避、犹豫、保护、失控或自我辩护露出人性挣扎。
 12. 女频微短剧要强化爱情线桥段：男女主可以打情骂俏、互相调戏、试探拉扯、吃醋误会、英雄救场、身体距离变化或暧昧反差；这些互动必须推动冲突和关系，不要写成纯闲聊。
 13. 男频、事业向、升级流或复仇向微短剧也要保留少量爱情线推进：甜宠照顾、互相调侃、打情骂俏、并肩破局、吃醋护短、暧昧误会、救场后的反向调戏等桥段可以点缀，但比例要少，不能抢走主线爽点。
 14. 结尾必须切在更大的危机、秘密揭露、身份反转、生死倒计时、暧昧误会升级或关系爆雷上，形成下一集黑场钩子。
@@ -3672,6 +3752,664 @@ ${firstNovelChapterSetupRequirement}
     return this.getGenerationStreamObservable(job);
   }
 
+  async generateCharacterPrompts(dto: GenerateCharacterPromptsDto) {
+    const episodes = (dto.episodes || [])
+      .map(item => ({
+        episode: Number(item?.episode),
+        title: String(item?.title || '').trim(),
+        outline: String(item?.outline || '').trim(),
+        content: String(item?.content || '').trim(),
+      }))
+      .filter(item => Number.isFinite(item.episode) && item.episode > 0 && item.content)
+      .sort((a, b) => a.episode - b.episode);
+
+    if (!episodes.length) {
+      throw new Error('没有可用于抓取人物的剧本正文');
+    }
+
+    const compact = (text?: string, limit = 4200) => {
+      const value = String(text || '').trim();
+      return value.length > limit ? `${value.slice(0, limit)}\n...[已截断]` : value;
+    };
+
+    const parseJson = (raw: string) => {
+      const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        throw new Error('AI人物提示词结果不是有效JSON');
+      }
+    };
+
+    const episodeBlock = episodes
+      .map(item => `【第${item.episode}集${item.title ? `：${item.title}` : ''}】\n${item.outline ? `分集细纲：${item.outline}\n\n` : ''}剧本正文：\n${item.content}`)
+      .join('\n\n---\n\n');
+    const exampleBlock = (dto.promptExamples || [])
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((example, index) => `示例${index + 1}：${example}`)
+      .join('\n\n');
+    const existingAssetBlock = JSON.stringify({
+      characters: (dto.existingCharacters || []).map((item: any) => ({
+        name: item?.name,
+        aliases: item?.aliases,
+        episodeNumbers: item?.episodeNumbers,
+        roleBrief: item?.roleBrief,
+        hasImage: Boolean(item?.imageDataUrl || item?.imageUrl),
+      })).slice(0, 120),
+      scenes: (dto.existingScenes || []).map((item: any) => ({
+        name: item?.name,
+        episodeNumbers: item?.episodeNumbers || [item?.episodeNumber],
+        sceneBrief: item?.sceneBrief,
+        sceneType: item?.sceneType,
+        hasImage: Boolean(item?.imageDataUrl || item?.imageUrl),
+      })).slice(0, 120),
+      props: (dto.existingProps || []).map((item: any) => ({
+        name: item?.name,
+        episodeNumbers: item?.episodeNumbers,
+        propBrief: item?.propBrief,
+        hasImage: Boolean(item?.imageDataUrl || item?.imageUrl),
+      })).slice(0, 120),
+    }, null, 2);
+
+    const visualStyle = dto.visualStyle || 'live_action';
+    const visualStyleRule = this.getAssetVisualStylePrompt(visualStyle);
+    const prompt = `你是微短剧人物、场景、道具资产统筹和即梦提示词设计师。请从已生成的剧本正文中抓取出场人物，回到人设正文中匹配人物资料，并统计每一集出现的主要场景和关键道具，为人物、场景、道具生成可直接用于即梦的提示词。
+
+【作品】
+${dto.bookName || '未命名微短剧'}
+
+【世界观摘要】
+${compact(dto.worldSetting, 2600)}
+
+【人物设定全文/摘要，必须优先检索匹配】
+${compact(dto.characters, 6200)}
+
+【全剧/中故事大纲摘要】
+${compact(dto.detailedOutline, 3000)}
+
+【本次选中的剧本正文】
+${episodeBlock}
+
+【已有资产库，必须用于去重和复用】
+${existingAssetBlock}
+
+【用户给出的提示词句型结构参考】
+${exampleBlock || '无'}
+
+${visualStyleRule}
+
+${this.getCharacterPortraitPromptRule()}
+
+抓取与匹配规则：
+1. 先从剧本正文里抓取“本集实际出现或明确被点名、将用于镜头资产的人物”，包括主角、女主/男主、主要配角、反派、代理人、亲属、同事、侍卫、丫鬟、医生、警察、主持人等有姓名或明确身份称呼的角色。
+2. 不要抓取纯背景群演，例如“众人、路人、保镖们、围观者”，除非剧本给了明确称呼、功能或镜头特写。
+3. 对每个角色必须回到【人物设定】检索：能找到就标记 matchedFromCharacterSetting=true，并摘取最相关设定；找不到就标记 false，并根据本集剧情、身份称呼、行为和世界观补出合理人物概况。
+4. 同一人物的别称要合并，例如“陆砚、陆大人、男主”只输出一次；但不同人物不能合并。
+5. 每个人物提示词必须按用户示例的句子结构生成：画风定位 → 人物身份与体貌 → 面容神情 → 服装材质/剪裁/颜色 → 身份标志物或随身道具 → 中性定妆站姿与轻微可见细节 → 避免项或色调控制 → 全身照/正面/纯白背景/电影级质感。
+6. 不要照抄示例的具体衣服、颜色、身高、饰品；必须根据该角色的人设、时代、职业、阶层、剧情功能和本集状态重新设计。
+7. 龙套/配角也要能生成图：如果人设中没有外貌，就从身份、场景、性格和剧情作用补足“可拍的视觉特征”，但不要让所有人都华丽化。
+8. 人物 prompt 字段必须是一段完整中文提示词，不要写成字段清单，不要出现“参考示例/模板/可替换”等说明。
+9. 人物提示词是全剧通用定妆照，禁止受伤、血迹、破衣、战斗动作、哭喊、跪地、跌倒、奔跑、挥刀、拥抱、亲吻、被绑、被追杀等强情节化动作或临时状态。
+10. 场景统计规则：每集提取1-4个主要场景，优先选择可复用的核心空间，例如大厅、院落、公司会议室、医院走廊、街巷、祠堂、审讯室、卧室、酒楼、祭坛等；如果有倒叙/回忆空间，标为 flashback。
+11. 场景提示词默认生成“无人空镜”，不要出现具体人物、群演、背影或人脸；要写清时代、空间类型、布景、光线、气氛、关键道具和镜头构图。
+12. 道具统计规则：每集提取0-4个会被镜头反复使用或影响剧情理解的关键道具，例如剑、玉佩、合同、手机、信物、账本、药瓶、车辆、首饰等；纯一次性普通杯子桌椅不要抓。
+13. 已有资产库里已经存在的人物、场景或道具，不要重复改名生成新资产；如果同一资产在本集再次出现，只在返回的 episodeNumbers 中补充本集集数，并保持名字一致。
+
+返回严格JSON，不要Markdown，不要解释：
+{
+  "visualStyle": "${visualStyle}",
+  "characters": [
+    {
+      "name": "角色姓名或称呼",
+      "aliases": ["别称1"],
+      "episodeNumbers": [1],
+      "appearanceLevel": "core|supporting|cameo",
+      "matchedFromCharacterSetting": true,
+      "matchConfidence": 0.92,
+      "characterSettingExcerpt": "从人设检索到的关键资料；找不到则写空字符串",
+      "plotBasis": "为什么判断这个人物在本集需要资产，引用本集剧情依据",
+      "roleBrief": "一句话人物概况，包含身份、关系、性格或本集状态",
+      "visualBrief": "一句话视觉设计依据",
+      "prompt": "电影写实主义立绘，..."
+    }
+  ],
+  "scenes": [
+    {
+      "name": "场景名",
+      "episodeNumber": 1,
+      "episodeNumbers": [1],
+      "sceneType": "primary|secondary|flashback|transition",
+      "plotBasis": "从本集剧情判断这个场景出现的依据",
+      "sceneBrief": "一句话说明这是怎样的空间",
+      "visualBrief": "场景视觉设计依据",
+      "prompt": "无人空镜场景提示词"
+    }
+  ],
+  "props": [
+    {
+      "name": "道具名",
+      "episodeNumbers": [1],
+      "propType": "weapon|token|document|jewelry|vehicle|daily|other",
+      "reusable": true,
+      "plotBasis": "从本集剧情判断这个道具需要资产的依据",
+      "propBrief": "一句话说明这个道具是什么、谁持有、有什么剧情功能",
+      "visualBrief": "道具视觉设计依据",
+      "prompt": "单独道具图提示词，纯白背景，不要人物"
+    }
+  ],
+  "summary": "本次抓取和匹配概要"
+}`;
+
+    const raw = await this.chatWithSelectedLogicModel([
+      { role: 'system', content: '你只输出严格JSON。你擅长从剧本中抽取角色、匹配人物设定，并生成电影写实主义人物立绘提示词。' },
+      { role: 'user', content: prompt },
+    ], dto);
+    const parsed = parseJson(raw);
+    const characters = Array.isArray(parsed?.characters) ? parsed.characters : [];
+    const scenes = Array.isArray(parsed?.scenes) ? parsed.scenes : [];
+    const props = Array.isArray(parsed?.props) ? parsed.props : [];
+
+    return {
+      success: true,
+      data: {
+        characters: characters.map((item: any, index: number) => ({
+          id: String(item?.id || `${String(item?.name || '角色').trim() || '角色'}-${index}`),
+          name: String(item?.name || '').trim() || `未命名角色${index + 1}`,
+          aliases: Array.isArray(item?.aliases) ? item.aliases.map((alias: unknown) => String(alias || '').trim()).filter(Boolean) : [],
+          episodeNumbers: Array.isArray(item?.episodeNumbers)
+            ? item.episodeNumbers.map((episode: unknown) => Number(episode)).filter((episode: number) => Number.isFinite(episode))
+            : episodes.map(item => item.episode),
+          appearanceLevel: ['core', 'supporting', 'cameo'].includes(String(item?.appearanceLevel))
+            ? String(item.appearanceLevel)
+            : 'supporting',
+          matchedFromCharacterSetting: Boolean(item?.matchedFromCharacterSetting),
+          matchConfidence: Number.isFinite(Number(item?.matchConfidence)) ? Number(item.matchConfidence) : undefined,
+          characterSettingExcerpt: String(item?.characterSettingExcerpt || '').trim(),
+          plotBasis: String(item?.plotBasis || '').trim(),
+          roleBrief: String(item?.roleBrief || '').trim(),
+          visualBrief: String(item?.visualBrief || '').trim(),
+          prompt: String(item?.prompt || '').trim(),
+        })).filter((item: any) => item.name && item.prompt),
+        scenes: scenes.map((item: any, index: number) => ({
+          id: String(item?.id || `${String(item?.name || '场景').trim() || '场景'}-${index}`),
+          name: String(item?.name || '').trim() || `未命名场景${index + 1}`,
+          episodeNumber: Number.isFinite(Number(item?.episodeNumber)) ? Number(item.episodeNumber) : episodes[0]?.episode,
+          episodeNumbers: Array.isArray(item?.episodeNumbers)
+            ? item.episodeNumbers.map((episode: unknown) => Number(episode)).filter((episode: number) => Number.isFinite(episode))
+            : [Number.isFinite(Number(item?.episodeNumber)) ? Number(item.episodeNumber) : episodes[0]?.episode],
+          sceneType: ['primary', 'secondary', 'flashback', 'transition'].includes(String(item?.sceneType))
+            ? String(item.sceneType)
+            : 'primary',
+          plotBasis: String(item?.plotBasis || '').trim(),
+          sceneBrief: String(item?.sceneBrief || '').trim(),
+          visualBrief: String(item?.visualBrief || '').trim(),
+          prompt: String(item?.prompt || '').trim(),
+        })).filter((item: any) => item.name && item.prompt),
+        props: props.map((item: any, index: number) => ({
+          id: String(item?.id || `${String(item?.name || '道具').trim() || '道具'}-${index}`),
+          name: String(item?.name || '').trim() || `未命名道具${index + 1}`,
+          episodeNumbers: Array.isArray(item?.episodeNumbers)
+            ? item.episodeNumbers.map((episode: unknown) => Number(episode)).filter((episode: number) => Number.isFinite(episode))
+            : episodes.map(item => item.episode),
+          propType: ['weapon', 'token', 'document', 'jewelry', 'vehicle', 'daily', 'other'].includes(String(item?.propType))
+            ? String(item.propType)
+            : 'other',
+          reusable: Boolean(item?.reusable ?? true),
+          plotBasis: String(item?.plotBasis || '').trim(),
+          propBrief: String(item?.propBrief || '').trim(),
+          visualBrief: String(item?.visualBrief || '').trim(),
+          prompt: String(item?.prompt || '').trim(),
+        })).filter((item: any) => item.name && item.prompt),
+        visualStyle,
+        summary: String(parsed?.summary || `已从${episodes.length}集剧本中生成人物、场景和道具提示词。`).trim(),
+      },
+    };
+  }
+
+  async reviseCharacterPrompt(dto: ReviseCharacterPromptDto) {
+    const character = dto.character || {};
+    const note = String(dto.note || '').trim();
+    if (!String(character?.name || '').trim()) {
+      throw new Error('缺少要处理的人物');
+    }
+    if (!note) {
+      throw new Error('请填写备注后再重新生成或微调提示词');
+    }
+
+    const parseJson = (raw: string) => {
+      const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        throw new Error('AI人物提示词微调结果不是有效JSON');
+      }
+    };
+    const compact = (text?: string, limit = 3600) => {
+      const value = String(text || '').trim();
+      return value.length > limit ? `${value.slice(0, limit)}\n...[已截断]` : value;
+    };
+    const exampleBlock = (dto.promptExamples || [])
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((example, index) => `示例${index + 1}：${example}`)
+      .join('\n\n');
+    const visualStyleRule = this.getAssetVisualStylePrompt(dto.visualStyle || 'live_action');
+
+    const prompt = `你是即梦人物立绘提示词修订师。请根据用户备注，对单个人物的立绘提示词进行${dto.action === 'regenerate' ? '重新生成' : '微调'}。
+
+【世界观摘要】
+${compact(dto.worldSetting, 2200)}
+
+【人物设定摘要】
+${compact(dto.characters, 3600)}
+
+【全剧/中故事大纲摘要】
+${compact(dto.detailedOutline, 2200)}
+
+【当前人物资料】
+${JSON.stringify(character, null, 2)}
+
+【当前已有提示词】
+${String(character?.prompt || '')}
+
+【用户备注】
+${note}
+
+【用户给出的提示词句型结构参考】
+${exampleBlock || '无'}
+
+${visualStyleRule}
+
+${this.getCharacterPortraitPromptRule()}
+
+修订要求：
+1. 如果 action=regenerate：允许重做服装、气质、道具和姿态，但必须保留人物身份、剧情功能和人设核心。
+2. 如果 action=tune：尽量保留原提示词主体，只根据用户备注精修局部，如年龄感、服装颜色、气质、身份道具、姿态、妆发或复杂度。
+3. 不要照抄示例具体服装和颜色；必须根据这个人物重新生成。
+4. prompt 必须是一段完整中文提示词，遵守当前视觉模式、全身照、正面、纯白背景、电影级质感。
+5. 这是全剧通用定妆照，禁止受伤、血迹、破衣、战斗动作、哭喊、跪地、跌倒、奔跑、挥刀、拥抱、亲吻、被绑、被追杀等强情节化动作或临时状态。
+
+返回严格JSON，不要Markdown，不要解释：
+{
+  "character": {
+    "name": "角色名",
+    "aliases": [],
+    "episodeNumbers": [],
+    "appearanceLevel": "core|supporting|cameo",
+    "matchedFromCharacterSetting": true,
+    "matchConfidence": 0.9,
+    "characterSettingExcerpt": "保留或更新",
+    "plotBasis": "保留或更新",
+    "roleBrief": "保留或更新",
+    "visualBrief": "根据备注更新后的视觉依据",
+    "promptNote": "本次备注",
+    "prompt": "修订后的完整即梦提示词"
+  }
+}`;
+
+    const raw = await this.chatWithSelectedLogicModel([
+      { role: 'system', content: '你只输出严格JSON。你擅长按用户备注重生成或微调单个人物的电影写实主义立绘提示词。' },
+      { role: 'user', content: prompt },
+    ], dto);
+    const parsed = parseJson(raw);
+    const next = parsed?.character || {};
+
+    return {
+      success: true,
+      data: {
+        ...character,
+        ...next,
+        name: String(next?.name || character?.name || '').trim(),
+        aliases: Array.isArray(next?.aliases) ? next.aliases : (Array.isArray(character?.aliases) ? character.aliases : []),
+        episodeNumbers: Array.isArray(next?.episodeNumbers) ? next.episodeNumbers : (Array.isArray(character?.episodeNumbers) ? character.episodeNumbers : []),
+        appearanceLevel: ['core', 'supporting', 'cameo'].includes(String(next?.appearanceLevel))
+          ? String(next.appearanceLevel)
+          : (['core', 'supporting', 'cameo'].includes(String(character?.appearanceLevel)) ? String(character.appearanceLevel) : 'supporting'),
+        matchedFromCharacterSetting: Boolean(next?.matchedFromCharacterSetting ?? character?.matchedFromCharacterSetting),
+        promptNote: String(next?.promptNote || note).trim(),
+        prompt: String(next?.prompt || character?.prompt || '').trim(),
+      },
+    };
+  }
+
+  async generateSupplementalAssetPrompt(dto: GenerateSupplementalAssetPromptDto) {
+    const note = String(dto.note || '').trim();
+    if (!note) {
+      throw new Error('请填写补充设定后再生成');
+    }
+    const episode = {
+      episode: Number(dto.episode?.episode),
+      title: String(dto.episode?.title || '').trim(),
+      outline: String(dto.episode?.outline || '').trim(),
+      content: String(dto.episode?.content || '').trim(),
+    };
+    if (!Number.isFinite(episode.episode) || !episode.content) {
+      throw new Error('缺少可参考的本集正文');
+    }
+
+    const parseJson = (raw: string) => {
+      const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        throw new Error('AI补充资产结果不是有效JSON');
+      }
+    };
+    const compact = (text?: string, limit = 3200) => {
+      const value = String(text || '').trim();
+      return value.length > limit ? `${value.slice(0, limit)}\n...[已截断]` : value;
+    };
+    const exampleBlock = (dto.promptExamples || [])
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((example, index) => `示例${index + 1}：${example}`)
+      .join('\n\n');
+    const visualStyleRule = this.getAssetVisualStylePrompt(dto.visualStyle);
+    const targetSchema = dto.assetType === 'character'
+      ? `"character": {
+    "name": "人物姓名或称呼",
+    "aliases": [],
+    "episodeNumbers": [${episode.episode}],
+    "appearanceLevel": "core|supporting|cameo",
+    "matchedFromCharacterSetting": false,
+    "matchConfidence": 0.5,
+    "characterSettingExcerpt": "",
+    "plotBasis": "根据本集正文和用户备注生成的依据",
+    "roleBrief": "一句话人物概况",
+    "visualBrief": "视觉设计依据",
+    "promptNote": "用户补充设定",
+    "prompt": "完整人物定妆照提示词"
+  }`
+      : dto.assetType === 'scene'
+      ? `"scene": {
+    "name": "场景名",
+    "episodeNumber": ${episode.episode},
+    "episodeNumbers": [${episode.episode}],
+    "sceneType": "${dto.noPeople ? 'flashback' : 'primary'}",
+    "plotBasis": "根据本集正文和用户备注生成的依据",
+    "sceneBrief": "一句话说明这是怎样的空间",
+    "visualBrief": "视觉设计依据",
+    "promptNote": "用户补充设定",
+    "prompt": "完整场景空镜提示词"
+  }`
+      : `"prop": {
+    "name": "道具名",
+    "episodeNumbers": [${episode.episode}],
+    "propType": "weapon|token|document|jewelry|vehicle|daily|other",
+    "reusable": true,
+    "plotBasis": "根据本集正文和用户备注生成的依据",
+    "propBrief": "一句话说明这个道具是什么、谁持有、有什么剧情功能",
+    "visualBrief": "视觉设计依据",
+    "promptNote": "用户补充设定",
+    "prompt": "完整独立道具图提示词，纯白背景，不要人物"
+  }`;
+
+    const prompt = `你是微短剧资产补充生成师。请根据用户补充设定和当前集正文，额外生成一个${dto.assetType === 'character' ? '人物定妆照提示词' : dto.assetType === 'scene' ? '场景提示词' : '道具提示词'}。
+
+【当前集】
+第${episode.episode}集${episode.title ? `：${episode.title}` : ''}
+
+【分集细纲】
+${episode.outline || '无'}
+
+【本集正文】
+${episode.content}
+
+【世界观摘要】
+${compact(dto.worldSetting, 2200)}
+
+【人物设定摘要】
+${compact(dto.characters, 2600)}
+
+【全剧/中故事大纲摘要】
+${compact(dto.detailedOutline, 1800)}
+
+【用户补充设定】
+${note}
+
+【用户给出的提示词句型结构参考】
+${exampleBlock || '无'}
+
+${visualStyleRule}
+
+${this.getCharacterPortraitPromptRule()}
+
+生成要求：
+1. 如果生成角色：根据本集内容和用户备注补出一个可全剧复用的人物定妆照，不要写受伤、血迹、战斗动作或强剧情瞬间。
+2. 如果生成场景：生成无人空镜，不要出现人物、群演、背影或人脸；如果用户要求倒叙/回忆，只生成倒叙场景本身，不要出现人物。
+3. 如果生成道具：生成独立道具图，纯白背景或干净展示台，不要出现人物和手部；道具要适合后续视频镜头反复引用。
+4. 严格遵守当前视觉模式，不要混用真人和动漫风格。
+5. prompt 必须是一段完整中文提示词，不要写字段清单或解释。
+
+返回严格JSON，不要Markdown，不要解释：
+{
+  ${targetSchema}
+}`;
+
+    const raw = await this.chatWithSelectedLogicModel([
+      { role: 'system', content: '你只输出严格JSON。你擅长按用户补充设定生成微短剧人物或场景资产提示词。' },
+      { role: 'user', content: prompt },
+    ], dto);
+    const parsed = parseJson(raw);
+    if (dto.assetType === 'character') {
+      const item = parsed?.character || {};
+      return {
+        success: true,
+        data: {
+          character: {
+            id: String(item?.id || `${String(item?.name || '角色').trim() || '角色'}-${Date.now()}`),
+            name: String(item?.name || '').trim() || '补充人物',
+            aliases: Array.isArray(item?.aliases) ? item.aliases : [],
+            episodeNumbers: Array.isArray(item?.episodeNumbers) ? item.episodeNumbers : [episode.episode],
+            appearanceLevel: ['core', 'supporting', 'cameo'].includes(String(item?.appearanceLevel)) ? String(item.appearanceLevel) : 'supporting',
+            matchedFromCharacterSetting: Boolean(item?.matchedFromCharacterSetting),
+            matchConfidence: Number.isFinite(Number(item?.matchConfidence)) ? Number(item.matchConfidence) : undefined,
+            characterSettingExcerpt: String(item?.characterSettingExcerpt || '').trim(),
+            plotBasis: String(item?.plotBasis || '').trim(),
+            roleBrief: String(item?.roleBrief || '').trim(),
+            visualBrief: String(item?.visualBrief || '').trim(),
+            promptNote: String(item?.promptNote || note).trim(),
+            prompt: String(item?.prompt || '').trim(),
+          },
+        },
+      };
+    }
+
+    if (dto.assetType === 'prop') {
+      const item = parsed?.prop || {};
+      return {
+        success: true,
+        data: {
+          prop: {
+            id: String(item?.id || `${String(item?.name || '道具').trim() || '道具'}-${Date.now()}`),
+            name: String(item?.name || '').trim() || '补充道具',
+            episodeNumbers: Array.isArray(item?.episodeNumbers) ? item.episodeNumbers : [episode.episode],
+            propType: ['weapon', 'token', 'document', 'jewelry', 'vehicle', 'daily', 'other'].includes(String(item?.propType)) ? String(item.propType) : 'other',
+            reusable: Boolean(item?.reusable ?? true),
+            plotBasis: String(item?.plotBasis || '').trim(),
+            propBrief: String(item?.propBrief || '').trim(),
+            visualBrief: String(item?.visualBrief || '').trim(),
+            promptNote: String(item?.promptNote || note).trim(),
+            prompt: String(item?.prompt || '').trim(),
+          },
+        },
+      };
+    }
+
+    const item = parsed?.scene || {};
+    return {
+      success: true,
+      data: {
+        scene: {
+          id: String(item?.id || `${String(item?.name || '场景').trim() || '场景'}-${Date.now()}`),
+          name: String(item?.name || '').trim() || '补充场景',
+          episodeNumber: Number.isFinite(Number(item?.episodeNumber)) ? Number(item.episodeNumber) : episode.episode,
+          episodeNumbers: Array.isArray(item?.episodeNumbers) ? item.episodeNumbers : [episode.episode],
+          sceneType: ['primary', 'secondary', 'flashback', 'transition'].includes(String(item?.sceneType)) ? String(item.sceneType) : (dto.noPeople ? 'flashback' : 'primary'),
+          plotBasis: String(item?.plotBasis || '').trim(),
+          sceneBrief: String(item?.sceneBrief || '').trim(),
+          visualBrief: String(item?.visualBrief || '').trim(),
+          promptNote: String(item?.promptNote || note).trim(),
+          prompt: String(item?.prompt || '').trim(),
+        },
+      },
+    };
+  }
+
+  async generateSeedancePrompts(dto: GenerateSeedancePromptsDto) {
+    const episode = {
+      episode: Number(dto.episode?.episode),
+      title: String(dto.episode?.title || '').trim(),
+      outline: String(dto.episode?.outline || '').trim(),
+      content: String(dto.episode?.content || '').trim(),
+    };
+    if (!Number.isFinite(episode.episode) || !episode.content) {
+      throw new Error('缺少可拆解的本集正文');
+    }
+
+    const parseJson = (raw: string) => {
+      const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        throw new Error('AI SeeDance提示词结果不是有效JSON');
+      }
+    };
+    const compact = (text?: string, limit = 3600) => {
+      const value = String(text || '').trim();
+      return value.length > limit ? `${value.slice(0, limit)}\n...[已截断]` : value;
+    };
+    const visualStyleMap: Record<string, string> = {
+      live_action: '真人微短剧，电影写实主义，无背景音乐，电影级光影，画面细节丰富，无字幕',
+      guofeng_2d: '2D国风动漫风格，无背景音乐，电影级光影，画面细节丰富，无字幕',
+      guofeng_3d: '3D国风动漫风格，无背景音乐，电影级光影，画面细节丰富，无字幕',
+    };
+    const withAtLabel = (label: string) => {
+      const value = String(label || '').trim();
+      return value ? (value.startsWith('@') ? value : `@${value}`) : '';
+    };
+    const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const normalizeSeedanceAssetRefs = (text: string) => {
+      let next = String(text || '');
+      for (const asset of [...assets].sort((a, b) => b.label.length - a.label.length)) {
+        const label = asset.label;
+        const bare = label.replace(/^@/, '');
+        if (!bare) continue;
+        next = next.replace(new RegExp(`(?<!@)${escapeRegExp(bare)}`, 'g'), label);
+        if (bare.startsWith('图')) {
+          next = next.replace(new RegExp(`(?<!@)${escapeRegExp(`图片${bare.slice(1)}`)}`, 'g'), label);
+        }
+      }
+      return next;
+    };
+    const assets = (dto.assets || []).map((item: any) => ({
+      label: withAtLabel(item?.label),
+      assetType: String(item?.assetType || '').trim(),
+      name: String(item?.name || '').trim(),
+      brief: String(item?.brief || '').trim(),
+      prompt: String(item?.prompt || '').trim(),
+    })).filter(item => item.label && item.name);
+    const targetSegmentCount = Math.min(10, Math.max(6, Number(dto.targetSegmentCount || 8)));
+    const shotsPerSegment = Math.min(7, Math.max(5, Number(dto.shotsPerSegment || 5)));
+
+    const prompt = `你是SeeDance视频提示词拆解师。请把微短剧单集正文拆成适合短视频生成的分段提示词。
+
+【本集】
+第${episode.episode}集${episode.title ? `：${episode.title}` : ''}
+
+【分集细纲】
+${episode.outline || '无'}
+
+【本集正文】
+${episode.content}
+
+【世界观摘要】
+${compact(dto.worldSetting, 1800)}
+
+【人物设定摘要】
+${compact(dto.characters, 2200)}
+
+【全剧/中故事大纲摘要】
+${compact(dto.detailedOutline, 1800)}
+
+【本集可引用资产，必须按@图号引用】
+${JSON.stringify(assets, null, 2)}
+
+【用户给出的格式参考】
+${dto.promptExample || '无'}
+
+生成规则：
+1. 根据本集实际内容输出6-10段，优先约${targetSegmentCount}段；每段约15秒，原则上每段${shotsPerSegment}个镜头，如果总段数只有6段，每段必须扩到6-7个镜头来承接更多剧情。
+2. 每段 prompt 的第一句必须包含当前风格基础：${visualStyleMap[dto.visualStyle] || visualStyleMap.live_action}。
+3. 资产引用必须使用“@图一、@图二、@图三”这种格式，图号前必须带@符号；不要写成“图一/图片一”，也不要写人物原名作为图片引用；如果资产库没有对应@图号，才用文字描述。
+4. 每段必须像用户示例一样写“第一个镜头、第二个镜头……”；每个镜头都要有景别、构图位置、动作节奏、人物/场景/道具@图号、情绪、镜头运动、环境细节，不能只写一句概括。
+5. 镜头调度必须专业：明确人物关系和空间关系，例如谁在前景压迫、谁在后景观察、谁越过谁的肩膀看向目标、谁被人群隔开；通过站位、视线、反应镜头、遮挡、推拉摇移、环绕、跟拍、甩镜、低机位仰拍、快速推近等方式表现权力关系和情绪变化。
+6. 该炫酷的地方要有炫酷运镜，但不能乱炫：反转、登场、赌局/审判/追逐/威胁/揭露身份/能力发动等节点，可以使用快速推轨、环绕定格、俯冲、横移穿越人群、慢动作接特写、道具特写转场；普通对话段用稳定的正反打、过肩、反应镜头和轻微推近。
+7. 台词密度要适当增大，用来把单集故事情节讲清楚，但不能机械堆字。每段通常安排2-4句自然短台词、旁白或人物OS；信息爆发段可到4-6句。台词必须服务情节：交代身份、关系、规则、目标、风险、选择、误会、反转或情绪递进。
+8. 第1段和第2段必须承担开场交代：在剧本框架内，用冲突中的对话、旁白OS和环境信息讲清楚主角是谁、这是怎样的世界、当前危险或规则是什么、各方在争什么、人物关系为什么紧张。不要突兀科普，不要像说明书。
+9. 台词必须口语化、可表演，符合人物身份和关系：熟人可以省略称呼、带情绪停顿；上位者压迫要短促克制；主角OS可以清楚但不装腔。禁止网文腔、口号腔、鸡皮疙瘩式狠话、过度中二表达。
+10. 每段需要把剧情内容展开交代清楚：如果这一段只有动作没有信息，就补人物反应或一句OS；如果只有解释没有戏，就用对手打断、旁人质疑、道具变化或镜头压迫把信息戏剧化。
+11. 仍然要保证15秒能念完：台词多的段落减少动作复杂度；动作强的段落减少台词，用短句和反应镜头承接信息。
+12. 禁止字幕、禁止背景音乐；人物身上默认干净，不要随意写污渍、血迹、受伤，除非原文这一段必须表达。
+13. 风格要符合本集调性和资产模式；真人模式写写实摄影，2D/3D动漫模式写对应动漫风格。
+14. 不要写解释、教程、分镜理论，只写可直接复制到SeeDance的提示词。每段 prompt 必须把台词写进镜头描述里，例如：他说：“短台词。” 或 旁白OS：“短旁白。”
+
+返回严格JSON，不要Markdown，不要解释：
+{
+  "segments": [
+    {
+      "index": 1,
+      "title": "这一段剧情小标题",
+      "scriptRange": "对应原文大致范围",
+      "assetRefs": ["@图一", "@图二"],
+      "prompt": "2D动漫风格，无背景音乐，电影级光影，@图一..."
+    }
+  ],
+  "summary": "拆解概要"
+}`;
+
+    const raw = await this.chatWithSelectedLogicModel([
+      { role: 'system', content: '你只输出严格JSON。你擅长把微短剧正文拆成SeeDance十五秒视频提示词，尤其擅长专业影视调度、人物关系调度、炫酷但有动机的运镜，以及口语化但信息密度足够的台词和人物OS。' },
+      { role: 'user', content: prompt },
+    ], dto);
+    const parsed = parseJson(raw);
+    const segments = Array.isArray(parsed?.segments) ? parsed.segments : [];
+    return {
+      success: true,
+      data: {
+        segments: segments.map((item: any, index: number) => ({
+          index: Number.isFinite(Number(item?.index)) ? Number(item.index) : index + 1,
+          title: String(item?.title || `第${index + 1}段`).trim(),
+          scriptRange: String(item?.scriptRange || '').trim(),
+          assetRefs: Array.isArray(item?.assetRefs) ? item.assetRefs.map((ref: unknown) => withAtLabel(String(ref || '').trim())).filter(Boolean) : [],
+          prompt: normalizeSeedanceAssetRefs(String(item?.prompt || '').trim()),
+        })).filter((item: any) => item.prompt),
+        summary: String(parsed?.summary || `已拆解第${episode.episode}集SeeDance提示词。`).trim(),
+      },
+    };
+  }
+
   async reviewMicrodramaScripts(dto: ReviewMicrodramaScriptsDto) {
     const entries = Object.entries(dto.chapters || {})
       .map(([episode, content]) => ({ episode: Number(episode), content: String(content || '') }))
@@ -3756,6 +4494,8 @@ ${scriptBlock}
    - 主要配角台词要能听出身份、欲望、恐惧、口癖或利益立场，不能所有人一个腔调。
    - 反派/压力方台词要有压迫感、诱惑性或自我辩护，不能只会放狠话。
    - 爱情线台词要有试探、调侃、护短、吃醋、误会或暧昧张力，但必须推动关系变化。
+   - 台词必须去除过度网文化、霸总腔、尬爽宣言、鸡皮疙瘩式土味情话和端着说教；优先改成真实口语、潜台词、停顿、反问、回避、情绪错位和行动后的短句。
+   - 如果原台词只表达“拜金、自私、我恨你、我要报复”这类单一动机，必须补成更复杂的人性逻辑：生存压力、羞耻、亏欠、恐惧、保护欲、自我辩护或成长挣扎。
 6. 可拍摄性：不要把单集改厚，优先替换一小段、一组对白或一处动作说明。
 7. 只返回需要修改的地方。没有问题的段落不要返回补丁。
 

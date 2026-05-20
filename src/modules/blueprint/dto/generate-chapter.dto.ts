@@ -155,6 +155,168 @@ export class ReviewMicrodramaScriptsDto {
   model?: string;
 }
 
+export class GenerateCharacterPromptsDto extends LogicModelSelectionDto {
+  @IsArray()
+  episodes: Array<{
+    episode: number;
+    content: string;
+    outline?: string;
+    title?: string;
+  }>;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['live_action', 'guofeng_2d', 'guofeng_3d'])
+  visualStyle?: 'live_action' | 'guofeng_2d' | 'guofeng_3d';
+
+  @IsString()
+  @IsOptional()
+  bookName?: string;
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+
+  @IsString()
+  @IsOptional()
+  detailedOutline?: string;
+
+  @IsArray()
+  @IsOptional()
+  promptExamples?: string[];
+
+  @IsArray()
+  @IsOptional()
+  existingCharacters?: any[];
+
+  @IsArray()
+  @IsOptional()
+  existingScenes?: any[];
+
+  @IsArray()
+  @IsOptional()
+  existingProps?: any[];
+}
+
+export class ReviseCharacterPromptDto extends LogicModelSelectionDto {
+  @IsObject()
+  character: any;
+
+  @IsString()
+  @IsIn(['regenerate', 'tune'])
+  action: 'regenerate' | 'tune';
+
+  @IsString()
+  note: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['live_action', 'guofeng_2d', 'guofeng_3d'])
+  visualStyle?: 'live_action' | 'guofeng_2d' | 'guofeng_3d';
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+
+  @IsString()
+  @IsOptional()
+  detailedOutline?: string;
+
+  @IsArray()
+  @IsOptional()
+  promptExamples?: string[];
+}
+
+export class GenerateSupplementalAssetPromptDto extends LogicModelSelectionDto {
+  @IsString()
+  @IsIn(['character', 'scene', 'prop'])
+  assetType: 'character' | 'scene' | 'prop';
+
+  @IsString()
+  @IsIn(['live_action', 'guofeng_2d', 'guofeng_3d'])
+  visualStyle: 'live_action' | 'guofeng_2d' | 'guofeng_3d';
+
+  @IsObject()
+  episode: {
+    episode: number;
+    content: string;
+    outline?: string;
+    title?: string;
+  };
+
+  @IsString()
+  note: string;
+
+  @IsBoolean()
+  @IsOptional()
+  noPeople?: boolean;
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+
+  @IsString()
+  @IsOptional()
+  detailedOutline?: string;
+
+  @IsArray()
+  @IsOptional()
+  promptExamples?: string[];
+}
+
+export class GenerateSeedancePromptsDto extends LogicModelSelectionDto {
+  @IsObject()
+  episode: {
+    episode: number;
+    content: string;
+    outline?: string;
+    title?: string;
+  };
+
+  @IsString()
+  @IsIn(['live_action', 'guofeng_2d', 'guofeng_3d'])
+  visualStyle: 'live_action' | 'guofeng_2d' | 'guofeng_3d';
+
+  @IsArray()
+  assets: any[];
+
+  @IsNumber()
+  @IsOptional()
+  targetSegmentCount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  shotsPerSegment?: number;
+
+  @IsString()
+  @IsOptional()
+  promptExample?: string;
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+
+  @IsString()
+  @IsOptional()
+  detailedOutline?: string;
+}
+
 export class ExportMicrodramaMarkdownDto extends LogicModelSelectionDto {
   @IsObject()
   chapters: { [key: number]: string };

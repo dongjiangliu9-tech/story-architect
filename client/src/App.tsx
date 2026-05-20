@@ -11,6 +11,8 @@ import { SavedOutlinesPanel } from './components/SavedOutlinesPanel';
 import { AutoGenerationProgress } from './components/AutoGenerationProgress';
 import { WorldSettingPage } from './pages/WorldSettingPage';
 import { WriterPage } from './pages/WriterPage';
+import { CharacterPromptsPage } from './pages/CharacterPromptsPage';
+import { SeeDancePromptsPage } from './pages/SeeDancePromptsPage';
 import { SavedOutlinesProvider, useSavedOutlines } from './contexts/SavedOutlinesContext';
 import { WorldSettingsProvider } from './contexts/WorldSettingsContext';
 import { StoryStructurePage } from './pages/StoryStructurePage';
@@ -1354,7 +1356,7 @@ function BlueprintPage({
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'blueprint' | 'world-setting' | 'story-structure' | 'writer'>('blueprint');
+  const [currentPage, setCurrentPage] = useState<'blueprint' | 'world-setting' | 'story-structure' | 'writer' | 'character-prompts' | 'seedance-prompts'>('blueprint');
   const [selectedOutline, setSelectedOutline] = useState<OutlineData | null>(null);
 
   const cacheOutlineSafely = (outline: OutlineData | null) => {
@@ -1421,6 +1423,10 @@ function App() {
       } else {
         setCurrentPage('writer');
       }
+    } else if (page === 'character-prompts') {
+      setCurrentPage('character-prompts');
+    } else if (page === 'seedance-prompts') {
+      setCurrentPage('seedance-prompts');
     } else {
       setCurrentPage('blueprint');
       setSelectedOutline(null);
@@ -1456,9 +1462,19 @@ function App() {
             onBack={handleBack}
             onNavigateToWriter={() => setCurrentPage('writer')}
           />
-        ) : (
+        ) : currentPage === 'writer' ? (
           <WriterPage
             onBack={() => setCurrentPage('story-structure')}
+            onNavigateToCharacterPrompts={() => setCurrentPage('character-prompts')}
+          />
+        ) : currentPage === 'character-prompts' ? (
+          <CharacterPromptsPage
+            onBack={() => setCurrentPage('writer')}
+            onNavigateToSeedance={() => setCurrentPage('seedance-prompts')}
+          />
+        ) : (
+          <SeeDancePromptsPage
+            onBack={() => setCurrentPage('character-prompts')}
           />
         )}
       </WorldSettingsProvider>

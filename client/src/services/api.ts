@@ -22,6 +22,10 @@ const AI_ENDPOINTS = new Set([
   '/blueprint/generate-chapter',
   '/blueprint/rewrite-chapter',
   '/blueprint/review-microdrama-scripts',
+  '/blueprint/generate-character-prompts',
+  '/blueprint/revise-character-prompt',
+  '/blueprint/generate-supplemental-asset-prompt',
+  '/blueprint/generate-seedance-prompts',
   '/blueprint/export-microdrama-markdown',
   '/blueprint/prepare-stream',
 ]);
@@ -366,6 +370,157 @@ export interface ReviewMicrodramaScriptsResponse {
   };
 }
 
+export interface GenerateCharacterPromptsDto extends LlmModelSelection {
+  episodes: Array<{
+    episode: number;
+    content: string;
+    outline?: string;
+    title?: string;
+  }>;
+  visualStyle?: AssetVisualStyle;
+  bookName?: string;
+  worldSetting?: string;
+  characters?: string;
+  detailedOutline?: string;
+  promptExamples?: string[];
+  existingCharacters?: CharacterPromptItem[];
+  existingScenes?: ScenePromptItem[];
+  existingProps?: PropPromptItem[];
+}
+
+export type AssetVisualStyle = 'live_action' | 'guofeng_2d' | 'guofeng_3d';
+
+export interface CharacterPromptItem {
+  id?: string;
+  name: string;
+  aliases?: string[];
+  episodeNumbers: number[];
+  appearanceLevel: 'core' | 'supporting' | 'cameo';
+  matchedFromCharacterSetting: boolean;
+  matchConfidence?: number;
+  characterSettingExcerpt?: string;
+  plotBasis?: string;
+  roleBrief?: string;
+  visualBrief?: string;
+  prompt: string;
+  promptNote?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
+}
+
+export interface ScenePromptItem {
+  id?: string;
+  name: string;
+  episodeNumber: number;
+  episodeNumbers?: number[];
+  sceneType: 'primary' | 'secondary' | 'flashback' | 'transition';
+  plotBasis?: string;
+  sceneBrief: string;
+  visualBrief?: string;
+  prompt: string;
+  promptNote?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
+}
+
+export interface PropPromptItem {
+  id?: string;
+  name: string;
+  episodeNumbers: number[];
+  propType: 'weapon' | 'token' | 'document' | 'jewelry' | 'vehicle' | 'daily' | 'other';
+  reusable: boolean;
+  plotBasis?: string;
+  propBrief: string;
+  visualBrief?: string;
+  prompt: string;
+  promptNote?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
+}
+
+export interface GenerateCharacterPromptsResponse {
+  success: boolean;
+  data: {
+    characters: CharacterPromptItem[];
+    scenes?: ScenePromptItem[];
+    props?: PropPromptItem[];
+    visualStyle?: AssetVisualStyle;
+    summary: string;
+  };
+}
+
+export interface ReviseCharacterPromptDto extends LlmModelSelection {
+  character: CharacterPromptItem;
+  action: 'regenerate' | 'tune';
+  note: string;
+  visualStyle?: AssetVisualStyle;
+  worldSetting?: string;
+  characters?: string;
+  detailedOutline?: string;
+  promptExamples?: string[];
+}
+
+export interface GenerateSupplementalAssetPromptDto extends LlmModelSelection {
+  assetType: 'character' | 'scene' | 'prop';
+  visualStyle: AssetVisualStyle;
+  episode: {
+    episode: number;
+    content: string;
+    outline?: string;
+    title?: string;
+  };
+  note: string;
+  noPeople?: boolean;
+  worldSetting?: string;
+  characters?: string;
+  detailedOutline?: string;
+  promptExamples?: string[];
+}
+
+export interface SeedanceAssetRef {
+  label: string;
+  assetType: 'character' | 'scene' | 'prop';
+  name: string;
+  brief?: string;
+  prompt?: string;
+}
+
+export interface GenerateSeedancePromptsDto extends LlmModelSelection {
+  episode: {
+    episode: number;
+    content: string;
+    outline?: string;
+    title?: string;
+  };
+  visualStyle: AssetVisualStyle;
+  assets: SeedanceAssetRef[];
+  targetSegmentCount?: number;
+  shotsPerSegment?: number;
+  promptExample?: string;
+  worldSetting?: string;
+  characters?: string;
+  detailedOutline?: string;
+}
+
+export interface SeedancePromptSegment {
+  index: number;
+  title: string;
+  scriptRange?: string;
+  assetRefs: string[];
+  prompt: string;
+}
+
+export interface GenerateSeedancePromptsResponse {
+  success: boolean;
+  data: {
+    segments: SeedancePromptSegment[];
+    summary: string;
+  };
+}
+
 export interface ExportMicrodramaMarkdownDto extends LlmModelSelection {
   chapters: { [key: number]: string };
   bookName: string;
@@ -424,6 +579,26 @@ export const blueprintApi = {
 
   reviewMicrodramaScripts: async (data: ReviewMicrodramaScriptsDto): Promise<ReviewMicrodramaScriptsResponse> => {
     const response = await api.post('/blueprint/review-microdrama-scripts', data);
+    return response.data;
+  },
+
+  generateCharacterPrompts: async (data: GenerateCharacterPromptsDto): Promise<GenerateCharacterPromptsResponse> => {
+    const response = await api.post('/blueprint/generate-character-prompts', data);
+    return response.data;
+  },
+
+  reviseCharacterPrompt: async (data: ReviseCharacterPromptDto): Promise<{ success: boolean; data: CharacterPromptItem }> => {
+    const response = await api.post('/blueprint/revise-character-prompt', data);
+    return response.data;
+  },
+
+  generateSupplementalAssetPrompt: async (data: GenerateSupplementalAssetPromptDto): Promise<{ success: boolean; data: { character?: CharacterPromptItem; scene?: ScenePromptItem; prop?: PropPromptItem } }> => {
+    const response = await api.post('/blueprint/generate-supplemental-asset-prompt', data);
+    return response.data;
+  },
+
+  generateSeedancePrompts: async (data: GenerateSeedancePromptsDto): Promise<GenerateSeedancePromptsResponse> => {
+    const response = await api.post('/blueprint/generate-seedance-prompts', data);
     return response.data;
   },
 

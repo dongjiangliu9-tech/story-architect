@@ -71,6 +71,104 @@ export interface SavedVersion {
   preview: string;
 }
 
+export interface CharacterPromptItem {
+  id?: string;
+  name: string;
+  aliases?: string[];
+  episodeNumbers: number[];
+  appearanceLevel: 'core' | 'supporting' | 'cameo';
+  matchedFromCharacterSetting: boolean;
+  matchConfidence?: number;
+  characterSettingExcerpt?: string;
+  plotBasis?: string;
+  roleBrief?: string;
+  visualBrief?: string;
+  prompt: string;
+  promptNote?: string;
+  imageUrl?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
+}
+
+export type AssetVisualStyle = 'live_action' | 'guofeng_2d' | 'guofeng_3d';
+
+export interface ScenePromptItem {
+  id?: string;
+  name: string;
+  episodeNumber: number;
+  episodeNumbers?: number[];
+  sceneType: 'primary' | 'secondary' | 'flashback' | 'transition';
+  plotBasis?: string;
+  sceneBrief: string;
+  visualBrief?: string;
+  prompt: string;
+  promptNote?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
+}
+
+export interface PropPromptItem {
+  id?: string;
+  name: string;
+  episodeNumbers: number[];
+  propType: 'weapon' | 'token' | 'document' | 'jewelry' | 'vehicle' | 'daily' | 'other';
+  reusable: boolean;
+  plotBasis?: string;
+  propBrief: string;
+  visualBrief?: string;
+  prompt: string;
+  promptNote?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
+}
+
+export interface EpisodeAssetInventory {
+  episodeNumber: number;
+  characterAssetIds: string[];
+  sceneAssetIds: string[];
+  propAssetIds: string[];
+  missingImageNames: string[];
+  updatedAt: string;
+}
+
+export interface SeedancePromptSegment {
+  index: number;
+  title: string;
+  scriptRange?: string;
+  assetRefs: string[];
+  prompt: string;
+}
+
+export interface SeedancePromptPack {
+  id: string;
+  createdAt: string;
+  episodeNumber: number;
+  visualStyle?: AssetVisualStyle;
+  assetLabels: Array<{
+    label: string;
+    assetType: 'character' | 'scene' | 'prop';
+    name: string;
+    assetId: string;
+  }>;
+  segments: SeedancePromptSegment[];
+  summary?: string;
+}
+
+export interface CharacterPromptPack {
+  id: string;
+  createdAt: string;
+  episodeNumbers: number[];
+  visualStyle?: AssetVisualStyle;
+  characters: CharacterPromptItem[];
+  scenes?: ScenePromptItem[];
+  props?: PropPromptItem[];
+  episodeInventories?: EpisodeAssetInventory[];
+  summary?: string;
+}
+
 export interface WorldSettingsProject {
   id: number;
   bookName: string;
@@ -97,6 +195,8 @@ export interface WorldSettingsProject {
   savedMicroStories?: SavedMicroStory[]; // 保存的小故事列表
   selectedMicroStories?: SavedMicroStory[]; // 已选择用于生成的小故事
   generatedChapters?: {[key: number]: string}; // 生成的章节内容
+  characterPromptPacks?: CharacterPromptPack[]; // 微短剧人物提示词批次
+  seedancePromptPacks?: SeedancePromptPack[]; // SeeDance提示词批次
   savedVersions?: SavedVersion[]; // 保存的版本历史
   autoGenerationMode?: boolean; // 是否为自动生成模式
   autoGenerationStarted?: boolean; // 是否已启动自动生成

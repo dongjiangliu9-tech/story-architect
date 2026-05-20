@@ -1159,6 +1159,44 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     }
   };
 
+  const handleImportProjectFolder = async () => {
+    const picker = (window as any).showDirectoryPicker;
+    if (!picker) {
+      alert('当前浏览器不支持选择文件夹。请导入资源包里的“项目.json”文件。');
+      return;
+    }
+    try {
+      const directoryHandle = await picker();
+      const jsonFiles: File[] = [];
+      for await (const entry of directoryHandle.values()) {
+        if (entry.kind !== 'file' || !String(entry.name || '').toLowerCase().endsWith('.json')) continue;
+        jsonFiles.push(await entry.getFile());
+      }
+      jsonFiles.sort((a, b) => {
+        const aScore = a.name.includes('项目') ? 0 : 1;
+        const bScore = b.name.includes('项目') ? 0 : 1;
+        return aScore - bScore || a.name.localeCompare(b.name);
+      });
+      if (!jsonFiles.length) {
+        alert('这个文件夹里没有找到项目JSON。请选择“项目资源包”根目录。');
+        return;
+      }
+      for (const file of jsonFiles) {
+        const result = importFromJsonText(await file.text());
+        if (result.imported > 0) {
+          const skippedMsg = result.skipped > 0 ? `（跳过 ${result.skipped} 条无效数据）` : '';
+          alert(`资源包导入成功：已导入 ${result.imported} 个项目${skippedMsg}。`);
+          return;
+        }
+      }
+      alert('导入失败：没有识别到可用的项目数据。');
+    } catch (error) {
+      if ((error as any)?.name === 'AbortError') return;
+      console.error('导入项目资源包失败:', error);
+      alert('导入项目资源包失败，请稍后重试。');
+    }
+  };
+
   const handlePullCloudProjects = async () => {
     setIsPullingCloudProjects(true);
     try {
@@ -2397,7 +2435,7 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                 <div className="flex items-center space-x-2">
                   <label
                     className="flex items-center space-x-2 px-3 py-1.5 bg-primary-500 hover:bg-primary-400 rounded-lg text-sm font-medium transition-colors cursor-pointer"
-                    title="从导出的JSON文件导入并恢复项目"
+                    title="从导出的JSON文件导入并恢复项目，图片DataURL会一起恢复"
                   >
                     <span>导入项目</span>
                     <input
@@ -2412,6 +2450,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                       }}
                     />
                   </label>
+                  <button
+                    onClick={handleImportProjectFolder}
+                    className="flex items-center space-x-2 px-3 py-1.5 bg-primary-500 hover:bg-primary-400 rounded-lg text-sm font-medium transition-colors"
+                    title="选择项目资源包文件夹导入"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    <span>导入资源包</span>
+                  </button>
                   <button
                     onClick={handlePullCloudProjects}
                     disabled={isPullingCloudProjects}

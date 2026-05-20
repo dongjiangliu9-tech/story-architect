@@ -1,12 +1,13 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye, Trash2, Users } from 'lucide-react';
 import { getMacroStoryIndexFromId, SavedMicroStory, sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
 import { DEFAULT_WRITER_MODEL_VALUE, getWriterModelOption, toWriterModelRequest, WRITER_MODEL_OPTIONS } from '../utils/llmModelSelection';
 
 interface WriterPageProps {
   onBack: () => void;
+  onNavigateToCharacterPrompts?: () => void;
   setIsAutoFlowRunning?: (running: boolean) => void;
   setAutoFlowStep?: (step: string) => void;
   setAutoFlowProgress?: (progress: number) => void;
@@ -215,7 +216,7 @@ function buildFocusedCharacterContext(characters: string, isMicrodrama: boolean)
   return selected.join('\n\n');
 }
 
-export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
+export function WriterPage({ onBack, onNavigateToCharacterPrompts, setIsAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WriterPageProps) {
   const { currentProject, updateProject, exportProject, clearNovelCacheForProject, syncProjectToCloud } = useWorldSettings();
   const writerMode = inferWriterMode(currentProject);
   const isMicrodrama = writerMode === 'microdrama';
@@ -4306,6 +4307,44 @@ export function WriterPage({ onBack, setIsAutoFlowRunning, setAutoFlowStep, setA
                       >
                         <Sparkles className={`w-4 h-4 ${isReviewingScripts ? 'animate-spin' : ''}`} />
                         <span>{isReviewingScripts ? '审读修订中...' : '审读并打磨全剧'}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {isMicrodrama && (
+                    <div className="p-4 bg-gradient-to-r from-indigo-50 to-sky-50 border border-indigo-200 rounded-lg">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-indigo-900">人物提示词模块</h4>
+                          <p className="text-xs text-indigo-700 mt-1">
+                            从已生成剧本按集导入角色，回人设匹配；未匹配人物会按本集剧情补全。
+                          </p>
+                        </div>
+                        <span className="px-2 py-1 rounded-md bg-white/80 border border-indigo-200 text-[11px] font-medium text-indigo-700">
+                          即梦
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            localStorage.setItem('story-architect-character-prompts-default-episode', String(currentChapter));
+                          } catch {
+                            // Ignore storage failures; the next page can still choose an available episode.
+                          }
+                          onNavigateToCharacterPrompts?.();
+                        }}
+                        disabled={
+                          Object.keys(generatedChapters).length === 0 ||
+                          isEditingChapter ||
+                          hasActiveGeneration ||
+                          isRewritingChapter ||
+                          !onNavigateToCharacterPrompts
+                        }
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed"
+                      >
+                        <Users className="w-4 h-4" />
+                        <span>进入人物提示词</span>
                       </button>
                     </div>
                   )}
