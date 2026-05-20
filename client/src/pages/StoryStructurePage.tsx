@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, BookOpen, Sparkles, FileText, Layers, ChevronRight, CheckCircle, Plus, RefreshCw, Eye, EyeOff, PenTool, Save, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Sparkles, FileText, Layers, ChevronRight, CheckCircle, Plus, RefreshCw, Eye, EyeOff, PenTool, Save, X, Trash2, UploadCloud } from 'lucide-react';
 import { useWorldSettings, SavedMicroStory, sortSavedMicroStoriesForChapters } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
 import { getLogicModelRequestFromSources } from '../utils/llmModelSelection';
@@ -35,6 +35,64 @@ function cleanMicroStoryContent(content: string): string {
   return stripLeakedPlanningMetadata(cleanedContent);
 }
 
+function decodeXmlText(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+async function inflateZipEntry(bytes: Uint8Array, method: number): Promise<Uint8Array> {
+  if (method === 0) return bytes;
+  if (method !== 8) {
+    throw new Error('暂不支持这个docx压缩格式');
+  }
+  const DecompressionStreamCtor = (globalThis as any).DecompressionStream;
+  if (!DecompressionStreamCtor) {
+    throw new Error('当前浏览器不支持直接解析docx，请先另存为txt或md导入。');
+  }
+  const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(arrayBuffer).set(bytes);
+  const stream = new Blob([arrayBuffer]).stream().pipeThrough(new DecompressionStreamCtor('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function extractDocxText(file: File): Promise<string> {
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const decoder = new TextDecoder('utf-8');
+  let offset = 0;
+  while (offset + 30 < buffer.length) {
+    const signature = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
+    if (signature !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+    const method = buffer[offset + 8] | (buffer[offset + 9] << 8);
+    const compressedSize = buffer[offset + 18] | (buffer[offset + 19] << 8) | (buffer[offset + 20] << 16) | (buffer[offset + 21] << 24);
+    const fileNameLength = buffer[offset + 26] | (buffer[offset + 27] << 8);
+    const extraLength = buffer[offset + 28] | (buffer[offset + 29] << 8);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + fileNameLength + extraLength;
+    const fileName = decoder.decode(buffer.slice(nameStart, nameStart + fileNameLength));
+    if (fileName === 'word/document.xml') {
+      const compressed = buffer.slice(dataStart, dataStart + compressedSize);
+      const inflated = await inflateZipEntry(compressed, method);
+      const xml = decoder.decode(inflated);
+      return decodeXmlText(xml
+        .replace(/<w:tab\/>/g, '\t')
+        .replace(/<w:br\/>/g, '\n')
+        .replace(/<\/w:p>/g, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim());
+    }
+    offset = dataStart + Math.max(compressedSize, 0);
+  }
+  throw new Error('没有在docx中找到正文内容');
+}
+
 function extractChapterNumberFromDraft(draft: MicroStoryDraft): number | null {
   const text = `${draft.title || ''}\n${draft.content || ''}`;
   const match = text.match(/第\s*(\d{1,4})\s*[章节集]/);
@@ -44,6 +102,11 @@ function extractChapterNumberFromDraft(draft: MicroStoryDraft): number | null {
 }
 
 type MicroStoryDraft = { title: string; content: string; order?: number };
+type ImportedEpisodeOutline = {
+  episodeNumber: number;
+  title: string;
+  content: string;
+};
 type MicroStoryVariantState = {
   loading: boolean;
   note: string;
@@ -173,7 +236,9 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
   const [batchVariantStates, setBatchVariantStates] = useState<Record<string, MicroStoryBatchVariantState>>({});
   const [macroVariantStates, setMacroVariantStates] = useState<Record<string, MicroStoryVariantState>>({});
   const [batchStartMacroStoryInput, setBatchStartMacroStoryInput] = useState('');
+  const [isImportingExternalOutline, setIsImportingExternalOutline] = useState(false);
   const editingMicroStoryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const externalOutlineFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedMacroStory = selectedMacroStoryIndex !== null ? macroStories[selectedMacroStoryIndex] : null;
 
@@ -602,6 +667,197 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
       return `${digits[hundreds]}百${rest ? (rest < 10 ? `零${digits[rest]}` : getChineseNumber(rest)) : ''}`;
     }
     return String(num);
+  };
+
+  const normalizeImportedEpisodeCount = (count: number): 15 | 30 | 60 | 100 => {
+    if (count <= 15) return 15;
+    if (count <= 30) return 30;
+    if (count <= 60) return 60;
+    return 100;
+  };
+
+  const extractImportedBookName = (text: string, fileName: string) => {
+    const titleMatch = text.match(/《([^》]{1,80})》/);
+    if (titleMatch?.[1]?.trim()) return titleMatch[1].trim();
+    const headingMatch = text.match(/^\s*#\s+(.+?)\s*$/m);
+    if (headingMatch?.[1]?.trim()) {
+      return headingMatch[1]
+        .replace(/\s*\d+\s*集.*$/, '')
+        .replace(/[（(].*?[）)]/g, '')
+        .trim();
+    }
+    return fileName.replace(/\.(txt|md|markdown|docx)$/i, '').trim() || '外部导入微短剧';
+  };
+
+  const splitImportedEpisodeOutlines = (text: string): ImportedEpisodeOutline[] => {
+    const normalized = String(text || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\u00a0/g, ' ')
+      .trim();
+    if (!normalized) return [];
+
+    const episodeRegex = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?第\s*([一二三四五六七八九十百\d]{1,6})\s*集(?=$|\n|\s|[｜|:：、.．\-—])(?:\s*[｜|:：、.．\-—]\s*|\s+)?([^\n*#]*)?(?:\*\*)?\s*/g;
+    const matches = [...normalized.matchAll(episodeRegex)]
+      .map(match => {
+        const rawNumber = match[1] || '';
+        const episodeNumber = /^\d+$/.test(rawNumber) ? Number(rawNumber) : chineseNumberToInt(rawNumber);
+        return {
+          match,
+          episodeNumber,
+        };
+      })
+      .filter(item => Number.isFinite(item.episodeNumber) && item.episodeNumber > 0);
+
+    if (matches.length === 0) {
+      return [{
+        episodeNumber: 1,
+        title: '第1集',
+        content: cleanMicroStoryContent(normalized),
+      }];
+    }
+
+    const episodes: ImportedEpisodeOutline[] = [];
+    matches.forEach((item, index) => {
+      const { match, episodeNumber } = item;
+      const startIndex = (match.index || 0) + match[0].length;
+      const endIndex = matches[index + 1]?.match.index ?? normalized.length;
+      const rawBody = normalized.slice(startIndex, endIndex);
+      const titleSuffix = (match[2] || '').replace(/\*+/g, '').trim();
+      const title = titleSuffix ? `第${episodeNumber}集｜${titleSuffix}` : `第${episodeNumber}集`;
+      const content = cleanMicroStoryContent(rawBody);
+      if (content.trim()) {
+        episodes.push({ episodeNumber, title, content });
+      }
+    });
+
+    return episodes
+      .sort((a, b) => a.episodeNumber - b.episodeNumber)
+      .filter((episode, index, list) => (
+        index === list.findIndex(item => item.episodeNumber === episode.episodeNumber)
+      ));
+  };
+
+  const importExternalEpisodeOutlineText = (text: string, sourceName: string) => {
+    if (!currentProject) return;
+    const episodes = splitImportedEpisodeOutlines(text);
+    if (episodes.length === 0) {
+      alert('没有识别到可导入的分集细纲，请确认文本里有“第1集 / 第2集”这类集数标记。');
+      return;
+    }
+
+    const hasExistingStructure = Boolean(
+      currentProject.detailedOutline?.trim() ||
+      currentProject.savedMicroStories?.length ||
+      Object.keys(currentProject.microStoryOutlines || {}).length ||
+      Object.keys(currentProject.generatedChapters || {}).length
+    );
+    if (hasExistingStructure) {
+      const confirmed = confirm(
+        `将把这份外部分集细纲导入为正式微短剧项目结构：\n\n` +
+        `- 生成 1 个中故事\n` +
+        `- 中故事1包含 ${episodes.length} 集\n` +
+        `- 覆盖当前情节细纲、已保存分集和旧正文缓存\n\n` +
+        `是否继续？`
+      );
+      if (!confirmed) return;
+    }
+
+    const importedBookName = extractImportedBookName(text, sourceName);
+    const resolvedBookName =
+      !currentProject.bookName.trim() || /^未命名/.test(currentProject.bookName.trim())
+        ? importedBookName
+        : currentProject.bookName;
+    const firstEpisode = episodes[0]?.episodeNumber || 1;
+    const lastEpisode = episodes[episodes.length - 1]?.episodeNumber || episodes.length;
+    const nowIso = new Date().toISOString();
+    const storyKey = 'story_0';
+    const drafts: MicroStoryDraft[] = episodes.map((episode, index) => ({
+      title: episode.title,
+      content: episode.content,
+      order: Math.max(0, episode.episodeNumber - firstEpisode) || index,
+    }));
+    const macroStoryContent = [
+      '外部导入分集细纲',
+      `对应集数：第${firstEpisode}-${lastEpisode}集`,
+      `导入来源：${sourceName}`,
+      '',
+      '详细剧情：',
+      episodes.map(episode => `${episode.title}：\n${episode.content}`).join('\n\n'),
+      '',
+      '阶段状态小结：本项目由外部分集细纲导入，正文写作时以每集细纲为硬边界推进；若缺少世界观或人物设定，写作阶段只按已有分集剧情补足必要上下文。'
+    ].join('\n').trim();
+    const detailedOutline = `【中故事一】外部导入分集细纲\n${macroStoryContent}`;
+    const microOutline = serializeMicroStoryDraftsToOutline(0, drafts);
+    const savedMicroStories: SavedMicroStory[] = drafts.map((draft, index) => ({
+      id: `${storyKey}_external_${draft.order ?? index}_${Date.now()}_${index}`,
+      title: draft.title,
+      content: draft.content,
+      macroStoryId: storyKey,
+      macroStoryTitle: '中故事 1',
+      macroStoryContent,
+      order: draft.order ?? index,
+      createdAt: nowIso,
+    }));
+    const nextOutline = {
+      ...currentProject.outline,
+      title: currentProject.outline.title?.trim() && !/^未命名/.test(currentProject.outline.title.trim())
+        ? currentProject.outline.title
+        : resolvedBookName,
+      logline: currentProject.outline.logline || `外部导入的${episodes.length}集微短剧分集细纲。`,
+      hook: currentProject.outline.hook || episodes[0]?.content.slice(0, 160) || '',
+      rawContent: text,
+    };
+    const nextMicroStoryOutlines = { [storyKey]: microOutline };
+    const sortedSaved = sortSavedMicroStoriesForChapters(savedMicroStories);
+
+    setMacroStories([macroStoryContent]);
+    setMicroStoryOutlines(nextMicroStoryOutlines);
+    setMicroStoryDraftsByMacro({ [storyKey]: drafts });
+    setExpandedStories({ [storyKey]: true });
+    setSelectedMacroStoryIndex(0);
+    setEditingMicroStory(null);
+    setSelectedMicroStoryIndexesByMacro({});
+    setVariantStates({});
+    setBatchVariantStates({});
+    setMacroVariantStates({});
+
+    updateProject(currentProject.id, {
+      bookName: resolvedBookName,
+      outline: nextOutline,
+      detailedOutline,
+      detailedOutlineMode: 'microdrama',
+      microdramaEpisodeCount: normalizeImportedEpisodeCount(lastEpisode),
+      microStoryEpisodeCount: normalizeImportedEpisodeCount(lastEpisode),
+      microStoryOutlines: nextMicroStoryOutlines,
+      savedMicroStories: sortedSaved,
+      selectedMicroStories: sortedSaved,
+      generatedChapters: {},
+      autoSelectedStories: false,
+      autoGenerationMode: false,
+      autoGenerationStarted: false,
+    });
+
+    alert(`导入完成：已保存为中故事1，共 ${episodes.length} 集。可以直接进入正文写作工作室。`);
+  };
+
+  const importExternalEpisodeOutlineFile = async (file: File | null) => {
+    if (!file) return;
+    setIsImportingExternalOutline(true);
+    try {
+      const lowerName = file.name.toLowerCase();
+      const text = lowerName.endsWith('.docx')
+        ? await extractDocxText(file)
+        : await file.text();
+      importExternalEpisodeOutlineText(text, file.name);
+    } catch (error) {
+      console.error('导入外部分集细纲失败:', error);
+      alert((error as any)?.message || '导入失败，请换成txt、md、markdown或标准docx文件再试。');
+    } finally {
+      setIsImportingExternalOutline(false);
+      if (externalOutlineFileInputRef.current) {
+        externalOutlineFileInputRef.current.value = '';
+      }
+    }
   };
 
   const getMicroStoryDefaultTitle = (num: number): string => (
@@ -2034,6 +2290,26 @@ export function StoryStructurePage({ onBack, onNavigateToWriter, setAutoFlowStep
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <input
+                ref={externalOutlineFileInputRef}
+                type="file"
+                accept=".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => importExternalEpisodeOutlineFile(e.target.files?.[0] || null)}
+              />
+              <button
+                onClick={() => externalOutlineFileInputRef.current?.click()}
+                disabled={isImportingExternalOutline}
+                className="flex items-center space-x-2 px-3 py-1.5 bg-white border border-primary-200 hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-primary-700 text-sm font-medium transition-colors"
+                title="导入TXT、Markdown或DOCX格式的分集细纲，并保存成正式微短剧项目结构"
+              >
+                {isImportingExternalOutline ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <UploadCloud className="w-4 h-4" />
+                )}
+                <span>{isImportingExternalOutline ? '导入中...' : '导入分集细纲'}</span>
+              </button>
               <div className="flex items-center gap-2 rounded-lg bg-white border border-purple-100 px-2 py-1">
                 <span className="text-xs text-secondary-500 whitespace-nowrap">批量起点</span>
                 <input

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle, Clapperboard, Download, FileImage, Image as ImageIcon, Map as MapIcon, Package, RefreshCw, Save, Sparkles, Upload, Users } from 'lucide-react';
-import { AssetVisualStyle, CharacterPromptItem, PropPromptItem, ScenePromptItem, blueprintApi } from '../services/api';
+import { AssetVisualStyle, CharacterPromptItem, CharacterPromptVariant, PropPromptItem, ScenePromptItem, blueprintApi } from '../services/api';
 import { EpisodeAssetInventory, SavedMicroStory, sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
 
 interface CharacterPromptsPageProps {
@@ -18,6 +18,122 @@ const VISUAL_STYLE_OPTIONS: Array<{ value: AssetVisualStyle; label: string; desc
   { value: 'guofeng_2d', label: '2D国风动漫', description: '国风线稿、赛璐璐上色' },
   { value: 'guofeng_3d', label: '3D国风动漫', description: '高精度模型、电影级灯光' },
 ];
+
+interface ImportedScriptEpisode {
+  episode: number;
+  title?: string;
+  content: string;
+}
+
+function parseChineseEpisodeNumber(raw: string): number {
+  const value = String(raw || '').trim();
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const digitMap: Record<string, number> = {
+    零: 0,
+    〇: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  if (value === '十') return 10;
+  if (value.startsWith('十')) return 10 + (digitMap[value.slice(1)] || 0);
+  const tenIndex = value.indexOf('十');
+  if (tenIndex > 0) {
+    const tens = digitMap[value.slice(0, tenIndex)] || 1;
+    const ones = digitMap[value.slice(tenIndex + 1)] || 0;
+    return tens * 10 + ones;
+  }
+  return digitMap[value] || 0;
+}
+
+function splitImportedScript(text: string, fallbackStartEpisode: number): ImportedScriptEpisode[] {
+  const source = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!source) return [];
+  const boundaryPattern = /(?:^|\n)\s*第\s*([0-9一二两三四五六七八九十〇零]{1,6})\s*集\s*[：:、.-]?\s*([^\n]*)/g;
+  const matches = Array.from(source.matchAll(boundaryPattern));
+  if (matches.length === 0) {
+    return [{ episode: fallbackStartEpisode, title: '外部导入剧本', content: source }];
+  }
+  return matches.map((match, index) => {
+    const nextMatch = matches[index + 1];
+    const start = (match.index || 0) + match[0].length;
+    const end = nextMatch?.index ?? source.length;
+    const episode = parseChineseEpisodeNumber(match[1]) || fallbackStartEpisode + index;
+    const body = source.slice(start, end).trim();
+    const title = String(match[2] || '').trim() || `外部导入第${episode}集`;
+    return {
+      episode,
+      title,
+      content: `第${episode}集${title ? `：${title}` : ''}\n${body}`.trim(),
+    };
+  }).filter(item => item.content.trim());
+}
+
+function decodeXmlText(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+async function inflateZipEntry(bytes: Uint8Array, method: number): Promise<Uint8Array> {
+  if (method === 0) return bytes;
+  if (method !== 8) {
+    throw new Error('暂不支持这个docx压缩格式');
+  }
+  const DecompressionStreamCtor = (globalThis as any).DecompressionStream;
+  if (!DecompressionStreamCtor) {
+    throw new Error('当前浏览器不支持直接解析docx，请先另存为txt或md导入。');
+  }
+  const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(arrayBuffer).set(bytes);
+  const stream = new Blob([arrayBuffer]).stream().pipeThrough(new DecompressionStreamCtor('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function extractDocxText(file: File): Promise<string> {
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const decoder = new TextDecoder('utf-8');
+  let offset = 0;
+  while (offset + 30 < buffer.length) {
+    const signature = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
+    if (signature !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+    const method = buffer[offset + 8] | (buffer[offset + 9] << 8);
+    const compressedSize = buffer[offset + 18] | (buffer[offset + 19] << 8) | (buffer[offset + 20] << 16) | (buffer[offset + 21] << 24);
+    const fileNameLength = buffer[offset + 26] | (buffer[offset + 27] << 8);
+    const extraLength = buffer[offset + 28] | (buffer[offset + 29] << 8);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + fileNameLength + extraLength;
+    const fileName = decoder.decode(buffer.slice(nameStart, nameStart + fileNameLength));
+    if (fileName === 'word/document.xml') {
+      const compressed = buffer.slice(dataStart, dataStart + compressedSize);
+      const inflated = await inflateZipEntry(compressed, method);
+      const xml = decoder.decode(inflated);
+      return decodeXmlText(xml
+        .replace(/<w:tab\/>/g, '\t')
+        .replace(/<w:br\/>/g, '\n')
+        .replace(/<\/w:p>/g, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim());
+    }
+    offset = dataStart + Math.max(compressedSize, 0);
+  }
+  throw new Error('没有在docx中找到正文内容');
+}
 
 function extractEpisodeNumber(story: SavedMicroStory | undefined, fallback: number): number {
   const text = `${story?.title || ''}\n${story?.content || ''}`;
@@ -41,6 +157,30 @@ function getExtension(fileName: string): string {
 
 function getCharacterPromptId(item: CharacterPromptItem, index: number): string {
   return `${item.name || '角色'}-${(item.episodeNumbers || []).join('_') || 'all'}-${index}`;
+}
+
+function getBaseVariantId(item: CharacterPromptItem): string {
+  return `${item.id || item.name || 'character'}__base`;
+}
+
+function getCharacterVariants(item: CharacterPromptItem): CharacterPromptVariant[] {
+  const baseVariant: CharacterPromptVariant = {
+    id: getBaseVariantId(item),
+    name: '默认造型',
+    prompt: item.prompt,
+    promptNote: item.promptNote,
+    visualBrief: item.visualBrief,
+    imageDataUrl: item.imageDataUrl,
+    imageFileName: item.imageFileName,
+    imageOriginalName: item.imageOriginalName,
+  };
+  return [baseVariant, ...(item.variants || [])];
+}
+
+function getActiveCharacterVariant(item: CharacterPromptItem, episode: number): CharacterPromptVariant {
+  const variants = getCharacterVariants(item);
+  const activeId = item.activeVariantIdByEpisode?.[String(episode)];
+  return variants.find(variant => variant.id === activeId) || variants[0];
 }
 
 function getScenePromptId(item: ScenePromptItem, index: number): string {
@@ -117,6 +257,8 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
   const [supplementType, setSupplementType] = useState<'character' | 'scene' | 'prop'>('character');
   const [supplementNote, setSupplementNote] = useState('');
   const [supplementNoPeople, setSupplementNoPeople] = useState(true);
+  const [importedScriptText, setImportedScriptText] = useState('');
+  const [importedEpisodes, setImportedEpisodes] = useState<ImportedScriptEpisode[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSupplementing, setIsSupplementing] = useState(false);
@@ -131,14 +273,26 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
     }));
   }, [currentProject?.savedMicroStories]);
 
-  const availableEpisodes = useMemo(() => (
+  const generatedEpisodeNumbers = useMemo(() => (
     Object.keys(generatedChapters)
       .map(Number)
       .filter(episode => Number.isFinite(episode) && generatedChapters[episode]?.trim())
       .sort((a, b) => a - b)
   ), [generatedChapters]);
 
+  const availableEpisodes = useMemo(() => (
+    [...new Set([...generatedEpisodeNumbers, ...importedEpisodes.map(item => item.episode)])].sort((a, b) => a - b)
+  ), [generatedEpisodeNumbers, importedEpisodes]);
+
+  const importedEpisodeMap = useMemo(() => (
+    new Map(importedEpisodes.map(item => [item.episode, item]))
+  ), [importedEpisodes]);
+
   const getStoryForEpisode = (episode: number) => storyEntries.find(item => item.episode === episode)?.story;
+
+  const getEpisodeContent = (episode: number) => importedEpisodeMap.get(episode)?.content || generatedChapters[episode] || '';
+
+  const getEpisodeTitle = (episode: number) => importedEpisodeMap.get(episode)?.title || getStoryForEpisode(episode)?.title;
 
   const allSavedCharacters = useMemo(() => {
     const saved = (currentProject?.characterPromptPacks || []).flatMap(pack => pack.characters || []);
@@ -251,7 +405,7 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
         .filter(({ item }) => (item.episodeNumbers || []).includes(episode))
         .map(({ id }) => id);
       const missingImageNames = [
-        ...nextCharacters.filter(item => (item.episodeNumbers || []).includes(episode) && !item.imageDataUrl).map(item => `人物：${item.name}`),
+        ...nextCharacters.filter(item => (item.episodeNumbers || []).includes(episode) && !getActiveCharacterVariant(item, episode).imageDataUrl).map(item => `人物：${item.name}`),
         ...nextScenes.filter(item => getSceneEpisodes(item).includes(episode) && !item.imageDataUrl).map(item => `场景：${item.name}`),
         ...nextProps.filter(item => (item.episodeNumbers || []).includes(episode) && !item.imageDataUrl).map(item => `道具：${item.name}`),
       ];
@@ -267,7 +421,10 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
       setProps(latestPack.props || []);
       setEpisodeInventories(latestPack.episodeInventories || []);
       setVisualStyle(latestPack.visualStyle || 'live_action');
-      setSelectedEpisodes(latestPack.episodeNumbers?.length ? latestPack.episodeNumbers : availableEpisodes.slice(0, 1));
+      setSelectedEpisodes(prev => {
+        if (prev.length > 0) return prev;
+        return latestPack.episodeNumbers?.length ? latestPack.episodeNumbers : availableEpisodes.slice(0, 1);
+      });
       setSelectedIds(new Set(latestPack.characters.map((item, index) => getCharacterPromptId(item, index))));
       setSelectedSceneIds(new Set((latestPack.scenes || []).map((item, index) => getScenePromptId(item, index))));
       setSelectedPropIds(new Set((latestPack.props || []).map((item, index) => getPropPromptId(item, index))));
@@ -288,11 +445,37 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
     ));
   };
 
+  const parseImportedScript = (text = importedScriptText) => {
+    const fallbackStart = Math.max(0, ...availableEpisodes, ...generatedEpisodeNumbers) + 1;
+    const episodes = splitImportedScript(text, fallbackStart || 1);
+    if (episodes.length === 0) {
+      alert('请先粘贴或导入剧本正文');
+      return;
+    }
+    setImportedEpisodes(episodes);
+    setSelectedEpisodes(episodes.map(item => item.episode));
+  };
+
+  const importExternalScriptFile = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const lowerName = file.name.toLowerCase();
+      const text = lowerName.endsWith('.docx')
+        ? await extractDocxText(file)
+        : await file.text();
+      setImportedScriptText(text);
+      parseImportedScript(text);
+    } catch (error) {
+      console.error('导入外部剧本失败:', error);
+      alert((error as any)?.message || '导入失败，请换成txt、md或标准docx文件再试。');
+    }
+  };
+
   const generatePrompts = async () => {
     if (!currentProject) return;
-    const episodes = selectedEpisodes.filter(episode => generatedChapters[episode]?.trim());
+    const episodes = selectedEpisodes.filter(episode => getEpisodeContent(episode).trim());
     if (episodes.length === 0) {
-      alert('请至少选择一集已生成正文');
+      alert('请至少选择一集已生成正文或外部导入正文');
       return;
     }
     setIsGenerating(true);
@@ -311,9 +494,9 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
           const story = getStoryForEpisode(episode);
           return {
             episode,
-            title: story?.title,
+            title: getEpisodeTitle(episode),
             outline: story?.content,
-            content: generatedChapters[episode],
+            content: getEpisodeContent(episode),
           };
         }),
       });
@@ -380,6 +563,56 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
     }
   };
 
+  const createCharacterVariant = async (index: number) => {
+    if (!currentProject) return;
+    const item = characters[index];
+    const id = getCharacterPromptId(item, index);
+    const note = (notes[id] || '').trim();
+    if (!note) {
+      alert('请先写备注，例如：第二版造型，换成夜行衣、束发、少一点华丽感。');
+      return;
+    }
+    setBusyKey(`${id}-variant`);
+    try {
+      const response = await blueprintApi.reviseCharacterPrompt({
+        character: item,
+        action: 'regenerate',
+        note: `生成一个新的独立造型版本，不覆盖原造型。这个版本的要求是：${note}`,
+        visualStyle,
+        worldSetting: currentProject.worldSetting,
+        characters: currentProject.characters,
+        detailedOutline: currentProject.detailedOutline,
+        promptExamples: CHARACTER_PROMPT_EXAMPLES,
+      });
+      const versionNumber = (item.variants || []).length + 2;
+      const variant: CharacterPromptVariant = {
+        id: `variant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: `第${versionNumber}版造型`,
+        prompt: response.data.prompt,
+        promptNote: note,
+        visualBrief: response.data.visualBrief || item.visualBrief,
+      };
+      updateCharacterAt(index, {
+        variants: [...(item.variants || []), variant],
+      });
+    } catch (error) {
+      console.error('生成造型版本失败:', error);
+      alert((error as any)?.response?.data?.message || (error as any)?.message || '造型版本生成失败，请稍后重试');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const setCharacterVariantForEpisode = (index: number, episode: number, variantId: string) => {
+    const item = characters[index];
+    updateCharacterAt(index, {
+      activeVariantIdByEpisode: {
+        ...(item.activeVariantIdByEpisode || {}),
+        [String(episode)]: variantId,
+      },
+    });
+  };
+
   const importImageForCharacter = (index: number, file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('请选择图片文件');
@@ -393,6 +626,37 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
         imageDataUrl: String(reader.result || ''),
         imageFileName: renamed,
         imageOriginalName: file.name,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const importImageForCharacterVariant = (characterIndex: number, variantId: string, file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('请选择图片文件');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const item = characters[characterIndex];
+      const renamed = `${safeFileNamePart(`${item.name}_${getCharacterVariants(item).find(variant => variant.id === variantId)?.name || '造型'}`)}.${getExtension(file.name)}`;
+      if (variantId === getBaseVariantId(item)) {
+        updateCharacterAt(characterIndex, {
+          imageDataUrl: String(reader.result || ''),
+          imageFileName: renamed,
+          imageOriginalName: file.name,
+        });
+        return;
+      }
+      updateCharacterAt(characterIndex, {
+        variants: (item.variants || []).map(variant => variant.id === variantId
+          ? {
+              ...variant,
+              imageDataUrl: String(reader.result || ''),
+              imageFileName: renamed,
+              imageOriginalName: file.name,
+            }
+          : variant),
       });
     };
     reader.readAsDataURL(file);
@@ -464,8 +728,8 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
   const generateSupplementalAsset = async () => {
     if (!currentProject) return;
     const episodeNumber = Number(supplementEpisode || selectedEpisodes[0] || availableEpisodes[0]);
-    if (!Number.isFinite(episodeNumber) || !generatedChapters[episodeNumber]?.trim()) {
-      alert('请先选择一集已生成正文');
+    if (!Number.isFinite(episodeNumber) || !getEpisodeContent(episodeNumber).trim()) {
+      alert('请先选择一集已生成正文或外部导入正文');
       return;
     }
     if (!supplementNote.trim()) {
@@ -487,9 +751,9 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
         promptExamples: CHARACTER_PROMPT_EXAMPLES,
         episode: {
           episode: episodeNumber,
-          title: story?.title,
+          title: getEpisodeTitle(episodeNumber),
           outline: story?.content,
-          content: generatedChapters[episodeNumber],
+          content: getEpisodeContent(episodeNumber),
         },
       });
       if (response.data.character) {
@@ -626,7 +890,16 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
 
       const assetsRoot = await rootHandle.getDirectoryHandle('素材图片', { create: true });
       const allAssets = [
-        ...selectedCharacters.map(item => ({ assetType: 'character' as const, name: item.name, episodeNumbers: item.episodeNumbers || [], imageDataUrl: item.imageDataUrl, imageFileName: item.imageFileName })),
+        ...selectedCharacters.flatMap(item => (item.episodeNumbers || []).map(episode => {
+          const variant = getActiveCharacterVariant(item, episode);
+          return {
+            assetType: 'character' as const,
+            name: `${item.name}（${variant.name}）`,
+            episodeNumbers: [episode],
+            imageDataUrl: variant.imageDataUrl,
+            imageFileName: variant.imageFileName,
+          };
+        })),
         ...selectedScenes.map(item => ({ assetType: 'scene' as const, name: item.name, episodeNumbers: getSceneEpisodes(item), imageDataUrl: item.imageDataUrl, imageFileName: item.imageFileName })),
         ...selectedProps.map(item => ({ assetType: 'prop' as const, name: item.name, episodeNumbers: item.episodeNumbers || [], imageDataUrl: item.imageDataUrl, imageFileName: item.imageFileName })),
       ];
@@ -664,7 +937,17 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
     const selectedScenes = scenes.filter((item, index) => selectedSceneIds.has(getScenePromptId(item, index)));
     const selectedProps = props.filter((item, index) => selectedPropIds.has(getPropPromptId(item, index)));
     const assets = [
-      ...selectedCharacters.map((item, index) => ({ assetType: 'character' as const, id: getCharacterPromptId(item, index), name: item.name, episodeNumbers: item.episodeNumbers || [], imageDataUrl: item.imageDataUrl, imageFileName: item.imageFileName })),
+      ...selectedCharacters.flatMap((item, index) => (item.episodeNumbers || []).map(episode => {
+        const variant = getActiveCharacterVariant(item, episode);
+        return {
+          assetType: 'character' as const,
+          id: `${getCharacterPromptId(item, index)}-${episode}-${variant.id}`,
+          name: `${item.name}（${variant.name}）`,
+          episodeNumbers: [episode],
+          imageDataUrl: variant.imageDataUrl,
+          imageFileName: variant.imageFileName,
+        };
+      })),
       ...selectedScenes.map((item, index) => ({ assetType: 'scene' as const, id: getScenePromptId(item, index), name: item.name, episodeNumbers: getSceneEpisodes(item), imageDataUrl: item.imageDataUrl, imageFileName: item.imageFileName })),
       ...selectedProps.map((item, index) => ({ assetType: 'prop' as const, id: getPropPromptId(item, index), name: item.name, episodeNumbers: item.episodeNumbers || [], imageDataUrl: item.imageDataUrl, imageFileName: item.imageFileName })),
     ].filter(item => item.imageDataUrl);
@@ -830,6 +1113,7 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
               <div className="space-y-2 max-h-[52vh] overflow-y-auto pr-1">
                 {availableEpisodes.map(episode => {
                   const story = getStoryForEpisode(episode);
+                  const imported = importedEpisodeMap.get(episode);
                   const checked = selectedEpisodes.includes(episode);
                   return (
                     <button
@@ -843,7 +1127,14 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-secondary-900">第{episode}集</div>
-                          <div className="text-xs text-secondary-600 mt-1 line-clamp-2">{story?.title || '已生成剧本正文'}</div>
+                          <div className="text-xs text-secondary-600 mt-1 line-clamp-2">
+                            {imported?.title || story?.title || '已生成剧本正文'}
+                          </div>
+                          {imported && (
+                            <div className="mt-1 inline-flex rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                              外部导入
+                            </div>
+                          )}
                         </div>
                         {checked && <CheckCircle className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
                       </div>
@@ -863,6 +1154,48 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
                 <Sparkles className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
                 {isGenerating ? '抓取生成中...' : '抓取本集资产'}
               </button>
+            </div>
+
+            <div className="card p-5">
+              <h2 className="text-sm font-semibold text-secondary-900 mb-3">导入外部剧本</h2>
+              <div className="space-y-3">
+                <textarea
+                  value={importedScriptText}
+                  onChange={(event) => setImportedScriptText(event.target.value)}
+                  rows={6}
+                  placeholder="粘贴另一篇微短剧正文。支持txt、md、markdown、docx；按“第1集：标题”“第二集”自动拆分；如果没有集数标记，会作为单集导入。"
+                  className="w-full rounded-lg border border-secondary-200 bg-white px-3 py-2 text-sm text-secondary-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-secondary-200 bg-white px-3 py-2 text-sm font-medium text-secondary-700 hover:bg-secondary-50">
+                    <Upload className="w-4 h-4" />
+                    导入文件
+                    <input
+                      type="file"
+                      accept=".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] || null;
+                        event.currentTarget.value = '';
+                        void importExternalScriptFile(file);
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => parseImportedScript()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    拆分导入
+                  </button>
+                </div>
+                {importedEpisodes.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    已拆分 {importedEpisodes.length} 集：{importedEpisodes.map(item => `第${item.episode}集`).join('、')}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="card p-5">
@@ -975,6 +1308,7 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
                   const id = getCharacterPromptId(item, index);
                   const checked = selectedIds.has(id);
                   const note = notes[id] || '';
+                  const variants = getCharacterVariants(item);
                   return (
                     <article key={id} className={`card p-5 ${checked ? 'ring-2 ring-indigo-200' : ''}`}>
                       <div className="flex items-start justify-between gap-3">
@@ -1049,6 +1383,73 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
                         <p className="text-sm leading-relaxed text-secondary-800 whitespace-pre-wrap">{item.prompt}</p>
                       </div>
 
+                      <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-indigo-800">人物造型版本</div>
+                          <span className="text-[11px] text-indigo-600">按集选择导出哪一版</span>
+                        </div>
+                        <div className="space-y-3">
+                          {selectedEpisodes.filter(episode => (item.episodeNumbers || []).includes(episode)).map(episode => (
+                            <div key={episode} className="flex items-center gap-2">
+                              <span className="w-14 text-xs font-medium text-secondary-700">第{episode}集</span>
+                              <select
+                                value={item.activeVariantIdByEpisode?.[String(episode)] || getBaseVariantId(item)}
+                                onChange={(event) => setCharacterVariantForEpisode(index, episode, event.target.value)}
+                                className="min-w-0 flex-1 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs text-secondary-800"
+                              >
+                                {variants.map(variant => (
+                                  <option key={variant.id} value={variant.id}>{variant.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {variants.map(variant => (
+                              <label
+                                key={variant.id}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={(event) => {
+                                  event.preventDefault();
+                                  const file = event.dataTransfer.files?.[0];
+                                  if (file) importImageForCharacterVariant(index, variant.id, file);
+                                }}
+                                className="rounded-lg border border-indigo-100 bg-white p-2 text-xs text-secondary-700"
+                              >
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <span className="font-semibold text-secondary-900">{variant.name}</span>
+                                  <span className={variant.imageDataUrl ? 'text-emerald-600' : 'text-amber-600'}>
+                                    {variant.imageDataUrl ? '有图' : '未导图'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {variant.imageDataUrl ? (
+                                    <img src={variant.imageDataUrl} alt={variant.name} className="h-14 w-10 rounded object-cover" />
+                                  ) : (
+                                    <div className="flex h-14 w-10 items-center justify-center rounded bg-secondary-100">
+                                      <Upload className="w-4 h-4 text-secondary-400" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="line-clamp-2 text-secondary-500">{variant.promptNote || variant.visualBrief || '基础定妆造型'}</div>
+                                    <div className="mt-1 text-indigo-600">点击/拖入图片</div>
+                                  </div>
+                                </div>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (file) importImageForCharacterVariant(index, variant.id, file);
+                                    event.currentTarget.value = '';
+                                  }}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="mt-4 space-y-3">
                         <textarea
                           value={note}
@@ -1073,6 +1474,14 @@ export function CharacterPromptsPage({ onBack, onNavigateToSeedance }: Character
                           >
                             <Sparkles className={`w-4 h-4 ${busyKey === `${id}-regenerate` ? 'animate-spin' : ''}`} />
                             按备注重新生成
+                          </button>
+                          <button
+                            onClick={() => createCharacterVariant(index)}
+                            disabled={!note.trim() || Boolean(busyKey)}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-sm font-medium"
+                          >
+                            <Sparkles className={`w-4 h-4 ${busyKey === `${id}-variant` ? 'animate-spin' : ''}`} />
+                            按备注新增造型版本
                           </button>
                         </div>
                       </div>

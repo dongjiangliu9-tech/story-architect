@@ -1,6 +1,6 @@
 // React import not needed with jsx: "react-jsx"
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Eye, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, Sparkles, FileText, PenTool, RefreshCw, Save, Download, ChevronLeft, ChevronRight, Trash2, Users } from 'lucide-react';
 import { getMacroStoryIndexFromId, SavedMicroStory, sortSavedMicroStoriesForChapters, useWorldSettings } from '../contexts/WorldSettingsContext';
 import { blueprintApi } from '../services/api';
 import { DEFAULT_WRITER_MODEL_VALUE, getWriterModelOption, toWriterModelRequest, WRITER_MODEL_OPTIONS } from '../utils/llmModelSelection';
@@ -3713,15 +3713,6 @@ export function WriterPage({ onBack, onNavigateToCharacterPrompts, setIsAutoFlow
                     <span className="sm:hidden">终止</span>
                   </button>
                 )}
-                {!hasActiveGeneration && Object.keys(generatedChapters).length > 0 && (
-                  <button
-                    onClick={resetGeneration}
-                    className="flex items-center space-x-2 px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors text-sm"
-                  >
-                    <span className="hidden sm:inline">重置状态</span>
-                    <span className="sm:hidden">重置</span>
-                  </button>
-                )}
               </div>
 
               {/* 文件操作按钮 - 双排网格布局 */}
@@ -3746,12 +3737,12 @@ export function WriterPage({ onBack, onNavigateToCharacterPrompts, setIsAutoFlow
                 </button>
 
                 <button
-                  onClick={() => setShowSavedVersions(true)}
-                  disabled={!currentProject?.savedVersions || currentProject.savedVersions.length === 0}
-                  className="flex items-center space-x-2 px-3 py-2 bg-indigo-500 hover:bg-indigo-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
+                  onClick={resetGeneration}
+                  disabled={hasActiveGeneration || Object.keys(generatedChapters).length === 0}
+                  className="flex items-center space-x-2 px-3 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-lg transition-colors text-sm"
                 >
-                  <Eye className="w-4 h-4" />
-                  <span className="hidden sm:inline">历史</span>
+                  <RefreshCw className="w-4 h-4" />
+                  <span className="hidden sm:inline">重置</span>
                 </button>
 
                 <button
@@ -4575,34 +4566,9 @@ export function WriterPage({ onBack, onNavigateToCharacterPrompts, setIsAutoFlow
               </div>
 
               {/* 写作提示 */}
-              <div className="card p-6">
-                <h4 className="text-md font-semibold text-secondary-900 mb-3">写作提示</h4>
-                <div className="text-sm text-secondary-600 space-y-2">
-                  {isMicrodrama ? (
-                    <>
-                      <p>• 每集按你设置的目标字数生成，成稿完整但不拖长</p>
-                      <p>• {actionFirstScript ? '动作和镜头为主，台词为辅' : dialogueFirstScript ? '台词主导，情感拉扯和信息揭露更密' : '对话与可见动作并重'}，强推进、强情绪、强钩子</p>
-                      <p>• 结尾必须切黑场或留致命悬念</p>
-                      <p>• 延续上一集的动作与情绪，不要断档</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>• 每章以约 {normalizeTargetNovelWords(targetNovelWords)} 字为目标；超过 3000 字会先做小故事边界校验，裁剪后仍超再自动压缩约 30%。</p>
-                      <p>• 包含吸引人的章节标题</p>
-                      <p>• 融入完整的故事背景</p>
-                      <p>• 保持连贯的阅读体验</p>
-                    </>
-                  )}
-                  {previousChapterEnding && (
-                    <div>
-                      <p className="font-medium text-secondary-900 mt-3 mb-1">衔接参考：</p>
-                      <p className="text-xs bg-secondary-50 p-2 rounded">
-                        {previousChapterEnding.substring(0, 100)}...
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <div className="mt-5 pt-4 border-t border-secondary-200 flex justify-end gap-2">
+              <div className="card p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-md font-semibold text-secondary-900">写作提示</h4>
                   {!isEditingChapter ? (
                     <button
                       onClick={startEditChapter}
@@ -4621,7 +4587,7 @@ export function WriterPage({ onBack, onNavigateToCharacterPrompts, setIsAutoFlow
                       编辑
                     </button>
                   ) : (
-                    <>
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={cancelEditChapter}
                         className="px-4 py-2 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded-lg text-sm font-medium"
@@ -4638,7 +4604,17 @@ export function WriterPage({ onBack, onNavigateToCharacterPrompts, setIsAutoFlow
                         <Save className="w-4 h-4" />
                         保存
                       </button>
-                    </>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 text-sm text-secondary-600">
+                  {previousChapterEnding && (
+                    <div>
+                      <p className="font-medium text-secondary-900 mt-3 mb-1">衔接参考：</p>
+                      <p className="text-xs bg-secondary-50 p-2 rounded">
+                        {previousChapterEnding.substring(0, 100)}...
+                      </p>
+                    </div>
                   )}
                 </div>
 	              </div>

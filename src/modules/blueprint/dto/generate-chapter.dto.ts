@@ -65,6 +65,34 @@ export class GenerateChapterDto {
   targetNovelWords?: number;
 }
 
+export class RewriteSelectedSettingSectionDto extends LogicModelSelectionDto {
+  @IsString()
+  @IsIn(['world', 'characters'])
+  section: 'world' | 'characters';
+
+  @IsString()
+  fullText: string;
+
+  @IsString()
+  selectedText: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+
+  @IsString()
+  @IsOptional()
+  outline?: string;
+
+  @IsString()
+  @IsOptional()
+  worldSetting?: string;
+
+  @IsString()
+  @IsOptional()
+  characters?: string;
+}
+
 export class RewriteChapterDto {
   @IsString()
   content: string;

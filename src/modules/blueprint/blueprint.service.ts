@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { ExportMicrodramaMarkdownDto, GenerateChapterDto, GenerateCharacterPromptsDto, GenerateSeedancePromptsDto, GenerateSupplementalAssetPromptDto, ReviewMicrodramaScriptsDto, ReviseCharacterPromptDto, RewriteChapterDto, WriterModelProvider } from './dto/generate-chapter.dto';
+import { ExportMicrodramaMarkdownDto, GenerateChapterDto, GenerateCharacterPromptsDto, GenerateSeedancePromptsDto, GenerateSupplementalAssetPromptDto, ReviewMicrodramaScriptsDto, ReviseCharacterPromptDto, RewriteChapterDto, RewriteSelectedSettingSectionDto, WriterModelProvider } from './dto/generate-chapter.dto';
 import { LogicModelSelectionDto } from './dto/logic-model-selection.dto';
 import { Observable, Subscriber } from 'rxjs';
 
@@ -1603,6 +1603,88 @@ ${dto.outline}
         throw new Error(error.message);
       }
       throw new Error('AI生成世界观基础设定失败，请稍后重试');
+    }
+  }
+
+  async rewriteSelectedSettingSection(dto: RewriteSelectedSettingSectionDto) {
+    const selectedText = String(dto.selectedText || '').trim();
+    if (!selectedText) {
+      throw new Error('请先选中需要重写的内容');
+    }
+
+    const sectionLabel = dto.section === 'world' ? '世界观基础设定' : '人物设定';
+    const parseJson = (raw: string) => {
+      const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        return { replacement: cleaned };
+      }
+    };
+
+    const compact = (value?: string, limit = 7000) => {
+      const text = String(value || '').trim();
+      return text.length > limit ? `${text.slice(0, limit)}\n...[已截断]` : text;
+    };
+
+    const prompt = `你是一名资深剧作设定编辑。用户正在编辑「${sectionLabel}」，只想重写被选中的局部文字。
+
+故事大纲参考：
+${compact(dto.outline, 5000) || '未提供'}
+
+当前世界观参考：
+${compact(dto.worldSetting, 5000) || '未提供'}
+
+当前人物设定参考：
+${compact(dto.characters, 5000) || '未提供'}
+
+当前正在编辑的完整正文（只作为上下文，不要整篇重写）：
+${compact(dto.fullText, 9000)}
+
+需要重写的选中内容：
+${dto.selectedText}
+
+用户修改意见：
+${String(dto.note || '').trim() || '未填写。请在不改变原文功能和上下文关系的前提下，提升可用性、逻辑和文笔。'}
+
+请严格执行：
+1. 只重写「选中内容」本身，不能输出完整正文，不能改写未选中部分。
+2. 重写后必须能无缝插回原位置，保留原有标题层级、编号风格、称谓、语气和上下文承接。
+3. 如果是世界观内容，优先补足因果规则、背景铺垫、社会/组织/能力运行逻辑，避免空泛口号。
+4. 如果是人物内容，优先补足动机层次、人性挣扎、关系弧线和可表演行为，避免只写拜金、自私、工具人功能。
+5. 不要输出解释、修改说明、Markdown代码块或前后缀。
+
+返回严格JSON：
+{
+  "replacement": "可直接替换选中内容的新文本"
+}`;
+
+    try {
+      const raw = await this.chatWithSelectedLogicModel([
+        { role: 'system', content: '你只输出严格JSON。你擅长对剧作世界观与人物设定做局部重写，并保证替换后上下文自然。' },
+        { role: 'user', content: prompt }
+      ], dto);
+      const parsed = parseJson(raw);
+      const replacement = String(parsed?.replacement || '').trim();
+      if (!replacement) {
+        throw new Error('AI没有返回可替换内容');
+      }
+
+      return {
+        success: true,
+        data: { replacement },
+      };
+    } catch (error) {
+      console.error('局部重写设定内容失败:', error);
+      if (error instanceof Error && error.message) {
+        throw new Error(error.message);
+      }
+      throw new Error('AI局部重写失败，请稍后重试');
     }
   }
 
@@ -4371,9 +4453,12 @@ ${dto.promptExample || '无'}
 9. 台词必须口语化、可表演，符合人物身份和关系：熟人可以省略称呼、带情绪停顿；上位者压迫要短促克制；主角OS可以清楚但不装腔。禁止网文腔、口号腔、鸡皮疙瘩式狠话、过度中二表达。
 10. 每段需要把剧情内容展开交代清楚：如果这一段只有动作没有信息，就补人物反应或一句OS；如果只有解释没有戏，就用对手打断、旁人质疑、道具变化或镜头压迫把信息戏剧化。
 11. 仍然要保证15秒能念完：台词多的段落减少动作复杂度；动作强的段落减少台词，用短句和反应镜头承接信息。
-12. 禁止字幕、禁止背景音乐；人物身上默认干净，不要随意写污渍、血迹、受伤，除非原文这一段必须表达。
-13. 风格要符合本集调性和资产模式；真人模式写写实摄影，2D/3D动漫模式写对应动漫风格。
-14. 不要写解释、教程、分镜理论，只写可直接复制到SeeDance的提示词。每段 prompt 必须把台词写进镜头描述里，例如：他说：“短台词。” 或 旁白OS：“短旁白。”
+12. 段与段之间必须连续，不能每15秒像重新开场。每一段最后一个镜头要留下一个可承接动作、视线或道具变化；下一段第一个镜头必须接住这个动作，例如上一段末尾“@图一抬手握住@图四剑柄”，下一段开头就写“接上一段动作，@图一的手仍握着@图四剑柄，镜头从手部特写推到他的眼神”。
+13. 人物站位必须连续。每一段开头都要交代主要人物站位和方向，并继承上一段的空间关系；除非正文明确发生移动，否则不要让人物突然换边、突然从远处变近、突然从坐着变站着。需要移动时，必须写清楚移动过程和镜头如何跟随。
+14. 复杂多人场面要先建立空间轴线：谁在画面左侧/右侧/前景/后景，谁面对谁，谁背对镜头，谁被人群隔开；后续镜头沿用这个轴线，正反打和过肩镜头不能把左右关系拍反。
+15. 禁止字幕、禁止背景音乐；人物身上默认干净，不要随意写污渍、血迹、受伤，除非原文这一段必须表达。
+16. 风格要符合本集调性和资产模式；真人模式写写实摄影，2D/3D动漫模式写对应动漫风格。
+17. 不要写解释、教程、分镜理论，只写可直接复制到SeeDance的提示词。每段 prompt 必须把台词写进镜头描述里，例如：他说：“短台词。” 或 旁白OS：“短旁白。”
 
 返回严格JSON，不要Markdown，不要解释：
 {

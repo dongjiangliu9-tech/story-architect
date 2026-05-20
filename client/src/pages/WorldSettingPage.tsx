@@ -202,6 +202,7 @@ interface WorldSettingPageProps {
 }
 
 type OutlineMode = 'novel' | 'microdrama' | 'literature' | 'film';
+type RewriteEditableSection = 'world' | 'characters';
 
 export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutline, isAutoFlowRunning, setAutoFlowStep, setAutoFlowProgress }: WorldSettingPageProps) {
   const { currentProject, createProject, updateProject, deleteProject, loadProject, clearCurrentProject, exportProject, exportAllProjects, importFromJsonText, pullCloudProjects, projects, clearNovelCacheForProject, clearNovelCacheForAllProjects } = useWorldSettings();
@@ -268,6 +269,16 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     characters: '',
     outline: ''
   });
+  const [selectionRewrite, setSelectionRewrite] = useState<{
+    section: RewriteEditableSection;
+    start: number;
+    end: number;
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const [selectionRewriteNote, setSelectionRewriteNote] = useState('');
+  const [isRewritingSelection, setIsRewritingSelection] = useState(false);
   const [inlineSaveSection, setInlineSaveSection] = useState<'world' | 'characters' | 'outline' | null>(null);
   const [supplementNotes, setSupplementNotes] = useState<{ world: string; characters: string }>({
     world: '',
@@ -1223,10 +1234,14 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
           : outline;
 
     setSectionDrafts(prev => ({ ...prev, [section]: currentValue }));
+    setSelectionRewrite(null);
+    setSelectionRewriteNote('');
     setEditingSection(section);
   };
 
   const cancelEditSection = () => {
+    setSelectionRewrite(null);
+    setSelectionRewriteNote('');
     setEditingSection(null);
   };
 
@@ -1252,8 +1267,73 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
     }
 
     setEditingSection(null);
+    setSelectionRewrite(null);
+    setSelectionRewriteNote('');
     setInlineSaveSection(section);
     setTimeout(() => setInlineSaveSection(null), 1500);
+  };
+
+  const handleSectionTextSelection = (section: RewriteEditableSection, textarea: HTMLTextAreaElement) => {
+    if (editingSection !== section) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    if (end <= start) return;
+
+    const selectedText = textarea.value.slice(start, end).trim();
+    if (!selectedText) return;
+
+    const rect = textarea.getBoundingClientRect();
+    const popupWidth = 380;
+    setSelectionRewrite({
+      section,
+      start,
+      end,
+      text: textarea.value.slice(start, end),
+      top: Math.max(88, Math.min(rect.top + 18, window.innerHeight - 280)),
+      left: Math.max(16, Math.min(rect.left + 24, window.innerWidth - popupWidth - 16)),
+    });
+  };
+
+  const rewriteSelectedSection = async () => {
+    if (!selectionRewrite) return;
+    const draftText = sectionDrafts[selectionRewrite.section] || '';
+    const selectedText = draftText.slice(selectionRewrite.start, selectionRewrite.end);
+    if (!selectedText.trim()) {
+      alert('选中的内容已经变化，请重新选择需要重写的文字。');
+      setSelectionRewrite(null);
+      return;
+    }
+
+    const activeOutline = getActiveOutline();
+    setIsRewritingSelection(true);
+    try {
+      const response = await blueprintApi.rewriteSelectedSettingSection({
+        ...getLogicModelRequest(),
+        section: selectionRewrite.section,
+        fullText: draftText,
+        selectedText,
+        note: selectionRewriteNote.trim() || undefined,
+        outline: activeOutline ? formatOutlineData(activeOutline, outlineMode) : undefined,
+        worldSetting: selectionRewrite.section === 'world' ? draftText : worldSetting,
+        characters: selectionRewrite.section === 'characters' ? draftText : characters,
+      });
+
+      const replacement = response.data.replacement;
+      setSectionDrafts(prev => {
+        const current = prev[selectionRewrite.section] || '';
+        return {
+          ...prev,
+          [selectionRewrite.section]: `${current.slice(0, selectionRewrite.start)}${replacement}${current.slice(selectionRewrite.end)}`,
+        };
+      });
+      setSelectionRewrite(null);
+      setSelectionRewriteNote('');
+    } catch (error) {
+      console.error('局部重写失败:', error);
+      alert(error instanceof Error ? error.message : '局部重写失败，请稍后重试');
+    } finally {
+      setIsRewritingSelection(false);
+    }
   };
 
   // 一键批量生成世界观、人物、情节设定
@@ -1493,6 +1573,60 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-primary-50 to-secondary-100">
+      {selectionRewrite && (
+        <div
+          className="fixed z-[80] w-[380px] max-w-[calc(100vw-32px)] rounded-xl border border-primary-200 bg-white shadow-2xl p-4"
+          style={{ top: selectionRewrite.top, left: selectionRewrite.left }}
+        >
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-sm font-semibold text-secondary-900">重写选中内容</div>
+              <div className="text-xs text-secondary-500 mt-1">
+                {selectionRewrite.section === 'world' ? '世界观基础设定' : '人物设定'}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setSelectionRewrite(null);
+                setSelectionRewriteNote('');
+              }}
+              className="p-1 rounded-md text-secondary-400 hover:text-secondary-700 hover:bg-secondary-100"
+              aria-label="关闭局部重写"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="mb-3 max-h-20 overflow-y-auto rounded-lg bg-secondary-50 border border-secondary-100 px-3 py-2 text-xs text-secondary-600 whitespace-pre-wrap">
+            {selectionRewrite.text}
+          </div>
+          <textarea
+            value={selectionRewriteNote}
+            onChange={(e) => setSelectionRewriteNote(e.target.value)}
+            className="w-full min-h-[92px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm text-secondary-800"
+            placeholder="写修改意见，比如：补足背景铺垫、增加人物挣扎、让语气更真实..."
+          />
+          <div className="flex justify-end gap-2 mt-3">
+            <button
+              onClick={() => {
+                setSelectionRewrite(null);
+                setSelectionRewriteNote('');
+              }}
+              disabled={isRewritingSelection}
+              className="px-3 py-2 rounded-lg text-sm text-secondary-600 hover:bg-secondary-100 disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              onClick={rewriteSelectedSection}
+              disabled={isRewritingSelection}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white"
+            >
+              {isRewritingSelection ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              重新生成并替换
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-secondary-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -2091,7 +2225,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                         {editingSection === 'world' ? (
                           <textarea
                             value={sectionDrafts.world}
-                            onChange={(e) => setSectionDrafts(prev => ({ ...prev, world: e.target.value }))}
+                            onChange={(e) => {
+                              setSelectionRewrite(null);
+                              setSectionDrafts(prev => ({ ...prev, world: e.target.value }));
+                            }}
+                            onMouseUp={(e) => handleSectionTextSelection('world', e.currentTarget)}
+                            onKeyUp={(e) => handleSectionTextSelection('world', e.currentTarget)}
                             className="w-full min-h-[420px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
                             placeholder="可在这里手动修改世界观基础设定"
                           />
@@ -2193,7 +2332,12 @@ export function WorldSettingPage({ onBack, onNavigateToStructure, selectedOutlin
                         {editingSection === 'characters' ? (
                           <textarea
                             value={sectionDrafts.characters}
-                            onChange={(e) => setSectionDrafts(prev => ({ ...prev, characters: e.target.value }))}
+                            onChange={(e) => {
+                              setSelectionRewrite(null);
+                              setSectionDrafts(prev => ({ ...prev, characters: e.target.value }));
+                            }}
+                            onMouseUp={(e) => handleSectionTextSelection('characters', e.currentTarget)}
+                            onKeyUp={(e) => handleSectionTextSelection('characters', e.currentTarget)}
                             className="w-full min-h-[420px] p-3 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-secondary-800 leading-relaxed"
                             placeholder="可在这里手动修改人物设定"
                           />

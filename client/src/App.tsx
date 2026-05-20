@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 // import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { Sparkles, BookOpen, Wand2, Bookmark, PenTool, FilePlus2, Save, X, Moon, Sun } from 'lucide-react';
+import { Sparkles, BookOpen, Wand2, Bookmark, PenTool, FilePlus2, Save, X, Moon, Sun, Users } from 'lucide-react';
 import { NovelCategory, NovelStyle, OutlineData, TitleVariant } from './types';
 import { CreativeConfigSelector } from './components/CreativeConfigSelector';
 import { GenerateButton } from './components/GenerateButton';
@@ -634,6 +634,14 @@ function BlueprintPage({
               >
                 <Bookmark className="w-4 h-4" />
                 <span>我的灵感</span>
+              </button>
+              <button
+                onClick={() => onNavigate('character-prompts')}
+                className="flex items-center space-x-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm font-medium transition-colors"
+                title="进入人物、场景与道具提示词资产页"
+              >
+                <Users className="w-4 h-4" />
+                <span>人物场景资产</span>
               </button>
               <div className="flex items-center space-x-2 text-secondary-600">
                 <Sparkles className="w-4 h-4" />

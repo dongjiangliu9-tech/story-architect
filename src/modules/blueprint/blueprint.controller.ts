@@ -7,7 +7,7 @@ import { GenerateDetailedOutlineDto } from './dto/generate-detailed-outline.dto'
 import { GenerateMicroStoriesDto } from './dto/generate-micro-stories.dto';
 import { GenerateMicroStoryVariantsDto } from './dto/generate-micro-story-variants.dto';
 import { GenerateTitleVariantsDto } from './dto/generate-title-variants.dto';
-import { ExportMicrodramaMarkdownDto, GenerateChapterDto, GenerateCharacterPromptsDto, GenerateSeedancePromptsDto, GenerateSupplementalAssetPromptDto, ReviewMicrodramaScriptsDto, ReviseCharacterPromptDto, RewriteChapterDto } from './dto/generate-chapter.dto';
+import { ExportMicrodramaMarkdownDto, GenerateChapterDto, GenerateCharacterPromptsDto, GenerateSeedancePromptsDto, GenerateSupplementalAssetPromptDto, ReviewMicrodramaScriptsDto, ReviseCharacterPromptDto, RewriteChapterDto, RewriteSelectedSettingSectionDto } from './dto/generate-chapter.dto';
 import { Observable } from 'rxjs';
 import { ActivationModelKind, ActivationQuotaService } from '../activation/activation-quota.service';
 
@@ -60,6 +60,11 @@ export class BlueprintController {
   @Post('generate-world-setting')
   async generateWorldSetting(@Body() dto: GenerateWorldSettingDto, @Headers('x-activation-code') activationCode?: string) {
     return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.generateWorldSetting(dto));
+  }
+
+  @Post('rewrite-selected-setting-section')
+  async rewriteSelectedSettingSection(@Body() dto: RewriteSelectedSettingSectionDto, @Headers('x-activation-code') activationCode?: string) {
+    return this.runWithQuota(activationCode, 'gemini', () => this.blueprintService.rewriteSelectedSettingSection(dto));
   }
 
   @Post('generate-characters')

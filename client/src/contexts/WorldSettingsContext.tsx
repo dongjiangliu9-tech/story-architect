@@ -89,6 +89,19 @@ export interface CharacterPromptItem {
   imageDataUrl?: string;
   imageFileName?: string;
   imageOriginalName?: string;
+  variants?: CharacterPromptVariant[];
+  activeVariantIdByEpisode?: Record<string, string>;
+}
+
+export interface CharacterPromptVariant {
+  id: string;
+  name: string;
+  prompt: string;
+  promptNote?: string;
+  visualBrief?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
 }
 
 export type AssetVisualStyle = 'live_action' | 'guofeng_2d' | 'guofeng_3d';

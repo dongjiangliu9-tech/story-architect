@@ -15,6 +15,7 @@ const AI_ENDPOINTS = new Set([
   '/blueprint/generate',
   '/blueprint/generate-title-variants',
   '/blueprint/generate-world-setting',
+  '/blueprint/rewrite-selected-setting-section',
   '/blueprint/generate-characters',
   '/blueprint/generate-detailed-outline',
   '/blueprint/generate-micro-stories',
@@ -407,6 +408,19 @@ export interface CharacterPromptItem {
   imageDataUrl?: string;
   imageFileName?: string;
   imageOriginalName?: string;
+  variants?: CharacterPromptVariant[];
+  activeVariantIdByEpisode?: Record<string, string>;
+}
+
+export interface CharacterPromptVariant {
+  id: string;
+  name: string;
+  prompt: string;
+  promptNote?: string;
+  visualBrief?: string;
+  imageDataUrl?: string;
+  imageFileName?: string;
+  imageOriginalName?: string;
 }
 
 export interface ScenePromptItem {
@@ -521,6 +535,23 @@ export interface GenerateSeedancePromptsResponse {
   };
 }
 
+export interface RewriteSelectedSettingSectionDto extends LlmModelSelection {
+  section: 'world' | 'characters';
+  fullText: string;
+  selectedText: string;
+  note?: string;
+  outline?: string;
+  worldSetting?: string;
+  characters?: string;
+}
+
+export interface RewriteSelectedSettingSectionResponse {
+  success: boolean;
+  data: {
+    replacement: string;
+  };
+}
+
 export interface ExportMicrodramaMarkdownDto extends LlmModelSelection {
   chapters: { [key: number]: string };
   bookName: string;
@@ -544,6 +575,11 @@ export const blueprintApi = {
 
   generateWorldSetting: async (data: GenerateWorldSettingDto): Promise<GenerateOutlineResponse> => {
     const response = await api.post('/blueprint/generate-world-setting', data);
+    return response.data;
+  },
+
+  rewriteSelectedSettingSection: async (data: RewriteSelectedSettingSectionDto): Promise<RewriteSelectedSettingSectionResponse> => {
+    const response = await api.post('/blueprint/rewrite-selected-setting-section', data);
     return response.data;
   },
 

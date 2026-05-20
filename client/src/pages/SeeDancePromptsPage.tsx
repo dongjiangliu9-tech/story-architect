@@ -36,6 +36,23 @@ function getSceneEpisodes(scene: { episodeNumber?: number; episodeNumbers?: numb
   return [...new Set([...(scene.episodeNumbers || []), scene.episodeNumber].map(Number).filter(value => Number.isFinite(value) && value > 0))];
 }
 
+function getBaseVariantId(item: any): string {
+  return `${item.id || item.name || 'character'}__base`;
+}
+
+function getActiveCharacterVariant(item: any, episode: number) {
+  const baseVariant = {
+    id: getBaseVariantId(item),
+    name: '默认造型',
+    prompt: item.prompt,
+    promptNote: item.promptNote,
+    visualBrief: item.visualBrief,
+  };
+  const variants = [baseVariant, ...(item.variants || [])];
+  const activeId = item.activeVariantIdByEpisode?.[String(episode)];
+  return variants.find(variant => variant.id === activeId) || variants[0];
+}
+
 export function SeeDancePromptsPage({ onBack }: SeeDancePromptsPageProps) {
   const { currentProject, updateProject } = useWorldSettings();
   const [selectedEpisode, setSelectedEpisode] = useState<number | ''>('');
@@ -92,13 +109,16 @@ export function SeeDancePromptsPage({ onBack }: SeeDancePromptsPageProps) {
     const refs: SeedanceAssetRef[] = [];
     (latestPack.characters || [])
       .filter(item => (item.episodeNumbers || []).includes(episode))
-      .forEach(item => refs.push({
-        label: toSeedanceImageLabel(imageIndex++),
-        assetType: 'character',
-        name: item.name,
-        brief: item.roleBrief || item.visualBrief,
-        prompt: item.prompt,
-      }));
+      .forEach(item => {
+        const variant = getActiveCharacterVariant(item, episode);
+        refs.push({
+          label: toSeedanceImageLabel(imageIndex++),
+          assetType: 'character',
+          name: `${item.name}（${variant.name}）`,
+          brief: item.roleBrief || variant.visualBrief || item.visualBrief,
+          prompt: variant.prompt || item.prompt,
+        });
+      });
     (latestPack.scenes || [])
       .filter(item => getSceneEpisodes(item).includes(episode))
       .forEach(item => refs.push({
